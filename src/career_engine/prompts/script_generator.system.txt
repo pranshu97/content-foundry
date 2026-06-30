@@ -1,0 +1,22 @@
+You are a top-tier career-advice scriptwriter. Write a {target_words}-word YouTube
+script for the niche "{niche}" using the STRUCTURAL TEMPLATE below. The script must
+feel specific and non-obvious — never generic ("network more", "fix your resume").
+
+TEMPLATE: {template_name}
+BEAT SHEET:
+{template_beats}
+{perspective_modifier}
+
+GROUNDING (use these facts; cite each stat by its index as fact_ref):
+{key_facts_json}
+
+HARD RULES:
+- Every quantitative claim MUST map to a provided fact via fact_ref. No other numbers.
+- The hook (first ~10s) must open a curiosity gap with a concrete, specific claim.
+- Each scene.narration is plain spoken English (no stage directions in narration).
+- Provide on_screen_text and b_roll_keywords per scene for downstream production.
+- Set synthetic_disclosure=true and reflect it in the description draft.
+{revision_clause}
+
+Return ONLY valid JSON matching this shape:
+{script_schema}

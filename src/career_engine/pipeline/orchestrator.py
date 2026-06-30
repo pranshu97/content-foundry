@@ -1,0 +1,584 @@
+"""Pipeline orchestrator — sequences stages, drives the revision loop, enforces resumability,
+the production gate, persistence, and notifications (Ch. 14)."""
+
+from __future__ import annotations
+
+import random
+import time
+from pathlib import Path
+
+from ulid import ULID
+
+from ..agents import (
+    DataFetcher,
+    Judge,
+    Publisher,
+    Renderer,
+    ScriptGenerator,
+    Visuals,
+    Voiceover,
+)
+from ..config import get_settings
+from ..errors import CareerEngineError, SchemaValidationError
+from ..logging import configure_logging, get_logger
+from ..models import (
+    DataBrief,
+    JudgeReport,
+    PublishResult,
+    RunResult,
+    RunState,
+    Script,
+    Verdict,
+    VideoAsset,
+    VisualPackage,
+    VoiceoverAsset,
+)
+from ..notifications import CreditMonitor, build_notifier
+from ..persistence import Repository, init_db, make_engine, make_session_factory
+from ..providers import (
+    build_broll_client,
+    build_image_provider,
+    build_llm_provider,
+    build_publisher,
+    build_render_backend,
+    build_tts_provider,
+)
+from ..templates import get_template, pick_perspective_modifier, select_template
+from .artifacts import (
+    ARTIFACT_FILENAMES,
+    ensure_run_dirs,
+    load_model,
+    run_paths,
+    save_model,
+    sha256_file,
+)
+from .package import build_package_md
+from .stages import PRODUCTION_STAGES, stages_between
+
+_UNSET = object()
+
+ARTIFACT_MODELS: dict[str, tuple[type, str]] = {
+    "data_brief": (DataBrief, "data_brief"),
+    "script": (Script, "script"),
+    "judge_report": (JudgeReport, "judge_report"),
+    "voiceover": (VoiceoverAsset, "voiceover"),
+    "visuals": (VisualPackage, "visuals"),
+    "video": (VideoAsset, "video"),
+    "publish": (PublishResult, "publish"),
+}
+
+
+class Orchestrator:
+    def __init__(
+        self,
+        settings=None,
+        *,
+        repository: Repository | None = None,
+        notifier=None,
+        dry_run: bool = False,
+        llm_provider=None,
+        sources=None,
+        tts_provider=None,
+        image_provider=_UNSET,
+        broll_client=None,
+        render_backend=None,
+        publisher=None,
+    ) -> None:
+        self.s = settings or get_settings()
+        configure_logging()
+        self.log = get_logger(component="orchestrator")
+        self.repo = repository or self._build_repo()
+        self.notifier = notifier or build_notifier(self.s)
+        self.dry_run = dry_run
+        self._llm = llm_provider
+        self._sources = sources
+        self._tts = tts_provider
+        self._image = image_provider
+        self._broll = broll_client
+        self._render = render_backend
+        self._publisher = publisher
+        self.credit = CreditMonitor(
+            self.notifier,
+            budget_usd=self.s.monthly_budget_usd,
+            threshold_pct=self.s.low_credit_threshold_pct,
+            month_to_date_usd=float(self.repo.get_meta("spend_month", "0") or 0),
+        )
+
+    # ============================================================= public API
+    def run(
+        self,
+        *,
+        run_id: str | None = None,
+        from_stage: str = "fetch",
+        to_stage: str = "publish",
+        input_path: str | None = None,
+        template_id: str | None = None,
+        force: bool = False,
+        niche: str | None = None,
+        topic_seed: str | None = None,
+    ) -> RunResult:
+        start = time.time()
+        niche = niche or self.s.target_niche
+        stages = stages_between(from_stage, to_stage)
+        run_id = self._ensure_run(run_id, topic_seed)
+        paths = run_paths(run_id, self.s.output_dir)
+        ensure_run_dirs(paths)
+        self.log.info("run_start", run_id=run_id, from_stage=from_stage, to_stage=to_stage)
+
+        produced: dict[str, object] = {}
+        hashes: dict[str, str] = {}
+        self._preload(run_id, from_stage, input_path, paths, produced, hashes)
+
+        try:
+            result = self._execute(
+                run_id, stages, paths, produced, hashes,
+                niche=niche, topic_seed=topic_seed, template_id=template_id, force=force,
+            )
+        except CareerEngineError as exc:
+            self.repo.update_run(run_id, state=RunState.FAILED.value)
+            self._persist_spend()
+            self.notifier.send(
+                "run_failed", "❌ Run failed",
+                f"{run_id}: {type(exc).__name__}: {exc}", meta={"run_id": run_id},
+            )
+            self.log.error("run_failed", run_id=run_id, error=str(exc))
+            raise
+
+        self._persist_spend()
+        result.duration_sec = round(time.time() - start, 2)
+        if result.final_state == RunState.FAILED:
+            self.notifier.send(
+                "run_failed", "❌ Run failed",
+                f"{run_id}: ended in FAILED state", meta={"run_id": run_id},
+            )
+        else:
+            self.notifier.send(
+                "run_complete", "✅ Run complete",
+                f"{run_id}: {result.final_state.value} "
+                f"verdict={result.verdict.value if result.verdict else 'n/a'}",
+                meta={"run_id": run_id},
+            )
+        self.log.info("run_end", run_id=run_id, state=result.final_state.value)
+        return result
+
+    # ============================================================== execution
+    def _execute(
+        self, run_id, stages, paths, produced, hashes, *, niche, topic_seed, template_id, force
+    ) -> RunResult:
+        run_root = paths.root
+        verdict = self._latest_verdict(run_id, produced)
+        handled_judge = False
+        gate_checked = False
+
+        for stage in stages:
+            if stage == "fetch":
+                brief = DataFetcher(self.s, self.repo, self._sources).run(
+                    run_id, niche=niche, topic_seed=topic_seed
+                )
+                self._persist(run_id, "data_brief", brief, paths, produced, hashes, None, {})
+                self.repo.update_run(run_id, state=RunState.FETCHED.value)
+
+            elif stage == "generate":
+                if "judge" in stages:
+                    verdict = self._gen_judge_loop(
+                        run_id, paths, produced, hashes, template_id=template_id
+                    )
+                    handled_judge = True
+                else:
+                    self._generate_once(run_id, paths, produced, hashes, template_id=template_id)
+
+            elif stage == "judge":
+                if handled_judge:
+                    continue
+                verdict = self._judge_once(run_id, paths, produced, hashes)
+
+            elif stage in PRODUCTION_STAGES:
+                if not gate_checked:
+                    if not (force or verdict == Verdict.PASS):
+                        self.log.warning("production_gate_blocked", run_id=run_id, verdict=str(verdict))
+                        break
+                    gate_checked = True
+                self._run_production_stage(stage, run_id, run_root, paths, produced, hashes)
+
+        self._assemble_package(run_id, paths, produced)
+        return self._build_result(run_id, stages, paths, produced)
+
+    # ----------------------------------------------------- generate <-> judge
+    def _gen_judge_loop(self, run_id, paths, produced, hashes, *, template_id) -> Verdict | None:
+        brief = self._need(produced, "data_brief", paths)
+        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
+        recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback)
+        template = get_template(template_id) if template_id else select_template(recent_ids)
+
+        feedback: str | None = None
+        perspective = ""
+        forced = False
+        verdict: Verdict | None = None
+
+        for attempt_number in range(1, self.s.max_revisions + 1):
+            attempt_id = str(ULID())
+            script = ScriptGenerator(self.s, self._llm_provider()).run(
+                run_id, brief, template,
+                perspective_modifier=perspective, judge_feedback=feedback,
+                attempt_number=attempt_number,
+            )
+            self.repo.add_attempt(attempt_id, run_id, attempt_number, template.id, forced)
+            self._persist(
+                run_id, "script", script, paths, produced, hashes, attempt_id,
+                {"data_brief": hashes.get("data_brief", "")},
+            )
+            self.repo.record_template_usage(run_id, template.id, script.hook)
+            self.repo.update_run(run_id, state=RunState.GENERATED.value)
+            self._estimate_generate_spend(script)
+
+            report = Judge(self.s, self._llm_provider()).run(
+                run_id, script, brief, attempt_number=attempt_number,
+                recent_template_ids=recent_ids, recent_hooks=recent_hooks,
+            )
+            self._persist(
+                run_id, "judge_report", report, paths, produced, hashes, attempt_id,
+                {"script": hashes.get("script", "")},
+            )
+            self.repo.add_rubric_scores(
+                attempt_id,
+                [
+                    {"dimension": d.dimension, "score": d.score, "weight": d.weight,
+                     "passed": d.passed, "comment": d.justification}
+                    for d in report.scores
+                ],
+            )
+            self.repo.update_attempt(
+                attempt_id, verdict=report.verdict.value,
+                insight_score=report.insight_score, weighted_total=report.weighted_total,
+            )
+            self.repo.update_run(
+                run_id, state=RunState.JUDGED.value, final_verdict=report.verdict.value
+            )
+            if report.provenance.model:
+                self.credit.record(self.s.judge_model, 800, 120)
+            verdict = report.verdict
+
+            if report.verdict == Verdict.PASS:
+                self.repo.update_run(
+                    run_id, state=RunState.APPROVED.value, approved_attempt_id=attempt_id
+                )
+                break
+            if report.verdict == Verdict.FAIL:
+                self.repo.update_run(run_id, state=RunState.FAILED.value)
+                break
+
+            feedback = report.revision_instructions
+            if report.force_shift and report.forced_template_id:
+                template = get_template(report.forced_template_id)
+                perspective = pick_perspective_modifier(random.Random(attempt_number))
+                forced = True
+            self.repo.update_run(run_id, state=RunState.REVISING.value)
+
+        return verdict
+
+    def _generate_once(self, run_id, paths, produced, hashes, *, template_id) -> None:
+        brief = self._need(produced, "data_brief", paths)
+        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
+        template = get_template(template_id) if template_id else select_template(recent_ids)
+        attempt_id = str(ULID())
+        script = ScriptGenerator(self.s, self._llm_provider()).run(
+            run_id, brief, template, attempt_number=1
+        )
+        self.repo.add_attempt(attempt_id, run_id, 1, template.id, False)
+        self._persist(
+            run_id, "script", script, paths, produced, hashes, attempt_id,
+            {"data_brief": hashes.get("data_brief", "")},
+        )
+        self.repo.record_template_usage(run_id, template.id, script.hook)
+        self.repo.update_run(run_id, state=RunState.GENERATED.value)
+        self._estimate_generate_spend(script)
+
+    def _judge_once(self, run_id, paths, produced, hashes) -> Verdict:
+        script = self._need(produced, "script", paths)
+        brief = self._need(produced, "data_brief", paths)
+        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
+        recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback)
+        attempts = self.repo.get_attempts(run_id)
+        n = (attempts[-1].attempt_number + 1) if attempts else 1
+        attempt_id = str(ULID())
+        self.repo.add_attempt(attempt_id, run_id, n, script.template_id, False)
+        report = Judge(self.s, self._llm_provider()).run(
+            run_id, script, brief, attempt_number=n,
+            recent_template_ids=recent_ids, recent_hooks=recent_hooks,
+        )
+        self._persist(
+            run_id, "judge_report", report, paths, produced, hashes, attempt_id,
+            {"script": hashes.get("script", "")},
+        )
+        self.repo.add_rubric_scores(
+            attempt_id,
+            [
+                {"dimension": d.dimension, "score": d.score, "weight": d.weight,
+                 "passed": d.passed, "comment": d.justification}
+                for d in report.scores
+            ],
+        )
+        self.repo.update_attempt(
+            attempt_id, verdict=report.verdict.value,
+            insight_score=report.insight_score, weighted_total=report.weighted_total,
+        )
+        state = RunState.APPROVED if report.verdict == Verdict.PASS else (
+            RunState.FAILED if report.verdict == Verdict.FAIL else RunState.JUDGED
+        )
+        fields = {"state": state.value, "final_verdict": report.verdict.value}
+        if report.verdict == Verdict.PASS:
+            fields["approved_attempt_id"] = attempt_id
+        self.repo.update_run(run_id, **fields)
+        return report.verdict
+
+    # --------------------------------------------------------- production
+    def _run_production_stage(self, stage, run_id, run_root, paths, produced, hashes) -> None:
+        if stage == "voiceover":
+            script = self._need(produced, "script", paths)
+            vo = Voiceover(self.s, self._tts_provider()).run(run_id, script, run_root=run_root)
+            self._persist(run_id, "voiceover", vo, paths, produced, hashes, None,
+                          {"script": hashes.get("script", "")})
+            self.repo.update_run(run_id, state=RunState.VOICED.value)
+
+        elif stage == "visuals":
+            script = self._need(produced, "script", paths)
+            vo = self._need(produced, "voiceover", paths)
+            vis = Visuals(self.s, self._image_provider(), self._broll_client()).run(
+                run_id, script, vo, run_root=run_root
+            )
+            self._persist(run_id, "visuals", vis, paths, produced, hashes, None,
+                          {"voiceover": hashes.get("voiceover", "")})
+            self.repo.update_run(run_id, state=RunState.VISUALIZED.value)
+
+        elif stage == "render":
+            vo = self._need(produced, "voiceover", paths)
+            vis = self._need(produced, "visuals", paths)
+            video = Renderer(self.s, self._render_backend()).run(
+                run_id, vo, vis, run_root=run_root
+            )
+            self._persist(run_id, "video", video, paths, produced, hashes, None,
+                          {"visuals": hashes.get("visuals", "")})
+            self.repo.update_run(run_id, state=RunState.RENDERED.value)
+
+        elif stage == "publish":
+            video = self._need(produced, "video", paths)
+            script = self._need(produced, "script", paths)
+            vis = self._need(produced, "visuals", paths)
+            pub = Publisher(self.s, self._publisher_obj()).run(
+                run_id, video, script, vis, run_root=run_root
+            )
+            self._persist(run_id, "publish", pub, paths, produced, hashes, None,
+                          {"video": hashes.get("video", "")})
+            self.repo.add_publish_result(
+                run_id=run_id, attempt_id=None,
+                youtube_video_id=pub.youtube_video_id, video_url=pub.video_url,
+                privacy_status=pub.privacy_status, disclosure_set=pub.disclosure_set,
+                upload_status=pub.upload_status,
+                published_at=pub.published_at.isoformat() if pub.published_at else None,
+            )
+            self.repo.update_run(run_id, state=RunState.PUBLISHED.value)
+            self._publish_notifications(run_id, pub)
+
+    def _publish_notifications(self, run_id, pub: PublishResult) -> None:
+        if pub.upload_status in ("uploaded", "pending_manual_disclosure"):
+            self.notifier.send(
+                "video_uploaded", "📤 Video uploaded",
+                f"{run_id}: {pub.video_url} ({pub.privacy_status})", meta={"run_id": run_id},
+            )
+        if pub.privacy_status != "public" or pub.upload_status == "pending_manual_disclosure":
+            self.notifier.send(
+                "need_validation", "🔎 Needs your go-live OK",
+                f"{run_id}: draft awaiting approval ({pub.upload_status})", meta={"run_id": run_id},
+            )
+
+    # ============================================================= persistence
+    def _persist(self, run_id, key, model, paths, produced, hashes, attempt_id, input_hashes):
+        model.provenance.input_hashes = input_hashes or {}
+        path = paths.artifact(key)
+        save_model(model, path)
+        digest = sha256_file(path)
+        produced[key] = model
+        hashes[key] = digest
+        self.repo.add_artifact(
+            artifact_id=str(ULID()), run_id=run_id, attempt_id=attempt_id, stage=key,
+            schema_version=model.schema_version, path=str(path), content_hash=digest,
+            provenance=model.provenance.model_dump(mode="json"),
+        )
+
+    def _preload(self, run_id, from_stage, input_path, paths, produced, hashes) -> None:
+        if input_path:
+            self._load_external(run_id, input_path, paths, produced, hashes)
+        if from_stage == "fetch":
+            return
+        for key in ARTIFACT_MODELS:
+            if key in produced:
+                continue
+            path = paths.artifact(key)
+            if path.exists():
+                self._load_with_edit_detection(run_id, key, path, produced, hashes)
+
+    def _load_external(self, run_id, input_path, paths, produced, hashes) -> None:
+        import json
+
+        raw = json.loads(Path(input_path).read_text(encoding="utf-8"))
+        key = raw.get("stage")
+        if key not in ARTIFACT_MODELS:
+            raise SchemaValidationError(f"{input_path}: unknown artifact stage {key!r}")
+        model_cls, expected = ARTIFACT_MODELS[key]
+        model = load_model(model_cls, input_path, expected_stage=expected)
+        model.provenance.produced_by = "operator_edited"
+        self._persist(run_id, key, model, paths, produced, hashes, None,
+                      model.provenance.input_hashes)
+
+    def _load_with_edit_detection(self, run_id, key, path, produced, hashes) -> None:
+        model_cls, expected = ARTIFACT_MODELS[key]
+        model = load_model(model_cls, path, expected_stage=expected)
+        digest = sha256_file(path)
+        recorded = self.repo.latest_artifact(run_id, key)
+        if recorded and recorded.content_hash != digest:
+            self.log.info("operator_edit_detected", run_id=run_id, stage=key)
+            model.provenance.produced_by = "operator_edited"
+            save_model(model, path)
+            digest = sha256_file(path)
+            self.repo.add_artifact(
+                artifact_id=str(ULID()), run_id=run_id, attempt_id=None, stage=key,
+                schema_version=model.schema_version, path=str(path), content_hash=digest,
+                provenance=model.provenance.model_dump(mode="json"),
+            )
+        produced[key] = model
+        hashes[key] = digest
+
+    # ============================================================== helpers
+    def _need(self, produced, key, paths):
+        if key in produced:
+            return produced[key]
+        path = paths.artifact(key)
+        if not path.exists():
+            raise CareerEngineError(f"Required artifact '{key}' is missing at {path}")
+        model_cls, expected = ARTIFACT_MODELS[key]
+        model = load_model(model_cls, path, expected_stage=expected)
+        produced[key] = model
+        return model
+
+    def _latest_verdict(self, run_id, produced) -> Verdict | None:
+        jr = produced.get("judge_report")
+        if isinstance(jr, JudgeReport):
+            return jr.verdict
+        path = run_paths(run_id, self.s.output_dir).artifact("judge_report")
+        if path.exists():
+            try:
+                return load_model(JudgeReport, path, expected_stage="judge_report").verdict
+            except SchemaValidationError:
+                pass
+        run = self.repo.get_run(run_id)
+        if run and run.final_verdict:
+            return Verdict(run.final_verdict)
+        return None
+
+    def _assemble_package(self, run_id, paths, produced) -> None:
+        script = produced.get("script")
+        if not isinstance(script, Script):
+            if paths.artifact("script").exists():
+                script = load_model(Script, paths.artifact("script"), expected_stage="script")
+            else:
+                return
+        md = build_package_md(
+            run_id,
+            script=script,
+            judge_report=produced.get("judge_report"),
+            publish_result=produced.get("publish"),
+            brief=produced.get("data_brief"),
+            visuals=produced.get("visuals"),
+        )
+        paths.package.write_text(md, encoding="utf-8")
+
+    def _build_result(self, run_id, stages, paths, produced) -> RunResult:
+        run = self.repo.get_run(run_id)
+        final_state = RunState(run.state) if run else RunState.CREATED
+        verdict = self._latest_verdict(run_id, produced)
+        artifacts = {
+            key: str(paths.artifact(key)) for key in produced if key in ARTIFACT_FILENAMES
+        }
+        pub = produced.get("publish")
+        return RunResult(
+            run_id=run_id,
+            final_state=final_state,
+            verdict=verdict,
+            from_stage=stages[0],
+            to_stage=stages[-1],
+            artifacts=artifacts,
+            video_url=pub.video_url if isinstance(pub, PublishResult) else None,
+            package_path=str(paths.package) if paths.package.exists() else None,
+        )
+
+    def _estimate_generate_spend(self, script: Script) -> None:
+        est_completion = int(script.word_count * 1.3) + 200
+        self.credit.record(self.s.generator_model, 1500, est_completion)
+
+    def _persist_spend(self) -> None:
+        self.repo.set_meta("spend_month", str(self.credit.month_to_date_usd))
+
+    def _ensure_run(self, run_id, topic_seed) -> str:
+        if run_id is None:
+            run_id = str(ULID())
+            self.repo.create_run(run_id, topic_seed, RunState.CREATED.value)
+        elif self.repo.get_run(run_id) is None:
+            self.repo.create_run(run_id, topic_seed, RunState.CREATED.value)
+        return run_id
+
+    def _build_repo(self) -> Repository:
+        engine = make_engine(self.s.database_url)
+        init_db(engine)
+        return Repository(make_session_factory(engine))
+
+    # --------------------------------------------------- lazy provider getters
+    def _llm_provider(self):
+        if self._llm is None:
+            self._llm = build_llm_provider(self.s)
+        return self._llm
+
+    def _tts_provider(self):
+        if self._tts is None:
+            self._tts = build_tts_provider(self.s)
+        return self._tts
+
+    def _image_provider(self):
+        if self._image is _UNSET:
+            self._image = build_image_provider(self.s)
+        return self._image
+
+    def _broll_client(self):
+        if self._broll is None:
+            self._broll = build_broll_client(self.s)
+        return self._broll
+
+    def _render_backend(self):
+        if self._render is None:
+            self._render = build_render_backend(self.s)
+        return self._render
+
+    def _publisher_obj(self):
+        if self._publisher is None:
+            self._publisher = build_publisher(self.s, dry_run=self.dry_run)
+        return self._publisher
+
+
+def run_pipeline(
+    *,
+    run_id: str | None = None,
+    from_stage: str = "fetch",
+    to_stage: str = "publish",
+    input_path: str | None = None,
+    template_id: str | None = None,
+    force: bool = False,
+    dry_run: bool = False,
+    niche: str | None = None,
+    topic_seed: str | None = None,
+    orchestrator: Orchestrator | None = None,
+) -> RunResult:
+    """Thin functional entry point over :class:`Orchestrator` (Ch. 14.3)."""
+    orch = orchestrator or Orchestrator(dry_run=dry_run)
+    return orch.run(
+        run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input_path,
+        template_id=template_id, force=force, niche=niche, topic_seed=topic_seed,
+    )

@@ -30,6 +30,14 @@ def _make_single_llm(name: str, settings: Settings) -> LLMProvider:
         from .openai_provider import OpenAIProvider
 
         return OpenAIProvider(api_key=settings.openai_api_key, model=settings.generator_model)
+    if name == "local":
+        from .local_provider import LocalLLMProvider
+
+        return LocalLLMProvider(
+            base_url=settings.local_llm_base_url,
+            model=settings.local_llm_model,
+            api_key=settings.local_llm_api_key,
+        )
     raise ConfigError(f"Unknown LLM provider: {name}")
 
 

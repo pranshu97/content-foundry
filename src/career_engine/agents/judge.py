@@ -10,6 +10,7 @@ from ..logging import get_logger
 from ..models import DataBrief, DimensionScore, JudgeReport, Provenance, Script, Verdict
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
+from ..providers.tiering import TaskTier, select_model
 from ..safeguards.grounding import check_grounding
 from ..templates import select_template
 from .judge_checks import (
@@ -157,7 +158,7 @@ class Judge:
                         "actionability": a.get("justification", "LLM-scored"),
                         "insight": i.get("justification", "LLM-scored"),
                     },
-                    self._settings.judge_model,
+                    self._judge_model(),
                 )
             except (LLMError, KeyError, ValueError, json.JSONDecodeError) as exc:
                 self._log.warning("judge_llm_fallback", error=str(exc))
@@ -172,6 +173,10 @@ class Judge:
             None,
         )
 
+    def _judge_model(self) -> str:
+        """Discrete 1-5 scoring is mechanical — route it to the light tier (Ch. — future plan 2)."""
+        return select_model(self._settings, TaskTier.LIGHT, fallback=self._settings.judge_model)
+
     def _llm_scores(self, script: Script) -> tuple[dict, dict]:
         system = render_prompt(
             load_prompt("judge.system"),
@@ -182,7 +187,7 @@ class Judge:
             "Return ONLY the JSON now.",
             system=system,
             temperature=self._settings.judge_temperature,
-            model=self._settings.judge_model,
+            model=self._judge_model(),
         )
         data = json.loads(extract_json(resp.text))
         return data["actionability"], data["insight"]

@@ -71,6 +71,19 @@ def settings():
 
 
 @pytest.fixture
+def settings_with_tiers(monkeypatch):
+    """Settings with distinct heavy/light models so tiering routing is observable."""
+    from career_engine.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("LLM_TIERING_ENABLED", "true")
+    monkeypatch.setenv("MODEL_HEAVY", "heavy-model")
+    monkeypatch.setenv("MODEL_LIGHT", "light-model")
+    monkeypatch.setenv("JUDGE_MODE", "hybrid")
+    reset_settings_cache()
+    return get_settings()
+
+
+@pytest.fixture
 def repo():
     from career_engine.persistence import Repository, init_db, make_engine, make_session_factory
 
@@ -252,10 +265,12 @@ class FakeRenderBackend:
 
     def __init__(self):
         self.calls = 0
+        self.last_overlay = None
 
     def render(self, *, segments, audio_path, captions_path, output_path, resolution, fps,
-               burn_captions=True) -> str:
+               burn_captions=True, overlay=None) -> str:
         self.calls += 1
+        self.last_overlay = overlay
         from pathlib import Path
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)

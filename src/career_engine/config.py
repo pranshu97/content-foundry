@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Literal
 
@@ -49,13 +50,24 @@ class Settings(BaseSettings):
     # ---------- LLM Providers ----------
     anthropic_api_key: str = ""
     openai_api_key: str = ""
-    primary_provider: Literal["anthropic", "openai"] = "anthropic"
-    fallback_provider: Literal["anthropic", "openai", "none"] = "openai"
+    primary_provider: Literal["anthropic", "openai", "local"] = "anthropic"
+    fallback_provider: Literal["anthropic", "openai", "local", "none"] = "openai"
     generator_model: str = "claude-sonnet-4-20250514"
     judge_model: str = "claude-sonnet-4-20250514"
     llm_temperature: float = 0.7
     judge_temperature: float = 0.0
     llm_max_tokens: int = 4096
+    # Tiered model routing (future plan 2): heavy for hard creative work, light for
+    # mechanical / high-volume calls. Empty => fall back to generator/judge models.
+    llm_tiering_enabled: bool = True
+    model_heavy: str = ""
+    model_light: str = ""
+    # Local / self-hosted LLM (cost saver): any OpenAI-compatible server (Ollama, LM Studio,
+    # vLLM, llama.cpp, LocalAI). Active when PRIMARY/FALLBACK_PROVIDER=local; LOCAL_LLM_MODEL is
+    # used for every call (the cloud GENERATOR/JUDGE/heavy/light model names are ignored).
+    local_llm_base_url: str = "http://localhost:11434/v1"
+    local_llm_model: str = "llama3.1"
+    local_llm_api_key: str = "local"
 
     # ---------- Data Sources ----------
     adzuna_app_id: str = ""
@@ -100,6 +112,13 @@ class Settings(BaseSettings):
     captions_enabled: bool = True
     caption_aligner: Literal["tts", "whisper"] = "tts"
     render_fallback: bool = True
+    # Personal avatar overlay (future plan 1): composited at a fixed corner of every frame.
+    # The image is operator-supplied; rendering skips gracefully when the file is absent.
+    avatar_overlay_enabled: bool = False
+    avatar_image_path: str = "assets/avatar.png"
+    avatar_position: Literal["top-left", "top-right", "bottom-left", "bottom-right"] = "bottom-right"
+    avatar_scale: float = Field(0.18, gt=0, le=1)
+    avatar_margin: int = Field(24, ge=0)
 
     # ---------- Publishing (YouTube) ----------
     youtube_client_secrets_file: str = "secrets/client_secrets.json"
@@ -128,6 +147,15 @@ class Settings(BaseSettings):
     # ---------- Safeguards ----------
     require_disclosure: bool = True
     require_grounding: bool = True
+
+    # ---------- Content strategy (future plans 3-5) ----------
+    time_box_enabled: bool = True
+    content_year: int = Field(0, ge=0)  # 0 => current UTC year
+    seo_optimize_enabled: bool = True
+    seo_max_tags: int = Field(15, ge=0)
+    seo_title_max_chars: int = Field(70, ge=10)
+    seo_add_chapters: bool = True
+    channel_keywords: str = ""  # comma list of evergreen channel tags (optional)
 
     # ---------- Ops ----------
     log_level: str = "INFO"
@@ -164,6 +192,25 @@ class Settings(BaseSettings):
         w, _, h = self.video_resolution.partition("x")
         return int(w), int(h)
 
+    @property
+    def heavy_model(self) -> str:
+        """Model for hard, creative, low-volume work (script generation)."""
+        return self.model_heavy or self.generator_model
+
+    @property
+    def light_model(self) -> str:
+        """Model for mechanical / high-volume work (JSON repair, judge scoring)."""
+        return self.model_light or self.judge_model or self.generator_model
+
+    @property
+    def effective_content_year(self) -> int:
+        """Year used for time-boxing titles; ``content_year`` or the current UTC year."""
+        return self.content_year or datetime.now(UTC).year
+
+    @property
+    def channel_keywords_list(self) -> list[str]:
+        return [k.strip() for k in self.channel_keywords.split(",") if k.strip()]
+
     # ------------------------------------------------------------- validation
     @model_validator(mode="after")
     def _validate_cross_fields(self) -> Settings:
@@ -171,7 +218,12 @@ class Settings(BaseSettings):
         if "adzuna" in sources and not (self.adzuna_app_id and self.adzuna_app_key):
             raise ValueError("adzuna is enabled but ADZUNA_APP_ID/ADZUNA_APP_KEY are not set")
 
-        if self.fallback_provider != "none":
+        if "local" in (self.primary_provider, self.fallback_provider) and not self.local_llm_base_url:
+            raise ValueError(
+                "PRIMARY_PROVIDER/FALLBACK_PROVIDER=local requires LOCAL_LLM_BASE_URL"
+            )
+
+        if self.fallback_provider not in ("none", "local"):
             key = (
                 self.openai_api_key
                 if self.fallback_provider == "openai"

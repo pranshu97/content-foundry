@@ -7,8 +7,10 @@ import json
 from ..errors import LLMError, SchemaValidationError
 from ..logging import get_logger
 from ..models import DataBrief, Provenance, SceneCue, Script
+from ..production.timebox import build_time_context
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
+from ..providers.tiering import TaskTier, select_model
 from ..safeguards.disclosure import ensure_description_discloses
 from ..safeguards.grounding import STAT_RE, ungrounded_scene_indices
 from ..templates import Template
@@ -78,6 +80,11 @@ class ScriptGenerator:
             if judge_feedback
             else ""
         )
+        time_context = (
+            build_time_context(self._settings.effective_content_year)
+            if self._settings.time_box_enabled
+            else ""
+        )
         return render_prompt(
             load_prompt("script_generator.system"),
             target_words=self._settings.script_target_words,
@@ -87,6 +94,7 @@ class ScriptGenerator:
             perspective_modifier=perspective,
             key_facts_json=json.dumps(facts, ensure_ascii=False),
             revision_clause=revision,
+            time_context=time_context,
             script_schema=SCRIPT_JSON_SHAPE,
         )
 
@@ -97,7 +105,9 @@ class ScriptGenerator:
             system=system,
             temperature=self._settings.llm_temperature,
             max_tokens=self._settings.llm_max_tokens,
-            model=self._settings.generator_model,
+            model=select_model(
+                self._settings, TaskTier.HEAVY, fallback=self._settings.generator_model
+            ),
         )
         return resp.text
 
@@ -106,14 +116,16 @@ class ScriptGenerator:
             return json.loads(extract_json(text))
         except json.JSONDecodeError:
             self._log.warning("invalid_json_reformat_retry")
-        # One reformat-retry (Ch. 8.8).
+        # One reformat-retry (Ch. 8.8) — a mechanical fix, so route to the light model.
         retry = self._llm.complete(
             "Your previous output was not valid JSON. Return ONLY corrected, valid JSON "
             "matching the requested shape — no prose.",
             system=system,
             temperature=0.0,
             max_tokens=self._settings.llm_max_tokens,
-            model=self._settings.generator_model,
+            model=select_model(
+                self._settings, TaskTier.LIGHT, fallback=self._settings.generator_model
+            ),
         )
         try:
             return json.loads(extract_json(retry.text))

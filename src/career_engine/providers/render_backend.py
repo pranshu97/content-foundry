@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from ..errors import RenderError
 
 if TYPE_CHECKING:
+    from ..production.overlay import OverlaySpec
     from ..production.timeline import RenderSegment
 
 
@@ -26,6 +27,7 @@ class RenderBackend(Protocol):
         resolution: str,
         fps: int,
         burn_captions: bool = True,
+        overlay: OverlaySpec | None = None,
     ) -> str:
         """Assemble the final mp4 and return its path."""
         ...
@@ -46,6 +48,7 @@ class FfmpegBackend:
         resolution: str,
         fps: int,
         burn_captions: bool = True,
+        overlay: OverlaySpec | None = None,
     ) -> str:
         if shutil.which("ffmpeg") is None:
             raise RenderError(
@@ -64,6 +67,12 @@ class FfmpegBackend:
         video = ffmpeg.concat(*inputs, v=1, n=len(inputs)) if inputs else ffmpeg.input(audio_path)
         if burn_captions and captions_path:
             video = video.filter("subtitles", captions_path)
+        if overlay is not None:  # pragma: no cover - requires ffmpeg on PATH
+            avatar = ffmpeg.input(overlay.image_path).filter(
+                "scale", -1, overlay.scaled_height(int(height))
+            )
+            x, y = overlay.ffmpeg_xy()
+            video = ffmpeg.overlay(video, avatar, x=x, y=y)
         audio = ffmpeg.input(audio_path)
         try:
             (

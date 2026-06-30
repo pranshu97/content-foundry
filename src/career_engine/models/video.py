@@ -19,5 +19,6 @@ class VideoAsset(BaseModel):
     fps: int
     backend: str  # ffmpeg | moviepy | avatar
     has_captions: bool
+    has_avatar: bool = False  # personal avatar overlay composited onto every frame
     file_size_bytes: int
     provenance: Provenance

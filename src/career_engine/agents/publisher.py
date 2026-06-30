@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..logging import get_logger
 from ..models import Provenance, PublishResult, Script, VideoAsset, VisualPackage, utcnow
+from ..production.seo import optimize_metadata
 from ..safeguards.disclosure import ensure_description_discloses, resolve_publish_outcome
 
 
@@ -25,8 +26,14 @@ class Publisher:
         run_root: Path,
     ) -> PublishResult:
         s = self._settings
-        title = (script.title_options or ["Untitled career-advice video"])[0]
-        description = ensure_description_discloses(script.description)
+        if s.seo_optimize_enabled:
+            meta = optimize_metadata(script, visuals, s)
+            title, description, tags = meta.title, meta.description, meta.tags
+        else:
+            title = (script.title_options or ["Untitled career-advice video"])[0]
+            description = script.description
+            tags = script.tags
+        description = ensure_description_discloses(description)
         video_real = str(run_root / video.video_path)
         thumb_real = str(run_root / visuals.thumbnail_path)
 
@@ -35,7 +42,7 @@ class Publisher:
             video_path=video_real,
             title=title,
             description=description,
-            tags=script.tags,
+            tags=tags,
             category_id=s.youtube_category_id,
             privacy_status="private",
             default_language=s.youtube_default_language,

@@ -17,6 +17,7 @@ HARD RULES:
 - Provide on_screen_text and b_roll_keywords per scene for downstream production.
 - Set synthetic_disclosure=true and reflect it in the description draft.
 {revision_clause}
+{time_context}
 
 Return ONLY valid JSON matching this shape:
 {script_schema}

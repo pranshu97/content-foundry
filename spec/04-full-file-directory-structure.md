@@ -11,7 +11,7 @@ career-advice-channel/
 ├── .pre-commit-config.yaml
 │
 ├── src/
-│   └── career_engine/
+│   └── content_foundry/
 │       ├── __init__.py
 │       ├── config.py              # pydantic-settings Settings object
 │       ├── logging.py             # structlog setup, run-scoped binding
@@ -113,7 +113,7 @@ career-advice-channel/
 │   └── runs/                      # <run_id>/ -> *.json artifacts, assets/ (audio,images,video), package.md
 │
 ├── data/
-│   └── career_engine.db           # SQLite (gitignored)
+│   └── content_foundry.db           # SQLite (gitignored)
 │
 ├── scripts/
 │   ├── init_db.py                 # create tables

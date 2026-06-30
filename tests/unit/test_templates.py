@@ -6,7 +6,7 @@ import random
 
 import pytest
 
-from career_engine.templates import (
+from content_foundry.templates import (
     ALL_TEMPLATES,
     TEMPLATES,
     get_template,
@@ -44,6 +44,6 @@ def test_select_prefers_least_recently_used():
 
 
 def test_perspective_modifier_is_known():
-    from career_engine.templates import PERSPECTIVE_MODIFIERS
+    from content_foundry.templates import PERSPECTIVE_MODIFIERS
 
     assert pick_perspective_modifier(random.Random(1)) in PERSPECTIVE_MODIFIERS

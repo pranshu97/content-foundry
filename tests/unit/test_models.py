@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from career_engine.models import (
+from content_foundry.models import (
     DataBrief,
     JudgeReport,
     Provenance,

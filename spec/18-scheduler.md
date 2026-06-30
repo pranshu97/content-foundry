@@ -11,12 +11,12 @@ Run the pipeline automatically on a cadence (e.g., weekly) so the channel ships 
 
 ### 18.3 Operational notes
 ```bash
-career schedule                 # uses SCHEDULE_CRON
-career schedule --cron "0 8 * * 1,4"   # twice weekly
+content-foundry schedule                 # uses SCHEDULE_CRON
+content-foundry schedule --cron "0 8 * * 1,4"   # twice weekly
 ```
 - Recommended deployment: a `systemd` service or a container with restart policy (see [Ch. 23](23-deployment-instructions.md#23-deployment-instructions)).
 - The scheduler records each fire in the `runs` table like any manual run, so the dashboard shows scheduled and manual runs together.
-- For cloud cron (e.g., a managed scheduler) you can skip APScheduler and call `career run` directly — the CLI is the stable contract.
+- For cloud cron (e.g., a managed scheduler) you can skip APScheduler and call `content-foundry run` directly — the CLI is the stable contract.
 
 ---
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from career_engine.models import RunState, Verdict
-from career_engine.notifications import NullNotifier
-from career_engine.pipeline.orchestrator import Orchestrator
+from content_foundry.models import RunState, Verdict
+from content_foundry.notifications import NullNotifier
+from content_foundry.pipeline.orchestrator import Orchestrator
 
 
 def test_revision_loop_exhausts_to_failed(settings, sample_signals, fakes, generic_payload):

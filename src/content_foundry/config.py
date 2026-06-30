@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     target_niche: str = "tech careers"
     script_target_words: int = 900
     min_facts: int = 3
+    # 0 = disabled (default). When > 0, abort the revision loop once a script still scores below
+    # this weighted total on attempt >= 2 — it can't realistically reach PASS, so stop paying.
+    fail_fast_score: float = Field(0.0, ge=0, le=10)
 
     # ---------- Voiceover (TTS) ----------
     tts_provider: Literal["elevenlabs", "openai"] = "elevenlabs"
@@ -139,9 +142,11 @@ class Settings(BaseSettings):
     # ---------- Credit / Budget ----------
     monthly_budget_usd: float = 20.0
     low_credit_threshold_pct: float = 80.0
+    # Hard cap: abort a run once estimated month-to-date spend reaches the budget (cost safety).
+    enforce_budget_cap: bool = True
 
     # ---------- Storage ----------
-    database_url: str = "sqlite:///data/career_engine.db"
+    database_url: str = "sqlite:///data/content_foundry.db"
     output_dir: str = "output/runs"
 
     # ---------- Safeguards ----------
@@ -285,7 +290,7 @@ class Settings(BaseSettings):
         return out
 
     def credential_status(self) -> dict[str, str]:
-        """For ``career config check``: each secret as ``set ✓`` / ``missing ✗`` (never the value)."""
+        """For ``content-foundry config check``: each secret as ``set ✓`` / ``missing ✗`` (never the value)."""
         return {
             name: ("set ✓" if value else "missing ✗")
             for name, value in self.model_dump().items()

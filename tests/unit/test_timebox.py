@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from career_engine.production.timebox import build_time_context, has_year, timebox_title
+from content_foundry.production.timebox import build_time_context, has_year, timebox_title
 
 
 def test_has_year_detects_4_digit_years():

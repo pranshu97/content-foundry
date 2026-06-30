@@ -13,7 +13,7 @@ from .errors import CareerEngineError
 from .logging import configure_logging
 from .persistence import Repository, init_db, make_engine, make_session_factory
 
-app = typer.Typer(add_completion=False, help="Automated Career Advice Channel CLI.")
+app = typer.Typer(add_completion=False, help="Content Foundry CLI.")
 config_app = typer.Typer(help="Configuration utilities.")
 app.add_typer(config_app, name="config")
 console = Console()
@@ -291,7 +291,7 @@ def notify_test() -> None:
     settings = get_settings()
     notifier = build_notifier(settings)
     for event in settings.notify_events_list:
-        notifier.send(event, f"[test] {event}", "Sample alert from career notify-test.")
+        notifier.send(event, f"[test] {event}", "Sample alert from content-foundry notify-test.")
     console.print(f"[green]Sent {len(settings.notify_events_list)} test alert(s).[/green]")
 
 

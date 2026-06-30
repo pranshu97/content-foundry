@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from career_engine.errors import LLMError
-from career_engine.providers import (
+from content_foundry.errors import LLMError
+from content_foundry.providers import (
     FallbackProvider,
     build_broll_client,
     build_image_provider,
@@ -14,7 +14,7 @@ from career_engine.providers import (
     build_render_backend,
     build_tts_provider,
 )
-from career_engine.providers.base import LLMResponse, extract_json
+from content_foundry.providers.base import LLMResponse, extract_json
 
 
 class _OK:
@@ -102,7 +102,7 @@ def _fake_openai(captured: dict, *, content: str = "hello", boom: bool = False):
 def test_local_provider_uses_local_model_and_base_url(monkeypatch):
     import sys
 
-    from career_engine.providers.local_provider import LocalLLMProvider
+    from content_foundry.providers.local_provider import LocalLLMProvider
 
     captured: dict = {}
     monkeypatch.setitem(sys.modules, "openai", _fake_openai(captured))
@@ -121,7 +121,7 @@ def test_local_provider_uses_local_model_and_base_url(monkeypatch):
 def test_local_provider_wraps_errors(monkeypatch):
     import sys
 
-    from career_engine.providers.local_provider import LocalLLMProvider
+    from content_foundry.providers.local_provider import LocalLLMProvider
 
     monkeypatch.setitem(sys.modules, "openai", _fake_openai({}, boom=True))
     provider = LocalLLMProvider("http://localhost:11434/v1", "llama3.1")
@@ -130,7 +130,7 @@ def test_local_provider_wraps_errors(monkeypatch):
 
 
 def test_local_provider_factory(monkeypatch):
-    from career_engine.config import get_settings, reset_settings_cache
+    from content_foundry.config import get_settings, reset_settings_cache
 
     monkeypatch.setenv("PRIMARY_PROVIDER", "local")
     monkeypatch.setenv("FALLBACK_PROVIDER", "none")

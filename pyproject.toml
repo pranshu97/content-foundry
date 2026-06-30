@@ -3,13 +3,13 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "career-engine"
+name = "content-foundry"
 version = "1.0.0"
-description = "Automated Career Advice Channel — a resumable multi-agent YouTube content pipeline."
+description = "Content Foundry — a resumable multi-agent YouTube content pipeline."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Career Engine" }]
+authors = [{ name = "Content Foundry" }]
 
 # Authoritative dependency list lives in requirements.txt (mirrored here for installs).
 dependencies = [
@@ -52,13 +52,13 @@ dev = [
 ]
 
 [project.scripts]
-career = "career_engine.cli:app"
+content-foundry = "content_foundry.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-career_engine = ["prompts/*.txt"]
+content_foundry = ["prompts/*.txt"]
 
 # ---------------------------------------------------------------------------
 # Tooling
@@ -77,18 +77,18 @@ python_version = "3.11"
 warn_unused_ignores = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
-packages = ["career_engine"]
+packages = ["content_foundry"]
 mypy_path = "src"
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-q --cov=career_engine --cov-report=term-missing"
+addopts = "-q --cov=content_foundry --cov-report=term-missing"
 testpaths = ["tests"]
 pythonpath = ["src"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
-source = ["career_engine"]
+source = ["content_foundry"]
 branch = true
 omit = [
     # Thin vendor adapter glue (network/SDK side effects) — excluded per Ch. 22.5.

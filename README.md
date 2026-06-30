@@ -1,4 +1,4 @@
-# Automated Career Advice Channel
+# Content Foundry
 
 An autonomous, fully-resumable multi-agent pipeline that turns real labor-market data into a
 published (Private/Unlisted draft) YouTube career-advice video — grounded in data, gated by a
@@ -23,7 +23,7 @@ cp .env.example .env        # fill in your keys (see Human_Tasks.txt)
 python scripts/init_db.py
 
 # 4. Smoke test (no upload, stops at the Judge)
-career run --niche "tech careers" --to-stage judge
+content-foundry run --niche "tech careers" --to-stage judge
 ```
 
 See [`spec/23-deployment-instructions.md`](spec/23-deployment-instructions.md) for full deployment,
@@ -33,7 +33,7 @@ See [`spec/23-deployment-instructions.md`](spec/23-deployment-instructions.md) f
 ## Project layout
 
 ```
-src/career_engine/    # the engine (models, agents, providers, pipeline, ...)
+src/content_foundry/    # the engine (models, agents, providers, pipeline, ...)
 dashboard/            # Streamlit review dashboard
 scripts/              # init_db, seed_demo
 tests/                # unit / agent / integration / e2e (dry-run)
@@ -44,8 +44,18 @@ output/runs/<run_id>/ # per-run artifacts + media + package.md
 ## Cost discipline
 
 Only **Agent 2 (Script Generator)** always calls an LLM. The Data Fetcher, most of the Judge, and
-the Visuals prompt-builder are deterministic Python — free, fast, and hallucination-proof. Use
-`--profile cheap` for iteration and `--profile quality` for publishing.
+the Visuals prompt-builder are deterministic Python — free, fast, and hallucination-proof.
+
+Cost levers (cheapest first):
+- **Run the LLM locally** — `PRIMARY_PROVIDER=local` (Ollama / LM Studio / vLLM) makes generation free.
+- **`--profile cheap`** — deterministic judge + Pillow cards (no image API) + a single revision.
+- **Hard budget cap** — `ENFORCE_BUDGET_CAP=true` aborts a run once estimated month-to-date spend
+  reaches `MONTHLY_BUDGET_USD` (on by default; cost safety, not just an alert).
+- **Resume reuses paid artifacts** — re-running a stage reuses existing voiceover/visuals instead of
+  paying again (use `--force` to regenerate).
+- **`FAIL_FAST_SCORE`** (opt-in) — stop paying for revisions a hopeless script can't recover from.
+
+Use `--profile quality` for publishing.
 
 ## Testing
 

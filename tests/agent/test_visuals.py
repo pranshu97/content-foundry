@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from career_engine.agents import Visuals, build_image_prompt
-from career_engine.models import (
+from content_foundry.agents import Visuals, build_image_prompt
+from content_foundry.models import (
     Provenance,
     SceneTiming,
     VoiceoverAsset,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from career_engine.production.overlay import OverlaySpec, build_overlay_spec
+from content_foundry.production.overlay import OverlaySpec, build_overlay_spec
 
 
 def _spec(position: str) -> OverlaySpec:

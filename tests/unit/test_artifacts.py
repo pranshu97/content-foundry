@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from career_engine.errors import SchemaValidationError
-from career_engine.models import DataBrief
-from career_engine.pipeline.artifacts import (
+from content_foundry.errors import SchemaValidationError
+from content_foundry.models import DataBrief
+from content_foundry.pipeline.artifacts import (
     load_model,
     run_paths,
     save_model,

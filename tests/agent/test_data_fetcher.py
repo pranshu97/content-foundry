@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from career_engine.agents import DataFetcher
-from career_engine.errors import InsufficientDataError, NoDataError
-from career_engine.models import NormalizedSignal, utcnow
+from content_foundry.agents import DataFetcher
+from content_foundry.errors import InsufficientDataError, NoDataError
+from content_foundry.models import NormalizedSignal, utcnow
 
 
 def test_fetch_builds_grounded_brief_without_llm(settings, sample_signals, fakes):

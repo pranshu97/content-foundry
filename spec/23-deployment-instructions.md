@@ -13,9 +13,9 @@ pip install -r requirements.txt
 cp .env.example .env                                 # then fill in keys
 mkdir -p secrets && cp /path/to/client_secrets.json secrets/
 python scripts/init_db.py                            # create tables
-career run --niche "tech careers" --to-stage judge   # smoke test (no upload)
+content-foundry run --niche "tech careers" --to-stage judge   # smoke test (no upload)
 ```
-First real `career publish` opens a browser for YouTube OAuth consent; the refresh token is cached to `YOUTUBE_TOKEN_FILE`.
+First real `content-foundry publish` opens a browser for YouTube OAuth consent; the refresh token is cached to `YOUTUBE_TOKEN_FILE`.
 
 ### 23.3 Container deployment
 ```dockerfile
@@ -34,8 +34,8 @@ CMD ["run"]
 - OAuth must be completed once interactively (run the consent flow locally, then mount the resulting `youtube_token.json`).
 
 ### 23.4 Scheduled / unattended operation
-- **systemd:** a `career-scheduler.service` running `career schedule`, with `Restart=on-failure`.
-- **Container:** run the scheduler image with `--restart unless-stopped`, or trigger `career run` from a managed cron (Cloud Scheduler / GitHub Actions on a schedule).
+- **systemd:** a `career-scheduler.service` running `content-foundry schedule`, with `Restart=on-failure`.
+- **Container:** run the scheduler image with `--restart unless-stopped`, or trigger `content-foundry run` from a managed cron (Cloud Scheduler / GitHub Actions on a schedule).
 - Keep `PUBLISH_MODE=draft` in unattended mode so uploads stay Private until the operator approves in the dashboard.
 
 ### 23.5 Secrets & safety
@@ -48,7 +48,7 @@ CMD ["run"]
 - YouTube Data API: an upload costs ~1600 quota units (default 10k/day ≈ a handful of uploads). Monitor quota; the publisher surfaces 403-quota errors clearly.
 
 ### 23.7 Go-live checklist
-- [ ] `ffmpeg` available; `career run --to-stage render` produces a valid mp4.
+- [ ] `ffmpeg` available; `content-foundry run --to-stage render` produces a valid mp4.
 - [ ] OAuth consent completed; `--dry-run` publish works.
 - [ ] Thresholds (`PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`) tuned on a few sample runs.
 - [ ] Disclosure gate verified (cannot go public without `disclosure_set`).

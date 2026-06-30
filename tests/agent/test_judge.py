@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from career_engine.agents import Judge
-from career_engine.config import get_settings, reset_settings_cache
-from career_engine.models import Verdict
+from content_foundry.agents import Judge
+from content_foundry.config import get_settings, reset_settings_cache
+from content_foundry.models import Verdict
 
 _UNGROUNDED = {
     "title_options": ["t"],

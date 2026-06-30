@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ulid import ULID  # noqa: E402
 
-from career_engine.config import get_settings  # noqa: E402
-from career_engine.persistence import (  # noqa: E402
+from content_foundry.config import get_settings  # noqa: E402
+from content_foundry.persistence import (  # noqa: E402
     Repository,
     init_db,
     make_engine,

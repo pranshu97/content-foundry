@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from career_engine.models import RunState
-from career_engine.notifications import NullNotifier
-from career_engine.pipeline.orchestrator import Orchestrator
-from career_engine.providers.youtube import DryRunPublisher
+from content_foundry.models import RunState
+from content_foundry.notifications import NullNotifier
+from content_foundry.pipeline.orchestrator import Orchestrator
+from content_foundry.providers.youtube import DryRunPublisher
 
 
 def test_production_gate_blocks_when_not_passed(settings, sample_signals, fakes, generic_payload):

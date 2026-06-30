@@ -2,7 +2,7 @@
 
 Configuration is loaded by a single typed `Settings` object (`config.py`, built on `pydantic-settings`). Values come from environment variables / `.env`. **No secret is ever hard-coded.** Missing required keys fail fast at startup with a clear message.
 
-> **One place for every credential.** All API keys, bot tokens, and passwords live in exactly **one file** — `.env` (loaded automatically). Nothing else in the codebase reads secrets from anywhere else. To rotate or add a credential, edit that single file; run `career config check` to validate it (§6.6).
+> **One place for every credential.** All API keys, bot tokens, and passwords live in exactly **one file** — `.env` (loaded automatically). Nothing else in the codebase reads secrets from anywhere else. To rotate or add a credential, edit that single file; run `content-foundry config check` to validate it (§6.6).
 
 ### 6.1 `.env.example` (authoritative template)
 ```dotenv
@@ -81,7 +81,7 @@ MONTHLY_BUDGET_USD=20                       # alert when projected monthly spend
 LOW_CREDIT_THRESHOLD_PCT=80                 # fire low_credits alert at this % of budget
 
 # ---------- Storage ----------
-DATABASE_URL=sqlite:///data/career_engine.db
+DATABASE_URL=sqlite:///data/content_foundry.db
 OUTPUT_DIR=output/runs
 
 # ---------- Safeguards / Compliance ----------
@@ -122,7 +122,7 @@ Two suggested presets, selectable via `--profile`:
 ### 6.6 Centralized credentials (single source of truth)
 - **One file, every secret:** `.env` holds all keys/tokens/passwords (LLM, Adzuna, NewsAPI, ElevenLabs, Pexels, Stability, Google OAuth, Telegram). Grouped by `# ----------` sections for readability.
 - **Optional split:** set `ENV_FILE=secrets/credentials.env` to keep secrets outside the repo root; `Settings` reads whichever path `ENV_FILE` points to (defaults to `.env`).
-- **`career config check`** ([Ch. 17](17-cli-interface.md#17-cli-interface)) loads `Settings`, runs all validators, and prints a **redacted** table (each secret shown as `set ✓` / `missing ✗`, never the value) so you can confirm everything is wired without leaking anything.
+- **`content-foundry config check`** ([Ch. 17](17-cli-interface.md#17-cli-interface)) loads `Settings`, runs all validators, and prints a **redacted** table (each secret shown as `set ✓` / `missing ✗`, never the value) so you can confirm everything is wired without leaking anything.
 - **Never committed:** `.env`, `secrets/`, and `*.env` are gitignored; only `.env.example` is tracked.
 
 ---

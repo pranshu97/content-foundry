@@ -1,4 +1,4 @@
-"""Exception hierarchy for the Career Engine (Ch. 21.1).
+"""Exception hierarchy for Content Foundry (Ch. 21.1).
 
 All errors derive from :class:`CareerEngineError` so callers can catch the whole family.
 Filenames for this hierarchy are not pinned by the spec; centralising them here gives every
@@ -30,6 +30,10 @@ class InsufficientDataError(CareerEngineError):
 
 class LLMError(CareerEngineError):
     """LLM provider failure after retries (and fallback, if any)."""
+
+
+class BudgetExhaustedError(CareerEngineError):
+    """Estimated month-to-date spend reached the budget cap; the run is aborted before more spend."""
 
 
 class SchemaValidationError(CareerEngineError):

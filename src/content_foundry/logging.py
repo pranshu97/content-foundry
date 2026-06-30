@@ -11,13 +11,24 @@ _CONFIGURED = False
 
 
 def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
-    """Configure structlog once. Safe to call repeatedly (idempotent)."""
-    global _CONFIGURED
-    from .config import get_settings
+    """Configure structlog once. Safe to call repeatedly (idempotent).
 
-    settings = get_settings()
-    level = (level or settings.log_level).upper()
-    fmt = fmt or settings.log_format
+    Logging must never hard-fail just because application settings are missing or invalid (e.g.
+    importing the package before ``.env`` is set up). When ``get_settings()`` can't load, the log
+    level/format fall back to safe defaults — the pipeline still validates config when it runs.
+    """
+    global _CONFIGURED
+    if level is None or fmt is None:
+        try:
+            from .config import get_settings
+
+            settings = get_settings()
+            level = level or settings.log_level
+            fmt = fmt or settings.log_format
+        except Exception:
+            level = level or "INFO"
+            fmt = fmt or "json"
+    level = level.upper()
 
     renderer: Any = (
         structlog.processors.JSONRenderer()

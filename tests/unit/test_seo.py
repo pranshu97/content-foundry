@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from career_engine.models import Provenance, SceneVisual, VisualPackage
-from career_engine.production.seo import (
+from content_foundry.models import Provenance, SceneVisual, VisualPackage
+from content_foundry.production.seo import (
     build_chapters,
     hashtags,
     optimize_description,

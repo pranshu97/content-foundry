@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from career_engine.safeguards import (
+from content_foundry.safeguards import (
     check_grounding,
     description_has_disclosure,
     disclosure_checklist,
@@ -37,7 +37,7 @@ def test_ungrounded_stat_detected(make_script):
     }
     script = make_script(payload)
     # No DataBrief facts -> the 42% is ungrounded.
-    from career_engine.models import DataBrief, Provenance
+    from content_foundry.models import DataBrief, Provenance
 
     empty_brief = DataBrief(run_id="r", niche="n", key_facts=[],
                             provenance=Provenance(produced_by="data_fetcher"))

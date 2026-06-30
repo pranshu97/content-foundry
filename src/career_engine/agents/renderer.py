@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..logging import get_logger
 from ..models import Provenance, VideoAsset, VisualPackage, VoiceoverAsset
+from ..production.overlay import build_overlay_spec
 from ..production.timeline import build_timeline
 
 _VIDEO_REL = "assets/video.mp4"
@@ -33,6 +34,11 @@ class Renderer:
         out_real = run_root / _VIDEO_REL
         out_real.parent.mkdir(parents=True, exist_ok=True)
 
+        overlay = build_overlay_spec(self._settings)
+        if self._settings.avatar_overlay_enabled and overlay is None:
+            self._log.warning("avatar_overlay_skipped_missing_image",
+                              path=self._settings.avatar_image_path)
+
         path = self._backend.render(
             segments=resolved,
             audio_path=audio_real,
@@ -41,6 +47,7 @@ class Renderer:
             resolution=self._settings.video_resolution,
             fps=self._settings.video_fps,
             burn_captions=self._settings.captions_enabled,
+            overlay=overlay,
         )
 
         size = Path(path).stat().st_size if Path(path).exists() else 0
@@ -52,6 +59,7 @@ class Renderer:
             fps=self._settings.video_fps,
             backend=getattr(self._backend, "name", self._settings.render_backend),
             has_captions=self._settings.captions_enabled,
+            has_avatar=overlay is not None,
             file_size_bytes=size,
             provenance=Provenance(
                 produced_by="renderer", model=None, config_hash=self._settings.config_hash

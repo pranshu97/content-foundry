@@ -45,6 +45,24 @@ def test_fallback_requires_key(monkeypatch):
         get_settings()
 
 
+def test_local_provider_requires_base_url(monkeypatch):
+    monkeypatch.setenv("PRIMARY_PROVIDER", "local")
+    monkeypatch.setenv("FALLBACK_PROVIDER", "none")
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "")
+    reset_settings_cache()
+    with pytest.raises(ConfigError):
+        get_settings()
+
+
+def test_local_fallback_skips_cloud_key(monkeypatch):
+    # A 'local' fallback must NOT require a cloud API key (it talks to a self-hosted server).
+    monkeypatch.setenv("FALLBACK_PROVIDER", "local")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
+    reset_settings_cache()
+    assert get_settings().fallback_provider == "local"
+
+
 def test_disclosure_gate_blocks_auto_public(monkeypatch):
     monkeypatch.setenv("PUBLISH_MODE", "auto")
     monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "public")

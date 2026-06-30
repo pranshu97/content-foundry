@@ -71,3 +71,74 @@ def test_factories_build_expected_types(settings):
     assert build_broll_client(settings).enabled is False  # no PEXELS key
     assert build_render_backend(settings).name == "ffmpeg"
     assert build_publisher(settings, dry_run=True).name == "dryrun"
+
+
+def _fake_openai(captured: dict, *, content: str = "hello", boom: bool = False):
+    """A stand-in ``openai`` module exposing the OpenAI-compatible chat API the local server uses."""
+    import types
+
+    mod = types.ModuleType("openai")
+
+    def _client(api_key, base_url):
+        captured["api_key"] = api_key
+        captured["base_url"] = base_url
+
+        def _create(*, model, messages, temperature, max_tokens):
+            captured["model"] = model
+            captured["messages"] = messages
+            if boom:
+                raise RuntimeError("server down")
+            choice = types.SimpleNamespace(message=types.SimpleNamespace(content=content))
+            usage = types.SimpleNamespace(prompt_tokens=5, completion_tokens=7)
+            return types.SimpleNamespace(choices=[choice], usage=usage)
+
+        completions = types.SimpleNamespace(create=_create)
+        return types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+
+    mod.OpenAI = _client
+    return mod
+
+
+def test_local_provider_uses_local_model_and_base_url(monkeypatch):
+    import sys
+
+    from career_engine.providers.local_provider import LocalLLMProvider
+
+    captured: dict = {}
+    monkeypatch.setitem(sys.modules, "openai", _fake_openai(captured))
+    provider = LocalLLMProvider("http://localhost:11434/v1", "llama3.1", api_key="local")
+    resp = provider.complete("hi", system="sys", model="claude-sonnet-4-cloud")
+
+    assert resp.provider == "local"
+    assert resp.text == "hello"
+    assert resp.model == "llama3.1"  # cloud per-call override is ignored
+    assert captured["model"] == "llama3.1"
+    assert captured["base_url"] == "http://localhost:11434/v1"
+    assert captured["messages"][0] == {"role": "system", "content": "sys"}
+    assert resp.prompt_tokens == 5 and resp.completion_tokens == 7
+
+
+def test_local_provider_wraps_errors(monkeypatch):
+    import sys
+
+    from career_engine.providers.local_provider import LocalLLMProvider
+
+    monkeypatch.setitem(sys.modules, "openai", _fake_openai({}, boom=True))
+    provider = LocalLLMProvider("http://localhost:11434/v1", "llama3.1")
+    with pytest.raises(LLMError):
+        provider.complete("hi")
+
+
+def test_local_provider_factory(monkeypatch):
+    from career_engine.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("PRIMARY_PROVIDER", "local")
+    monkeypatch.setenv("FALLBACK_PROVIDER", "none")
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://localhost:1234/v1")
+    monkeypatch.setenv("LOCAL_LLM_MODEL", "phi3")
+    reset_settings_cache()
+    settings = get_settings()
+
+    llm = build_llm_provider(settings)
+    assert llm.primary.name == "local"
+    assert llm.secondary is None

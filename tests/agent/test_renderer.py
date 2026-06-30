@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from career_engine.agents import Renderer
-from career_engine.config import get_settings, reset_settings_cache
-from career_engine.models import (
+from content_foundry.agents import Renderer
+from content_foundry.config import get_settings, reset_settings_cache
+from content_foundry.models import (
     Provenance,
     SceneTiming,
     SceneVisual,

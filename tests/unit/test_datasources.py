@@ -5,11 +5,11 @@ from __future__ import annotations
 import httpx
 import respx
 
-from career_engine.datasources.adzuna import AdzunaSource
-from career_engine.datasources.bls import BLSSource
-from career_engine.datasources.layoffs import LayoffsSource
-from career_engine.datasources.news import NewsSource
-from career_engine.datasources.registry import build_sources
+from content_foundry.datasources.adzuna import AdzunaSource
+from content_foundry.datasources.bls import BLSSource
+from content_foundry.datasources.layoffs import LayoffsSource
+from content_foundry.datasources.news import NewsSource
+from content_foundry.datasources.registry import build_sources
 
 
 @respx.mock

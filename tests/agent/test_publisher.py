@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from career_engine.agents import Publisher
-from career_engine.config import get_settings, reset_settings_cache
-from career_engine.models import Provenance, SceneVisual, VideoAsset, VisualPackage
-from career_engine.providers.youtube import DryRunPublisher
+from content_foundry.agents import Publisher
+from content_foundry.config import get_settings, reset_settings_cache
+from content_foundry.models import Provenance, SceneVisual, VideoAsset, VisualPackage
+from content_foundry.providers.youtube import DryRunPublisher
 
 
 class _FakePub:

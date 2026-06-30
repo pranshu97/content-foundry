@@ -39,8 +39,8 @@ Messages are concise, emoji-tagged for scannability, and include the `run_id` an
 
 ### 25.6 One-time setup
 1. In Telegram, message **@BotFather** → `/newbot` → copy the bot **token** into `TELEGRAM_BOT_TOKEN`.
-2. Message your new bot once, then call `getUpdates` (or run `career notify-test`) to read your `chat.id` → put it in `TELEGRAM_CHAT_ID`.
-3. Set `NOTIFY_ENABLED=true` and the desired `NOTIFY_EVENTS`. Verify with `career notify-test` (sends a sample of each event).
+2. Message your new bot once, then call `getUpdates` (or run `content-foundry notify-test`) to read your `chat.id` → put it in `TELEGRAM_CHAT_ID`.
+3. Set `NOTIFY_ENABLED=true` and the desired `NOTIFY_EVENTS`. Verify with `content-foundry notify-test` (sends a sample of each event).
 
 ### 25.7 Reliability (never breaks the pipeline)
 - Notifications are **best-effort and non-blocking**: `send()` is wrapped in try/except with a short `tenacity` retry; a delivery failure is logged but **never** fails a run.

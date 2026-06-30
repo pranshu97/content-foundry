@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from career_engine.agents.judge_checks import (
+from content_foundry.agents.judge_checks import (
     compliance_check,
     freshness_and_fatigue,
     generic_hits,

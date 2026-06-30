@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from career_engine.models import RunState, Verdict
-from career_engine.notifications import NullNotifier
-from career_engine.pipeline.orchestrator import Orchestrator
-from career_engine.providers.youtube import DryRunPublisher
+from content_foundry.models import RunState, Verdict
+from content_foundry.notifications import NullNotifier
+from content_foundry.pipeline.orchestrator import Orchestrator
+from content_foundry.providers.youtube import DryRunPublisher
 
 
 def test_full_pipeline_dry_run(settings, sample_signals, fakes):

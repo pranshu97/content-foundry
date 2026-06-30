@@ -29,7 +29,7 @@ class PublishError(CareerEngineError): ...          # upload/auth/quota failure
 - **Compliance never fails soft:** an unconfirmed disclosure forces Private + manual gate — it never silently proceeds.
 
 ### 21.4 Resumability as recovery
-Because every completed stage persisted a validated artifact, a failure is never catastrophic: fix the cause (add a source, edit the brief, install ffmpeg) and resume with `career resume --run-id <id>`. No work is redone unless `--force`.
+Because every completed stage persisted a validated artifact, a failure is never catastrophic: fix the cause (add a source, edit the brief, install ffmpeg) and resume with `content-foundry resume --run-id <id>`. No work is redone unless `--force`.
 
 ### 21.5 Observability
 - `structlog` JSON logs bound with `run_id`, `attempt_number`, `stage`; one line per stage transition with timing and token/cost estimates.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from career_engine.agents import distill
+from content_foundry.agents import distill
 
 
 def test_key_facts_copy_signal_values(sample_signals):

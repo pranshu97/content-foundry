@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from career_engine.agents import ScriptGenerator
-from career_engine.safeguards.grounding import extract_stats
-from career_engine.templates import get_template
+from content_foundry.agents import ScriptGenerator
+from content_foundry.safeguards.grounding import extract_stats
+from content_foundry.templates import get_template
 
 
 def test_generate_good_script(settings, data_brief, fakes):

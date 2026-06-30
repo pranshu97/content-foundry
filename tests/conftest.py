@@ -9,8 +9,8 @@ import json
 
 import pytest
 
-from career_engine.errors import DataSourceError
-from career_engine.models import (
+from content_foundry.errors import DataSourceError
+from content_foundry.models import (
     DataBrief,
     NormalizedSignal,
     Provenance,
@@ -19,7 +19,7 @@ from career_engine.models import (
     WordTiming,
     utcnow,
 )
-from career_engine.providers.base import LLMResponse
+from content_foundry.providers.base import LLMResponse
 
 # --------------------------------------------------------------------------- env
 _BASE_ENV = {
@@ -52,7 +52,7 @@ _BASE_ENV = {
 @pytest.fixture(autouse=True)
 def _env(monkeypatch, tmp_path):
     """Hermetic per-test environment pointing storage at a tmp dir."""
-    from career_engine.config import reset_settings_cache
+    from content_foundry.config import reset_settings_cache
 
     for key, value in _BASE_ENV.items():
         monkeypatch.setenv(key, value)
@@ -65,7 +65,7 @@ def _env(monkeypatch, tmp_path):
 
 @pytest.fixture
 def settings():
-    from career_engine.config import get_settings
+    from content_foundry.config import get_settings
 
     return get_settings()
 
@@ -73,7 +73,7 @@ def settings():
 @pytest.fixture
 def settings_with_tiers(monkeypatch):
     """Settings with distinct heavy/light models so tiering routing is observable."""
-    from career_engine.config import get_settings, reset_settings_cache
+    from content_foundry.config import get_settings, reset_settings_cache
 
     monkeypatch.setenv("LLM_TIERING_ENABLED", "true")
     monkeypatch.setenv("MODEL_HEAVY", "heavy-model")
@@ -85,7 +85,7 @@ def settings_with_tiers(monkeypatch):
 
 @pytest.fixture
 def repo():
-    from career_engine.persistence import Repository, init_db, make_engine, make_session_factory
+    from content_foundry.persistence import Repository, init_db, make_engine, make_session_factory
 
     engine = make_engine("sqlite:///:memory:")
     init_db(engine)
@@ -302,7 +302,7 @@ def sample_signals() -> list[NormalizedSignal]:
 
 @pytest.fixture
 def data_brief(sample_signals) -> DataBrief:
-    from career_engine.agents import distill
+    from content_foundry.agents import distill
 
     return DataBrief(
         run_id="TESTRUN",

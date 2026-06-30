@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from career_engine.models import (
+from content_foundry.models import (
     Provenance,
     SceneTiming,
     SceneVisual,
@@ -10,8 +10,8 @@ from career_engine.models import (
     VoiceoverAsset,
     WordTiming,
 )
-from career_engine.production.captions import build_srt
-from career_engine.production.timeline import build_timeline
+from content_foundry.production.captions import build_srt
+from content_foundry.production.timeline import build_timeline
 
 
 def test_build_srt_groups_and_formats():

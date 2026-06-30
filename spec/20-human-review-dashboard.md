@@ -1,7 +1,7 @@
 ## 20. Human Review Dashboard
 
 ### 20.1 Purpose
-A **read-mostly** Streamlit app (`dashboard/app.py`, launched via `career dashboard`) for the thin human layer: spot-check the Judge, watch for drift into generic territory, and give the final go-live OK. The operator is never in the writing loop.
+A **read-mostly** Streamlit app (`dashboard/app.py`, launched via `content-foundry dashboard`) for the thin human layer: spot-check the Judge, watch for drift into generic territory, and give the final go-live OK. The operator is never in the writing loop.
 
 ### 20.2 Views
 | View | Shows |

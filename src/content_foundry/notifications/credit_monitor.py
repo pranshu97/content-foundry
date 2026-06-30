@@ -42,6 +42,11 @@ class CreditMonitor:
     def pct_used(self) -> float:
         return 100.0 * self.month_to_date_usd / self._budget
 
+    @property
+    def over_budget(self) -> bool:
+        """True once estimated month-to-date spend has reached the budget (drives the hard cap)."""
+        return self.month_to_date_usd >= self._budget
+
     def record(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         cost = estimate_cost(model, prompt_tokens, completion_tokens)
         self.month_to_date_usd += cost

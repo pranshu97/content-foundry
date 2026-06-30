@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from career_engine.notifications import (
+from content_foundry.notifications import (
     CreditMonitor,
     EventFilterNotifier,
     NullNotifier,
@@ -35,7 +35,7 @@ def test_event_filter_is_fail_soft():
 
 
 def test_build_notifier_disabled_returns_null(monkeypatch):
-    from career_engine.config import get_settings, reset_settings_cache
+    from content_foundry.config import get_settings, reset_settings_cache
 
     monkeypatch.setenv("NOTIFY_ENABLED", "false")
     reset_settings_cache()
@@ -54,6 +54,13 @@ def test_credit_monitor_fires_once_over_threshold():
     monitor.record("claude-sonnet-4-20250514", 100000, 100000)  # debounced
     low = [c for c in notifier.sent if c[0] == "low_credits"]
     assert len(low) == 1
+
+
+def test_credit_monitor_over_budget_flag():
+    monitor = CreditMonitor(NullNotifier(), budget_usd=1.0, threshold_pct=80, month_to_date_usd=0.5)
+    assert monitor.over_budget is False
+    monitor.month_to_date_usd = 1.0
+    assert monitor.over_budget is True  # drives the hard cap abort
 
 
 def test_credit_monitor_provider_error_alert():

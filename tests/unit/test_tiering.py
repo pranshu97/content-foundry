@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from career_engine.providers.tiering import TaskTier, select_model
+from content_foundry.providers.tiering import TaskTier, select_model
 
 
 def _settings(*, enabled: bool, heavy="HEAVY", light="LIGHT"):
@@ -30,8 +30,8 @@ def test_settings_model_properties_default_to_legacy(settings):
 
 
 def test_script_generator_routes_heavy_then_light(monkeypatch, settings_with_tiers, data_brief, fakes):
-    from career_engine.agents import ScriptGenerator
-    from career_engine.templates import get_template
+    from content_foundry.agents import ScriptGenerator
+    from content_foundry.templates import get_template
 
     llm = fakes.LLM(bad_then_good=True)
     ScriptGenerator(settings_with_tiers, llm).run("R", data_brief, get_template("contrarian"))
@@ -40,7 +40,7 @@ def test_script_generator_routes_heavy_then_light(monkeypatch, settings_with_tie
 
 
 def test_judge_scores_with_light_model(settings_with_tiers, good_script, data_brief, fakes):
-    from career_engine.agents import Judge
+    from content_foundry.agents import Judge
 
     llm = fakes.LLM()
     Judge(settings_with_tiers, llm).run("R", good_script, data_brief, attempt_number=1)

@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from career_engine.config import get_settings, reset_settings_cache
-from career_engine.errors import ConfigError
+from content_foundry.config import get_settings, reset_settings_cache
+from content_foundry.errors import ConfigError
 
 
 def test_settings_singleton(settings):

@@ -130,6 +130,7 @@ class ScriptGenerator:
         try:
             return json.loads(extract_json(retry.text))
         except json.JSONDecodeError as exc:
+            self._log.error("script_parse_failed", snippet=retry.text[:200], error=str(exc))
             raise LLMError(f"Script generator returned invalid JSON twice: {exc}") from exc
 
     # --------------------------------------------------------------- coercion

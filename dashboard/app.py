@@ -1,4 +1,4 @@
-"""Streamlit human-review dashboard (Ch. 20). Read-mostly; launched via ``career dashboard``."""
+"""Streamlit human-review dashboard (Ch. 20). Read-mostly; launched via ``content-foundry dashboard``."""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import streamlit as st  # noqa: E402
 
-from career_engine.config import get_settings  # noqa: E402
-from career_engine.models import JudgeReport  # noqa: E402
-from career_engine.persistence import (  # noqa: E402
+from content_foundry.config import get_settings  # noqa: E402
+from content_foundry.models import JudgeReport  # noqa: E402
+from content_foundry.persistence import (  # noqa: E402
     Repository,
     init_db,
     make_engine,
     make_session_factory,
 )
-from career_engine.pipeline.artifacts import load_model, run_paths  # noqa: E402
+from content_foundry.pipeline.artifacts import load_model, run_paths  # noqa: E402
 
 
 def _repo() -> Repository:
@@ -29,8 +29,8 @@ def _repo() -> Repository:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Career Engine — Review", layout="wide")
-    st.title("Career Engine — Human Review Dashboard")
+    st.set_page_config(page_title="Content Foundry — Review", layout="wide")
+    st.title("Content Foundry — Human Review Dashboard")
     settings = get_settings()
     repo = _repo()
 

@@ -9,7 +9,7 @@ Deterministic, **no real network/API calls**. All vendors are mocked behind thei
 | **Unit** | One module, mocked deps | models validate/reject; template selection; safeguards; artifact load/save + hashing |
 | **Agent** | One agent w/ fake provider/sources | fetcher drops uncited facts; generator strips ungrounded stats; judge applies floors & fatigue |
 | **Integration** | Orchestrator + fakes | full run; revision loop; resume-from-stage; production gate |
-| **E2E (dry-run)** | CLI → `DryRunPublisher` | `career run --dry-run` produces a complete package + `publish_result` |
+| **E2E (dry-run)** | CLI → `DryRunPublisher` | `content-foundry run --dry-run` produces a complete package + `publish_result` |
 
 ### 22.3 Core fixtures (`conftest.py`)
 - `FakeLLMProvider` — returns scripted, schema-valid JSON per stage (and a "bad JSON then good JSON" variant to test reformat-retry).
@@ -33,7 +33,7 @@ Deterministic, **no real network/API calls**. All vendors are mocked behind thei
 
 ### 22.5 HTTP & tooling
 - `respx` mocks Adzuna/NewsAPI/Pexels/YouTube HTTP.
-- `pytest-cov` with a **≥85%** line-coverage gate on `src/career_engine` (excluding vendor adapters' thin glue).
+- `pytest-cov` with a **≥85%** line-coverage gate on `src/content_foundry` (excluding vendor adapters' thin glue).
 - `ruff` + `mypy` run in CI; `pre-commit` enforces format/lint before commits.
 - A `make test` / `nox` target runs lint + type + tests.
 

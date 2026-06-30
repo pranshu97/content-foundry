@@ -19,7 +19,7 @@ from ..agents import (
     Voiceover,
 )
 from ..config import get_settings
-from ..errors import CareerEngineError, SchemaValidationError
+from ..errors import BudgetExhaustedError, CareerEngineError, SchemaValidationError
 from ..logging import configure_logging, get_logger
 from ..models import (
     DataBrief,
@@ -169,6 +169,7 @@ class Orchestrator:
         verdict = self._latest_verdict(run_id, produced)
         handled_judge = False
         gate_checked = False
+        self._check_budget(run_id)
 
         for stage in stages:
             if stage == "fetch":
@@ -198,7 +199,9 @@ class Orchestrator:
                         self.log.warning("production_gate_blocked", run_id=run_id, verdict=str(verdict))
                         break
                     gate_checked = True
-                self._run_production_stage(stage, run_id, run_root, paths, produced, hashes)
+                self._run_production_stage(
+                    stage, run_id, run_root, paths, produced, hashes, force=force
+                )
 
         self._assemble_package(run_id, paths, produced)
         return self._build_result(run_id, stages, paths, produced)
@@ -216,6 +219,7 @@ class Orchestrator:
         verdict: Verdict | None = None
 
         for attempt_number in range(1, self.s.max_revisions + 1):
+            self._check_budget(run_id)
             attempt_id = str(ULID())
             script = ScriptGenerator(self.s, self._llm_provider()).run(
                 run_id, brief, template,
@@ -235,22 +239,7 @@ class Orchestrator:
                 run_id, script, brief, attempt_number=attempt_number,
                 recent_template_ids=recent_ids, recent_hooks=recent_hooks,
             )
-            self._persist(
-                run_id, "judge_report", report, paths, produced, hashes, attempt_id,
-                {"script": hashes.get("script", "")},
-            )
-            self.repo.add_rubric_scores(
-                attempt_id,
-                [
-                    {"dimension": d.dimension, "score": d.score, "weight": d.weight,
-                     "passed": d.passed, "comment": d.justification}
-                    for d in report.scores
-                ],
-            )
-            self.repo.update_attempt(
-                attempt_id, verdict=report.verdict.value,
-                insight_score=report.insight_score, weighted_total=report.weighted_total,
-            )
+            self._record_judge_attempt(run_id, attempt_id, report, paths, produced, hashes)
             self.repo.update_run(
                 run_id, state=RunState.JUDGED.value, final_verdict=report.verdict.value
             )
@@ -265,6 +254,22 @@ class Orchestrator:
                 break
             if report.verdict == Verdict.FAIL:
                 self.repo.update_run(run_id, state=RunState.FAILED.value)
+                break
+
+            # Opt-in fail-fast: stop paying for revisions a hopeless script can't recover from.
+            if (
+                self.s.fail_fast_score > 0
+                and attempt_number >= 2
+                and report.weighted_total < self.s.fail_fast_score
+            ):
+                self.log.warning(
+                    "fail_fast_abort", run_id=run_id,
+                    weighted_total=report.weighted_total, threshold=self.s.fail_fast_score,
+                )
+                self.repo.update_run(
+                    run_id, state=RunState.FAILED.value, final_verdict=Verdict.FAIL.value
+                )
+                verdict = Verdict.FAIL
                 break
 
             feedback = report.revision_instructions
@@ -306,22 +311,7 @@ class Orchestrator:
             run_id, script, brief, attempt_number=n,
             recent_template_ids=recent_ids, recent_hooks=recent_hooks,
         )
-        self._persist(
-            run_id, "judge_report", report, paths, produced, hashes, attempt_id,
-            {"script": hashes.get("script", "")},
-        )
-        self.repo.add_rubric_scores(
-            attempt_id,
-            [
-                {"dimension": d.dimension, "score": d.score, "weight": d.weight,
-                 "passed": d.passed, "comment": d.justification}
-                for d in report.scores
-            ],
-        )
-        self.repo.update_attempt(
-            attempt_id, verdict=report.verdict.value,
-            insight_score=report.insight_score, weighted_total=report.weighted_total,
-        )
+        self._record_judge_attempt(run_id, attempt_id, report, paths, produced, hashes)
         state = RunState.APPROVED if report.verdict == Verdict.PASS else (
             RunState.FAILED if report.verdict == Verdict.FAIL else RunState.JUDGED
         )
@@ -332,7 +322,16 @@ class Orchestrator:
         return report.verdict
 
     # --------------------------------------------------------- production
-    def _run_production_stage(self, stage, run_id, run_root, paths, produced, hashes) -> None:
+    def _run_production_stage(
+        self, stage, run_id, run_root, paths, produced, hashes, *, force=False
+    ) -> None:
+        stage_key = {"voiceover": "voiceover", "visuals": "visuals",
+                     "render": "video", "publish": "publish"}[stage]
+        if not force and stage_key in produced and paths.artifact(stage_key).exists():
+            self.log.info("stage_skipped_cached", run_id=run_id, stage=stage)
+            return
+        if stage in ("voiceover", "visuals"):
+            self._check_budget(run_id)
         if stage == "voiceover":
             script = self._need(produced, "script", paths)
             vo = Voiceover(self.s, self._tts_provider()).run(run_id, script, run_root=run_root)
@@ -390,6 +389,37 @@ class Orchestrator:
                 "need_validation", "🔎 Needs your go-live OK",
                 f"{run_id}: draft awaiting approval ({pub.upload_status})", meta={"run_id": run_id},
             )
+
+    def _check_budget(self, run_id: str) -> None:
+        """Hard budget cap (cost safety): abort before more spend once over the monthly budget."""
+        if self.s.enforce_budget_cap and self.credit.over_budget:
+            self.log.error(
+                "budget_exhausted", run_id=run_id,
+                spend=round(self.credit.month_to_date_usd, 4), budget=self.s.monthly_budget_usd,
+            )
+            raise BudgetExhaustedError(
+                f"Estimated month-to-date spend ${self.credit.month_to_date_usd:.2f} reached the "
+                f"${self.s.monthly_budget_usd:.2f} cap (set ENFORCE_BUDGET_CAP=false to disable)."
+            )
+
+    def _record_judge_attempt(self, run_id, attempt_id, report, paths, produced, hashes) -> None:
+        """Persist a judge report + rubric scores + the attempt verdict (shared by the two judge paths)."""
+        self._persist(
+            run_id, "judge_report", report, paths, produced, hashes, attempt_id,
+            {"script": hashes.get("script", "")},
+        )
+        self.repo.add_rubric_scores(
+            attempt_id,
+            [
+                {"dimension": d.dimension, "score": d.score, "weight": d.weight,
+                 "passed": d.passed, "comment": d.justification}
+                for d in report.scores
+            ],
+        )
+        self.repo.update_attempt(
+            attempt_id, verdict=report.verdict.value,
+            insight_score=report.insight_score, weighted_total=report.weighted_total,
+        )
 
     # ============================================================= persistence
     def _persist(self, run_id, key, model, paths, produced, hashes, attempt_id, input_hashes):

@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     # grounded single-scene draft scores well on every dimension but is far too short for a video.
     min_scenes: int = Field(3, ge=1)
     min_script_word_ratio: float = Field(0.5, ge=0, le=1)
+    # A genuinely excellent draft (weighted_total >= gate_relief_score) earns `gate_relief_ratio`
+    # slack on the insight & length floors ONLY — never on grounding, compliance, or fatigue.
+    # Set gate_relief_score > 10 to disable.
+    gate_relief_score: float = Field(9.0, ge=0, le=11)
+    gate_relief_ratio: float = Field(0.20, ge=0, le=0.5)
     # 0 = disabled (default). When > 0, abort the revision loop once a script still scores below
     # this weighted total on attempt >= 2 — it can't realistically reach PASS, so stop paying.
     fail_fast_score: float = Field(0.0, ge=0, le=10)

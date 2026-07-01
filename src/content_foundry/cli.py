@@ -90,12 +90,12 @@ class _RunReporter:
             self.close()
             verdict = str(d.get("verdict"))
             color = {"PASS": "green", "REVISE": "yellow", "FAIL": "red"}.get(verdict, "white")
-            failing = d.get("failing") or []
-            fail_txt = f"  [red]↓ below floor: {', '.join(failing)}[/]" if failing else ""
+            reason = d.get("reason")
+            reason_txt = f"  [yellow]· {reason}[/]" if reason and verdict != "PASS" else ""
             self._c.print(
                 f"  [{color}]⚖ attempt {d['n']} → {verdict}[/]  [dim]score[/] "
                 f"[bold]{float(d['total']):.2f}[/][dim]/10 · insight[/] "
-                f"{float(d['insight']):.1f}{fail_txt}"
+                f"{float(d['insight']):.1f}{reason_txt}"
             )
         elif event == "gate":
             self.close()

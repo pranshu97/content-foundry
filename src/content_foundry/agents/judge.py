@@ -64,14 +64,9 @@ class Judge:
             script.template_id, script.hook, recent_template_ids, recent_hooks
         )
 
-        # Completeness: the rubric scores *quality*, not *quantity* — a grounded single-scene stub
-        # scores well on every dimension (a short hook even scores *higher*). Reject drafts too short
-        # to be a real video; `word_floor` scales with the configured target length.
-        word_floor = int(s.min_script_word_ratio * s.script_target_words)
-        completeness_ok = len(script.scenes) >= s.min_scenes and script.word_count >= word_floor
-
         # An egregiously short draft (a single scene) is rejected without spending an LLM call,
-        # exactly like a grounding/compliance violation.
+        # exactly like a grounding/compliance violation. Full completeness (scene/word floors) is
+        # evaluated after the weighted total, so a high-scoring draft can earn a little slack.
         hard_gate_failed = (
             (not comp_ok) or (grounding.score < s.grounding_min) or (len(script.scenes) < 2)
         )
@@ -117,11 +112,27 @@ class Judge:
             sum(d.score * d.weight for d in dimensions) / _TOTAL_WEIGHT, 2
         )
 
+        # ---- gate relief: a genuinely excellent draft earns a little slack on the *quality/quantity*
+        # floors (insight & length) — NEVER on grounding, compliance, or anti-repetition. ----
+        strict_floor = int(s.min_script_word_ratio * s.script_target_words)
+        relief = s.gate_relief_ratio if weighted_total >= s.gate_relief_score else 0.0
+        factor = 1.0 - relief
+        word_floor = int(strict_floor * factor)
+        min_scenes_eff = max(2, round(s.min_scenes * factor))
+        completeness_ok = (
+            len(script.scenes) >= min_scenes_eff and script.word_count >= word_floor
+        )
+        insight_ok = ins >= s.insight_min * factor
+        strict_complete = len(script.scenes) >= s.min_scenes and script.word_count >= strict_floor
+        gates_relaxed = relief > 0.0 and (
+            (completeness_ok and not strict_complete) or (insight_ok and ins < s.insight_min)
+        )
+
         verdict = self._verdict(
             weighted_total=weighted_total,
             compliance_ok=comp_ok,
             grounding_score=grounding.score,
-            insight_score=ins,
+            insight_ok=insight_ok,
             fatigue=fresh.fatigue,
             completeness_ok=completeness_ok,
             attempt_number=attempt_number,
@@ -129,11 +140,15 @@ class Judge:
 
         length_note = None
         if not completeness_ok:
+            shortfall = max(0, word_floor - script.word_count)
+            per_scene = max(40, round(s.script_target_words / max(s.scenes_per_video, 1)))
             length_note = (
-                f"LENGTH: only {script.word_count} words across {len(script.scenes)} scene(s) — far "
-                f"too short. Write ~{s.script_target_words} spoken words across at least "
-                f"{s.min_scenes} scenes (each scene 3-6 full sentences); never return a single scene "
-                "or an outline."
+                f"LENGTH — HARD FAIL (this is why it did not pass): your draft is only "
+                f"{script.word_count} words in {len(script.scenes)} scene(s); the REQUIRED minimum is "
+                f"{word_floor} words (target ~{s.script_target_words}). You are ~{shortfall} words short. "
+                f"Do NOT delete anything — EXPAND: write {s.scenes_per_video} scenes, each at least "
+                f"{per_scene} words (4-6 full sentences), adding concrete detail, examples, and the data "
+                f"to every scene. Any script under {word_floor} words is automatically rejected."
             )
         revision_instructions = (
             None
@@ -153,7 +168,7 @@ class Judge:
             force_shift=fresh.fatigue,
             forced_template_id=forced_template_id,
             verdict=verdict,
-            summary=self._summary(verdict, weighted_total, fresh.fatigue),
+            summary=self._summary(verdict, weighted_total, fresh.fatigue, gates_relaxed),
             revision_instructions=revision_instructions,
             provenance=Provenance(
                 produced_by="judge", model=used_model, config_hash=s.config_hash
@@ -263,7 +278,7 @@ class Judge:
         weighted_total: float,
         compliance_ok: bool,
         grounding_score: float,
-        insight_score: float,
+        insight_ok: bool,
         fatigue: bool,
         completeness_ok: bool,
         attempt_number: int,
@@ -272,7 +287,7 @@ class Judge:
         gate_failed = (
             (not compliance_ok)
             or grounding_score < s.grounding_min
-            or insight_score < s.insight_min
+            or not insight_ok
             or fatigue
             or not completeness_ok
         )
@@ -306,8 +321,11 @@ class Judge:
         return "\n".join(lines)
 
     @staticmethod
-    def _summary(verdict: Verdict, weighted_total: float, fatigue: bool) -> str:
+    def _summary(
+        verdict: Verdict, weighted_total: float, fatigue: bool, gates_relaxed: bool = False
+    ) -> str:
         if verdict == Verdict.PASS:
-            return f"Approved for production (weighted {weighted_total}/10)."
+            relaxed = " · gates relaxed for a high-scoring draft" if gates_relaxed else ""
+            return f"Approved for production (weighted {weighted_total}/10{relaxed})."
         tail = " Template fatigue forced a structural shift." if fatigue else ""
         return f"Verdict {verdict.value} at {weighted_total}/10.{tail}"

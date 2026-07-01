@@ -11,9 +11,11 @@ GROUNDING (use these facts; cite each stat by its index as fact_ref):
 {key_facts_json}
 
 HARD RULES:
-- LENGTH: write the COMPLETE script — roughly {target_words} spoken words split across {scenes}
-  scenes. NEVER return a single scene, an outline, or a summary. Each scene.narration is 3-6 full
-  sentences (~70-120 spoken words) of real, finished narration.
+- LENGTH (STRICT — an automated reviewer REJECTS anything shorter): write EXACTLY {scenes} full scenes.
+  Each scene.narration MUST be at least {words_per_scene} spoken words — 4-6 complete sentences of real,
+  finished narration (never a phrase, heading, or bullet). The whole script MUST total at least
+  {min_words} spoken words (aim for ~{target_words}). Expand every beat with concrete detail, examples,
+  and the data; NEVER output a single scene, an outline, or a summary.
 - Every quantitative claim MUST map to a provided fact via fact_ref. No other numbers.
 - SOURCES (NEVER BROKEN): never state a statistic without its exact source. For every scene whose
   narration contains a number, %, or $, put the source in on_screen_text as "Source: <name>" — take

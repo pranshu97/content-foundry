@@ -185,9 +185,11 @@ class ScriptGenerator:
 
     # -------------------------------------------------------------- grounding
     def _ensure_min_length(self, system, script, brief, run_id, template_id):
-        """Small local models sometimes emit a 1-scene stub. If a draft is far too short, ask once
-        more for the full-length script and keep whichever draft is longer."""
-        if len(script.scenes) >= 2 and script.word_count >= 40:
+        """Local models often under-produce. If a draft falls short of the Judge's completeness floor
+        (``min_scenes`` / ``min_script_word_ratio`` × target), ask once more for the full-length
+        script and keep whichever draft is longer — so the generator targets what the gate enforces."""
+        floor = int(self._settings.min_script_word_ratio * self._settings.script_target_words)
+        if len(script.scenes) >= self._settings.min_scenes and script.word_count >= floor:
             return script
         self._log.warning(
             "script_too_short", words=script.word_count, scenes=len(script.scenes)

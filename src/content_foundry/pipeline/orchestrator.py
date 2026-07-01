@@ -20,7 +20,7 @@ from ..agents import (
     Voiceover,
 )
 from ..config import get_settings
-from ..errors import BudgetExhaustedError, CareerEngineError, SchemaValidationError
+from ..errors import BudgetExhaustedError, ContentFoundryError, SchemaValidationError
 from ..logging import configure_logging, get_logger
 from ..models import (
     DataBrief,
@@ -156,7 +156,7 @@ class Orchestrator:
                 run_id, stages, paths, produced, hashes,
                 niche=niche, topic_seed=topic_seed, template_id=template_id, force=force,
             )
-        except CareerEngineError as exc:
+        except ContentFoundryError as exc:
             self.repo.update_run(run_id, state=RunState.FAILED.value)
             self._persist_spend()
             self.notifier.send(
@@ -533,7 +533,7 @@ class Orchestrator:
             return produced[key]
         path = paths.artifact(key)
         if not path.exists():
-            raise CareerEngineError(f"Required artifact '{key}' is missing at {path}")
+            raise ContentFoundryError(f"Required artifact '{key}' is missing at {path}")
         model_cls, expected = ARTIFACT_MODELS[key]
         model = load_model(model_cls, path, expected_stage=expected)
         produced[key] = model

@@ -33,6 +33,7 @@ Implemented in `judge/checks.py`, run **before** any LLM call:
 - **Structural Freshness / fatigue:** compare `template_id` and a hook-shingle (normalized 5-gram set, Jaccard) against the last `FATIGUE_LOOKBACK` runs from `template_usage`/stored hooks. Too-similar → `template_fatigue=true`.
 - **Specificity:** ratio of "concrete" tokens (digits, `$`, `%`, capitalized role/tech terms) to total; mapped to 0–10.
 - **Hook:** check the first scene contains a number/specific claim and is under N words; mapped to 0–10.
+- **Completeness (hard gate):** reject a draft too short to be a real video — `len(scenes) < MIN_SCENES` **or** `word_count < MIN_SCRIPT_WORD_RATIO × SCRIPT_TARGET_WORDS`. A single-scene stub short-circuits to `REVISE` with no LLM call. The rubric scores *quality*, not *quantity*, so without this gate a grounded but tiny stub scores well (a short hook even scores *higher*).
 - **Generic-phrase penalty:** a blocklist (e.g. "network more", "update your resume", "work hard") deducts points and feeds the heuristic insight fallback.
 
 ### 9.3b `JUDGE_MODE`
@@ -60,8 +61,9 @@ Computed **deterministically in code** (no LLM): the Judge loads the last `FATIG
 compliance_failed         -> REVISE (or FAIL if attempts exhausted)
 grounding < GROUNDING_MIN -> REVISE (ungrounded claims are non-negotiable)
 insight  < INSIGHT_MIN    -> REVISE (too generic)
+incomplete (too short)    -> REVISE (fewer than MIN_SCENES or below the word floor)
 template_fatigue          -> REVISE + force_shift
-weighted_total >= PASS_THRESHOLD AND all floors met AND not fatigued -> PASS
+weighted_total >= PASS_THRESHOLD AND all floors met AND not fatigued AND complete -> PASS
 otherwise, if attempt_number >= MAX_REVISIONS                        -> FAIL
 otherwise                                                            -> REVISE
 ```

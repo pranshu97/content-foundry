@@ -53,8 +53,10 @@ class Script(BaseModel):
 
 ### 8.6 Generation rules (enforced in the prompt + post-checks)
 - **Grounding:** Every quantitative claim must map to a `DataBrief.key_facts[i]` via `fact_ref`; ungrounded numbers are stripped in a repair pass.
+- **Sources (never broken):** every scene that states a statistic surfaces the referenced fact's exact source in `on_screen_text` (`… · Source: Adzuna`), stamped deterministically in a post-pass so a stat can never appear un-sourced.
 - **Specificity:** The hook and at least 3 scenes must contain a concrete, non-obvious takeaway (no "network more" filler).
-- **Length:** Target `SCRIPT_TARGET_WORDS` (±15%); narration is plain spoken English (no stage directions inside `narration`).
+- **Length:** Target `SCRIPT_TARGET_WORDS`; a repair pass re-prompts once for the full script when a draft falls below the Judge's completeness floor (`MIN_SCENES` / `MIN_SCRIPT_WORD_RATIO`), keeping the longer draft. Narration is plain spoken English (no stage directions inside `narration`).
+- **Robust parsing:** malformed model output is tolerated — an int field returned as a list (`[3, 5]`), a stringified number, or `null` is coerced to a single valid value instead of failing schema validation.
 - **Disclosure:** `synthetic_disclosure=True` is always set and surfaced in the description draft.
 
 ### 8.7 Resumability hooks

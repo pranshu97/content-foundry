@@ -35,6 +35,9 @@ GROUNDING_MIN=8.0                          # hard floor on factual grounding
 FATIGUE_LOOKBACK=5                         # # of recent runs checked for template repetition
 TARGET_NICHE=tech careers                  # default content domain
 SCRIPT_TARGET_WORDS=900                    # ~6-7 min video
+MIN_FACTS=3                                # min grounded facts Agent 1 must produce (else the run fails)
+MIN_SCENES=3                               # completeness gate: reject scripts with fewer scenes
+MIN_SCRIPT_WORD_RATIO=0.5                  # completeness gate: reject drafts < this x SCRIPT_TARGET_WORDS
 
 # ---------- Voiceover (TTS) ----------
 TTS_PROVIDER=elevenlabs                     # elevenlabs | openai

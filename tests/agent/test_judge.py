@@ -74,3 +74,27 @@ def test_fail_when_attempts_exhausted(settings, data_brief, make_script, fakes):
     script = make_script(_UNGROUNDED)
     report = Judge(settings, fakes.LLM()).run("R", script, data_brief, attempt_number=3)
     assert report.verdict == Verdict.FAIL
+
+
+# A single-scene draft that is otherwise well-formed: its one stat is grounded (fact_ref=0) and the
+# disclosure is present, so grounding + compliance PASS. The quality rubric would score it well —
+# only the completeness gate can catch that it is far too short to be a real video.
+_STUB = {
+    "title_options": ["t"],
+    "hook": "Tech layoffs hit 12,000 workers last month.",
+    "scenes": [
+        {"index": 0, "narration": "Layoffs hit 12,000 last month, but the data says otherwise.",
+         "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0}
+    ],
+    "cta": "x", "description": "uses synthetic content", "tags": [],
+    "thumbnail_concept": "x", "grounded_fact_refs": [0],
+}
+
+
+def test_short_stub_revises_on_completeness(settings, data_brief, make_script, fakes):
+    llm = fakes.LLM()
+    report = Judge(settings, llm).run("R", make_script(_STUB), data_brief, attempt_number=1)
+    assert report.verdict == Verdict.REVISE
+    assert report.grounding_score >= settings.grounding_min  # grounding did NOT fail
+    assert llm.call_count == 0  # a stub is rejected deterministically — no tokens spent
+    assert "LENGTH" in (report.revision_instructions or "")

@@ -48,6 +48,8 @@ the Visuals prompt-builder are deterministic Python — free, fast, and hallucin
 
 Cost levers (cheapest first):
 - **Run the LLM locally** — `PRIMARY_PROVIDER=local` (Ollama / LM Studio / vLLM) makes generation free.
+- **Free voice** — `TTS_PROVIDER=edge` (Microsoft neural, free, no key) or `piper` (fully offline). Paid: elevenlabs / openai.
+- **Free visuals** — `IMAGE_PROVIDER=none` renders polished title cards; add a free Pexels key for real B-roll.
 - **`--profile cheap`** — deterministic judge + Pillow cards (no image API) + a single revision.
 - **Hard budget cap** — `ENFORCE_BUDGET_CAP=true` aborts a run once estimated month-to-date spend
   reaches `MONTHLY_BUDGET_USD` (on by default; cost safety, not just an alert).

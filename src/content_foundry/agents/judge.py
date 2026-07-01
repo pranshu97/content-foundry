@@ -64,7 +64,17 @@ class Judge:
             script.template_id, script.hook, recent_template_ids, recent_hooks
         )
 
-        hard_gate_failed = (not comp_ok) or (grounding.score < s.grounding_min)
+        # Completeness: the rubric scores *quality*, not *quantity* — a grounded single-scene stub
+        # scores well on every dimension (a short hook even scores *higher*). Reject drafts too short
+        # to be a real video; `word_floor` scales with the configured target length.
+        word_floor = int(s.min_script_word_ratio * s.script_target_words)
+        completeness_ok = len(script.scenes) >= s.min_scenes and script.word_count >= word_floor
+
+        # An egregiously short draft (a single scene) is rejected without spending an LLM call,
+        # exactly like a grounding/compliance violation.
+        hard_gate_failed = (
+            (not comp_ok) or (grounding.score < s.grounding_min) or (len(script.scenes) < 2)
+        )
 
         # ---- subjective dims: LLM (hybrid/llm) or heuristic (deterministic / fallback) ----
         act, ins, score_1_5, evidence, justif, used_model = self._subjective_scores(
@@ -113,11 +123,22 @@ class Judge:
             grounding_score=grounding.score,
             insight_score=ins,
             fatigue=fresh.fatigue,
+            completeness_ok=completeness_ok,
             attempt_number=attempt_number,
         )
 
+        length_note = None
+        if not completeness_ok:
+            length_note = (
+                f"LENGTH: only {script.word_count} words across {len(script.scenes)} scene(s) — far "
+                f"too short. Write ~{s.script_target_words} spoken words across at least "
+                f"{s.min_scenes} scenes (each scene 3-6 full sentences); never return a single scene "
+                "or an outline."
+            )
         revision_instructions = (
-            None if verdict == Verdict.PASS else self._revision_instructions(dimensions, fresh, forced_template_id)
+            None
+            if verdict == Verdict.PASS
+            else self._revision_instructions(dimensions, fresh, forced_template_id, length_note)
         )
 
         return JudgeReport(
@@ -244,6 +265,7 @@ class Judge:
         grounding_score: float,
         insight_score: float,
         fatigue: bool,
+        completeness_ok: bool,
         attempt_number: int,
     ) -> Verdict:
         s = self._settings
@@ -252,6 +274,7 @@ class Judge:
             or grounding_score < s.grounding_min
             or insight_score < s.insight_min
             or fatigue
+            or not completeness_ok
         )
         if not gate_failed and weighted_total >= s.pass_threshold:
             return Verdict.PASS
@@ -260,14 +283,27 @@ class Judge:
         return Verdict.REVISE
 
     @staticmethod
-    def _revision_instructions(dimensions, fresh, forced_template_id) -> str:
-        parts = [d.fix_suggestion for d in dimensions if d.fix_suggestion]
+    def _revision_instructions(dimensions, fresh, forced_template_id, length_note=None) -> str:
+        """A per-dimension critique the Generator can act on — reuses the judge's own reasoning
+        (justification + the evidence it flagged) for every dimension that fell short, so the
+        rewrite targets the *actual* problems instead of generic advice."""
+        lines: list[str] = []
+        if length_note:
+            lines.append(f"- {length_note}")
         if fresh.fatigue and forced_template_id:
-            parts.insert(0, f"Template fatigue detected — switch to '{forced_template_id}'.")
-        # de-duplicate while preserving order
-        seen: set[str] = set()
-        unique = [p for p in parts if not (p in seen or seen.add(p))]
-        return " ".join(unique)
+            lines.append(
+                f"- STRUCTURE: template fatigue — switch to '{forced_template_id}' and open with a "
+                "noticeably different hook."
+            )
+        for d in dimensions:
+            if d.passed and d.score >= 7.0:  # only critique what needs work
+                continue
+            flag = " (BELOW REQUIRED FLOOR)" if d.minimum is not None and d.score < d.minimum else ""
+            why = (d.justification or "").strip()
+            quote = f' Reviewer flagged: "{d.evidence.strip()}".' if d.evidence else ""
+            fix = f" → {d.fix_suggestion}" if d.fix_suggestion else ""
+            lines.append(f"- {d.dimension.upper()} {d.score:.1f}/10{flag}: {why}{quote}{fix}")
+        return "\n".join(lines)
 
     @staticmethod
     def _summary(verdict: Verdict, weighted_total: float, fatigue: bool) -> str:

@@ -3,6 +3,7 @@ the production gate, persistence, and notifications (Ch. 14)."""
 
 from __future__ import annotations
 
+import contextlib
 import random
 import time
 from pathlib import Path
@@ -57,6 +58,13 @@ from .stages import PRODUCTION_STAGES, stages_between
 
 _UNSET = object()
 
+_STAGE_LABELS = {
+    "voiceover": "Voiceover (TTS)",
+    "visuals": "Visuals & thumbnail",
+    "render": "Rendering video",
+    "publish": "Publishing",
+}
+
 ARTIFACT_MODELS: dict[str, tuple[type, str]] = {
     "data_brief": (DataBrief, "data_brief"),
     "script": (Script, "script"),
@@ -83,9 +91,16 @@ class Orchestrator:
         broll_client=None,
         render_backend=None,
         publisher=None,
+        reporter=None,
     ) -> None:
         self.s = settings or get_settings()
-        configure_logging()
+        self._reporter = reporter
+        # With a live progress reporter (the CLI), keep the console quiet so it doesn't fight the
+        # spinner — surface only real errors; the reporter shows the human-friendly progress.
+        if reporter is not None:
+            configure_logging(level="ERROR", fmt="console")
+        else:
+            configure_logging()
         self.log = get_logger(component="orchestrator")
         self.repo = repository or self._build_repo()
         self.notifier = notifier or build_notifier(self.s)
@@ -103,6 +118,12 @@ class Orchestrator:
             threshold_pct=self.s.low_credit_threshold_pct,
             month_to_date_usd=float(self.repo.get_meta("spend_month", "0") or 0),
         )
+
+    def _emit(self, event: str, **data) -> None:
+        """Send a human-friendly progress event to the optional reporter (never raises)."""
+        if self._reporter is not None:
+            with contextlib.suppress(Exception):  # reporting must never break a run
+                self._reporter(event, **data)
 
     # ============================================================= public API
     def run(
@@ -124,6 +145,7 @@ class Orchestrator:
         paths = run_paths(run_id, self.s.output_dir)
         ensure_run_dirs(paths)
         self.log.info("run_start", run_id=run_id, from_stage=from_stage, to_stage=to_stage)
+        self._emit("start", run_id=run_id, from_stage=from_stage, to_stage=to_stage, niche=niche)
 
         produced: dict[str, object] = {}
         hashes: dict[str, str] = {}
@@ -159,6 +181,10 @@ class Orchestrator:
                 meta={"run_id": run_id},
             )
         self.log.info("run_end", run_id=run_id, state=result.final_state.value)
+        self._emit(
+            "end", run_id=run_id, state=result.final_state.value,
+            verdict=result.verdict.value if result.verdict else None,
+        )
         return result
 
     # ============================================================== execution
@@ -173,11 +199,15 @@ class Orchestrator:
 
         for stage in stages:
             if stage == "fetch":
+                self._emit("step", label="Fetching labor-market data")
                 brief = DataFetcher(self.s, self.repo, self._sources).run(
                     run_id, niche=niche, topic_seed=topic_seed
                 )
                 self._persist(run_id, "data_brief", brief, paths, produced, hashes, None, {})
                 self.repo.update_run(run_id, state=RunState.FETCHED.value)
+                live = ", ".join(s for s, ok in brief.coverage.items() if ok) or "none"
+                self._emit("done", label="Data brief",
+                           detail=f"{len(brief.key_facts)} facts · {live}")
 
             elif stage == "generate":
                 if "judge" in stages:
@@ -196,8 +226,10 @@ class Orchestrator:
             elif stage in PRODUCTION_STAGES:
                 if not gate_checked:
                     if not (force or verdict == Verdict.PASS):
-                        self.log.warning("production_gate_blocked", run_id=run_id, verdict=str(verdict))
+                        self.log.info("production_gate_blocked", run_id=run_id, verdict=str(verdict))
+                        self._emit("gate", ok=False, verdict=verdict.value if verdict else None)
                         break
+                    self._emit("gate", ok=True)
                     gate_checked = True
                 self._run_production_stage(
                     stage, run_id, run_root, paths, produced, hashes, force=force
@@ -217,16 +249,23 @@ class Orchestrator:
         perspective = ""
         forced = False
         verdict: Verdict | None = None
+        # Resume-safe: continue the DB attempt numbering past any attempts from a prior run so the
+        # UNIQUE(run_id, attempt_number) key never collides — while the judge still counts THIS
+        # session's attempts from 1, so a resume gets a fresh MAX_REVISIONS budget.
+        prior = self.repo.get_attempts(run_id)
+        db_offset = prior[-1].attempt_number if prior else 0
 
         for attempt_number in range(1, self.s.max_revisions + 1):
             self._check_budget(run_id)
+            self._emit("step",
+                       label=f"Generating script (attempt {attempt_number}/{self.s.max_revisions})")
             attempt_id = str(ULID())
             script = ScriptGenerator(self.s, self._llm_provider()).run(
                 run_id, brief, template,
                 perspective_modifier=perspective, judge_feedback=feedback,
                 attempt_number=attempt_number,
             )
-            self.repo.add_attempt(attempt_id, run_id, attempt_number, template.id, forced)
+            self.repo.add_attempt(attempt_id, run_id, db_offset + attempt_number, template.id, forced)
             self._persist(
                 run_id, "script", script, paths, produced, hashes, attempt_id,
                 {"data_brief": hashes.get("data_brief", "")},
@@ -246,6 +285,11 @@ class Orchestrator:
             if report.provenance.model:
                 self.credit.record(self.s.judge_model, 800, 120)
             verdict = report.verdict
+            self._emit(
+                "judge", n=attempt_number, verdict=report.verdict.value,
+                total=report.weighted_total, insight=report.insight_score,
+                failing=[d.dimension for d in report.scores if not d.passed],
+            )
 
             if report.verdict == Verdict.PASS:
                 self.repo.update_run(
@@ -327,11 +371,14 @@ class Orchestrator:
     ) -> None:
         stage_key = {"voiceover": "voiceover", "visuals": "visuals",
                      "render": "video", "publish": "publish"}[stage]
+        label = _STAGE_LABELS[stage]
         if not force and stage_key in produced and paths.artifact(stage_key).exists():
             self.log.info("stage_skipped_cached", run_id=run_id, stage=stage)
+            self._emit("done", label=f"{label} (reused cached)")
             return
         if stage in ("voiceover", "visuals"):
             self._check_budget(run_id)
+        self._emit("step", label=label)
         if stage == "voiceover":
             script = self._need(produced, "script", paths)
             vo = Voiceover(self.s, self._tts_provider()).run(run_id, script, run_root=run_root)
@@ -377,6 +424,8 @@ class Orchestrator:
             )
             self.repo.update_run(run_id, state=RunState.PUBLISHED.value)
             self._publish_notifications(run_id, pub)
+
+        self._emit("done", label=label)
 
     def _publish_notifications(self, run_id, pub: PublishResult) -> None:
         if pub.upload_status in ("uploaded", "pending_manual_disclosure"):
@@ -605,9 +654,10 @@ def run_pipeline(
     niche: str | None = None,
     topic_seed: str | None = None,
     orchestrator: Orchestrator | None = None,
+    reporter=None,
 ) -> RunResult:
     """Thin functional entry point over :class:`Orchestrator` (Ch. 14.3)."""
-    orch = orchestrator or Orchestrator(dry_run=dry_run)
+    orch = orchestrator or Orchestrator(dry_run=dry_run, reporter=reporter)
     return orch.run(
         run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input_path,
         template_id=template_id, force=force, niche=niche, topic_seed=topic_seed,

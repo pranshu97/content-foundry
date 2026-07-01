@@ -16,6 +16,8 @@ python-dateutil>=2.9
 python-ulid>=2.7
 # media / production
 elevenlabs>=1.5
+edge-tts>=6.1          # free online neural TTS (no API key)
+piper-tts>=1.2         # free fully-offline neural TTS (needs a downloaded .onnx voice)
 stability-sdk>=0.8
 Pillow>=10.4
 ffmpeg-python>=0.2

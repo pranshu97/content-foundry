@@ -59,6 +59,14 @@ def build_tts_provider(settings: Settings) -> TTSProvider:
             settings.tts_model,
             settings.tts_format,
         )
+    if settings.tts_provider == "edge":
+        from .tts import EdgeTTS
+
+        return EdgeTTS(settings.tts_voice_id)
+    if settings.tts_provider == "piper":
+        from .tts import PiperTTS
+
+        return PiperTTS(settings.piper_model_path, settings.piper_executable)
     from .tts import OpenAITTS
 
     return OpenAITTS(settings.openai_api_key, settings.tts_voice_id)
@@ -90,14 +98,14 @@ def build_render_backend(settings: Settings) -> RenderBackend:
     if settings.render_backend == "ffmpeg":
         from .render_backend import FfmpegBackend
 
-        return FfmpegBackend()
+        return FfmpegBackend(settings.ffmpeg_path)
     if settings.render_backend == "moviepy":
         from .render_backend import MoviePyBackend
 
         return MoviePyBackend()
     from .render_backend import AvatarBackend, FfmpegBackend
 
-    fallback = FfmpegBackend() if settings.render_fallback else None
+    fallback = FfmpegBackend(settings.ffmpeg_path) if settings.render_fallback else None
     return AvatarBackend(settings.avatar_provider, settings.heygen_api_key, fallback)
 
 

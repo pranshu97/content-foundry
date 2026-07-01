@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import textwrap
 from io import BytesIO
 from pathlib import Path
 
@@ -121,20 +120,82 @@ class Visuals:
 
 # --------------------------------------------------------------------- Pillow
 def _write_card(text: str, size_wh: tuple[int, int], target: Path, base_png: bytes | None = None):
+    """Render a clean title card: gradient (or darkened image) + accent bar + big shadowed text."""
     from PIL import Image, ImageDraw
 
     target.parent.mkdir(parents=True, exist_ok=True)
+    width, height = size_wh
     if base_png:
         img = Image.open(BytesIO(base_png)).convert("RGB").resize(size_wh)
+        img = Image.blend(img, Image.new("RGB", size_wh, (8, 11, 20)), 0.5)  # darken for legibility
     else:
-        img = Image.new("RGB", size_wh, color=(17, 24, 39))
+        img = _gradient_bg(size_wh)
+
     draw = ImageDraw.Draw(img)
-    wrapped = textwrap.fill(text or "", width=max(10, size_wh[0] // 28))
-    draw.multiline_text(
-        (size_wh[0] // 2, size_wh[1] // 2),
-        wrapped,
-        fill=(245, 245, 245),
-        anchor="mm",
-        align="center",
-    )
+    margin = int(width * 0.08)
+    bar_w = max(6, width // 200)
+    gap = int(width * 0.025)
+    font = _load_font(int(height * 0.09))
+    lines = _wrap_to_width(draw, text or "", font, width - 2 * margin - bar_w - gap)
+
+    line_h = _line_height(draw, font)
+    block_h = line_h * len(lines)
+    y0 = max(margin, (height - block_h) // 2)
+    x_text = margin + bar_w + gap
+
+    draw.rectangle([margin, y0, margin + bar_w, y0 + block_h], fill=(56, 189, 248))  # accent bar
+    y = y0
+    for line in lines:
+        draw.text((x_text + 3, y + 3), line, font=font, fill=(0, 0, 0))  # shadow
+        draw.text((x_text, y), line, font=font, fill=(244, 246, 252))  # text
+        y += line_h
     img.save(target, format="PNG")
+
+
+def _gradient_bg(size_wh: tuple[int, int]):
+    from PIL import Image, ImageDraw
+
+    width, height = size_wh
+    top, bottom = (30, 41, 59), (2, 6, 23)  # slate-800 -> slate-950
+    img = Image.new("RGB", size_wh)
+    draw = ImageDraw.Draw(img)
+    span = max(1, height - 1)
+    for y in range(height):
+        t = y / span
+        draw.line(
+            [(0, y), (width, y)],
+            fill=tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)),
+        )
+    return img
+
+
+def _load_font(size: int):
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.load_default(size=size)  # scalable DejaVu (Pillow >= 10.1)
+    except Exception:  # pragma: no cover - ancient Pillow / no freetype
+        return ImageFont.load_default()
+
+
+def _line_height(draw, font) -> int:
+    box = draw.textbbox((0, 0), "Ag", font=font)
+    return int((box[3] - box[1]) * 1.45)
+
+
+def _wrap_to_width(draw, text: str, font, max_w: int, *, max_lines: int = 6) -> list[str]:
+    words = (text or "").split()
+    if not words:
+        return [""]
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        trial = f"{current} {word}".strip()
+        if draw.textbbox((0, 0), trial, font=font)[2] <= max_w or not current:
+            current = trial
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines[:max_lines]

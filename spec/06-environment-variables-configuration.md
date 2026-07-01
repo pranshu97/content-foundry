@@ -38,6 +38,8 @@ SCRIPT_TARGET_WORDS=900                    # ~6-7 min video
 MIN_FACTS=3                                # min grounded facts Agent 1 must produce (else the run fails)
 MIN_SCENES=3                               # completeness gate: reject scripts with fewer scenes
 MIN_SCRIPT_WORD_RATIO=0.5                  # completeness gate: reject drafts < this x SCRIPT_TARGET_WORDS
+GATE_RELIEF_SCORE=9.0                      # drafts scoring >= this get slack on insight+length floors (>10 disables)
+GATE_RELIEF_RATIO=0.20                     # slack amount (20%); never grounding/compliance/fatigue
 
 # ---------- Voiceover (TTS) ----------
 TTS_PROVIDER=elevenlabs                     # elevenlabs | openai

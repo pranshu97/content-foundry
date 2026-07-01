@@ -67,6 +67,8 @@ weighted_total >= PASS_THRESHOLD AND all floors met AND not fatigued AND complet
 otherwise, if attempt_number >= MAX_REVISIONS                        -> FAIL
 otherwise                                                            -> REVISE
 ```
+**Gate relief:** when `weighted_total >= GATE_RELIEF_SCORE`, the *insight* and *length* floors are relaxed by `GATE_RELIEF_RATIO` (grounding, compliance, and fatigue are never relaxed) — so a near-miss on one soft floor doesn't block an otherwise-excellent draft; the report `summary` notes when relief was applied.
+
 On `REVISE`, the report includes **structured, actionable `revision_instructions`** the Generator consumes on the next attempt. On `FAIL`, the run halts and is surfaced to the operator (likely a data problem, not a writing problem).
 
 ### 9.6 `JudgeReport` schema (Pydantic)

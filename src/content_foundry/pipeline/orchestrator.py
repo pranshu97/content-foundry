@@ -239,6 +239,28 @@ class Orchestrator:
         return self._build_result(run_id, stages, paths, produced)
 
     # ----------------------------------------------------- generate <-> judge
+    def _revise_reason(self, report, script) -> str | None:
+        """Human-readable 'why not PASS' for the progress line. Covers the length/completeness gate
+        (which is NOT a scored rubric dimension), failing hard floors, and template fatigue. Mirrors
+        the Judge's high-score gate relief so the shown floor matches the one actually enforced."""
+        if report.verdict == Verdict.PASS:
+            return None
+        s = self.s
+        factor = 1.0 - (s.gate_relief_ratio if report.weighted_total >= s.gate_relief_score else 0.0)
+        floor = int(s.min_script_word_ratio * s.script_target_words * factor)
+        min_scenes = max(2, round(s.min_scenes * factor))
+        bits: list[str] = []
+        if len(script.scenes) < min_scenes or script.word_count < floor:
+            bits.append(
+                f"too short ({script.word_count}/{floor} words, {len(script.scenes)} scenes)"
+            )
+        for d in report.scores:
+            if not d.passed and d.minimum is not None:
+                bits.append(f"{d.dimension} {d.score:.1f}<{d.minimum:.0f}")
+        if report.template_fatigue:
+            bits.append("template fatigue")
+        return "; ".join(bits) or f"score {report.weighted_total:.2f} < {self.s.pass_threshold}"
+
     def _gen_judge_loop(self, run_id, paths, produced, hashes, *, template_id) -> Verdict | None:
         brief = self._need(produced, "data_brief", paths)
         recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
@@ -288,7 +310,7 @@ class Orchestrator:
             self._emit(
                 "judge", n=attempt_number, verdict=report.verdict.value,
                 total=report.weighted_total, insight=report.insight_score,
-                failing=[d.dimension for d in report.scores if not d.passed],
+                reason=self._revise_reason(report, script),
             )
 
             if report.verdict == Verdict.PASS:

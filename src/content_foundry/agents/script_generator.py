@@ -91,10 +91,16 @@ class ScriptGenerator:
             if self._settings.time_box_enabled
             else ""
         )
+        floor = int(self._settings.min_script_word_ratio * self._settings.script_target_words)
+        per_scene = max(
+            40, round(self._settings.script_target_words / max(self._settings.scenes_per_video, 1))
+        )
         return render_prompt(
             load_prompt("script_generator.system"),
             target_words=self._settings.script_target_words,
             scenes=self._settings.scenes_per_video,
+            min_words=floor,
+            words_per_scene=per_scene,
             niche=brief.niche,
             template_name=template.name,
             template_beats=beats,
@@ -194,11 +200,15 @@ class ScriptGenerator:
         self._log.warning(
             "script_too_short", words=script.word_count, scenes=len(script.scenes)
         )
+        per_scene = max(
+            40, round(self._settings.script_target_words / max(self._settings.scenes_per_video, 1))
+        )
         boost = (
-            f"Your previous draft was only {script.word_count} words in {len(script.scenes)} "
-            f"scene(s) — far too short. Write the COMPLETE script now: about "
-            f"{self._settings.script_target_words} spoken words across "
-            f"{self._settings.scenes_per_video} scenes, each 3-6 full sentences. Return ONLY the JSON."
+            f"Your previous draft was only {script.word_count} words in {len(script.scenes)} scene(s) — "
+            f"the required minimum is {floor} words. Rewrite it MUCH longer: exactly "
+            f"{self._settings.scenes_per_video} scenes, each at least {per_scene} spoken words (4-6 full "
+            f"sentences of real narration with concrete detail and examples). Total at least {floor} "
+            f"words (aim for ~{self._settings.script_target_words}). Return ONLY the JSON."
         )
         try:
             resp = self._llm.complete(

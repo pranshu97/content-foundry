@@ -190,6 +190,11 @@ short — `report` shows a `LENGTH:` line when it fires. If your local model und
 `SCRIPT_TARGET_WORDS` (e.g. `350`) or use a bigger model. Every statistic also carries its **source**
 on screen (`… · Source: Adzuna`), enforced in code so a stat can never appear un-sourced.
 
+**Gate relief.** A draft scoring ≥ `GATE_RELIEF_SCORE` (9.0) earns `GATE_RELIEF_RATIO` (20%) slack on
+the **insight** and **length** floors — so a near-miss doesn't block an otherwise-excellent script
+(the report `summary` says when relief was applied). Grounding, compliance, and anti-repetition are
+**never** relaxed.
+
 Inspect it: `content-foundry report --run-id <id>` shows every dimension's score + the reasoning.
 
 `JUDGE_MODE`: `hybrid` (default, 1 small LLM call), `deterministic` (0 LLM, heuristics only — free
@@ -236,7 +241,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 |---|---|
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
 | **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
-| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
+| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
 | **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `PIPER_MODEL_PATH` |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `SCENES_PER_VIDEO` |
 | **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `AVATAR_OVERLAY_ENABLED` |

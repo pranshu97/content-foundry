@@ -19,8 +19,10 @@ SCRIPT_JSON_SHAPE = """{
   "title_options": ["...", "..."],
   "hook": "first ~10s, specific, opens a curiosity gap",
   "scenes": [
-    {"index": 0, "narration": "spoken words", "on_screen_text": "caption",
-     "b_roll_keywords": ["kw1", "kw2"], "fact_ref": 0}
+    {"index": 0, "narration": "3-6 full spoken sentences", "on_screen_text": "caption · Source: Adzuna",
+     "b_roll_keywords": ["kw1", "kw2"], "fact_ref": 0},
+    {"index": 1, "narration": "3-6 full spoken sentences", "on_screen_text": "caption · Source: BLS",
+     "b_roll_keywords": ["kw3"], "fact_ref": 1}
   ],
   "cta": "call to action",
   "description": "YouTube description draft (must mention synthetic content)",
@@ -53,6 +55,8 @@ class ScriptGenerator:
         parsed = self._parse_json(system, text)
         script = self._coerce_script(parsed, run_id=run_id, template_id=template.id)
         script = self._repair_grounding(script, brief)
+        script = self._ensure_min_length(system, script, brief, run_id, template.id)
+        script = self._stamp_sources(script, brief)
         return script
 
     # ------------------------------------------------------------------ prompt
@@ -76,7 +80,9 @@ class ScriptGenerator:
         ]
         perspective = perspective_modifier or f"PERSPECTIVE: {template.default_perspective}"
         revision = (
-            f"REVISION INSTRUCTIONS (address all of this): {judge_feedback}"
+            "REVISION — a reviewer scored your previous draft and it did NOT pass. Keep what already\n"
+            "worked and rewrite to fix EVERY point below (each line is a dimension, its score, the\n"
+            f"reviewer's reasoning, and the fix):\n{judge_feedback}"
             if judge_feedback
             else ""
         )
@@ -88,6 +94,7 @@ class ScriptGenerator:
         return render_prompt(
             load_prompt("script_generator.system"),
             target_words=self._settings.script_target_words,
+            scenes=self._settings.scenes_per_video,
             niche=brief.niche,
             template_name=template.name,
             template_beats=beats,
@@ -140,13 +147,14 @@ class ScriptGenerator:
 
         scenes: list[SceneCue] = []
         for i, raw_scene in enumerate(parsed.get("scenes", [])):
+            index = _coerce_int(raw_scene.get("index"))
             scenes.append(
                 SceneCue(
-                    index=raw_scene.get("index", i),
-                    narration=raw_scene.get("narration", ""),
+                    index=i if index is None else index,
+                    narration=raw_scene.get("narration", "") or "",
                     on_screen_text=raw_scene.get("on_screen_text"),
                     b_roll_keywords=raw_scene.get("b_roll_keywords", []) or [],
-                    fact_ref=raw_scene.get("fact_ref"),
+                    fact_ref=_coerce_int(raw_scene.get("fact_ref")),
                 )
             )
 
@@ -176,6 +184,40 @@ class ScriptGenerator:
         return script
 
     # -------------------------------------------------------------- grounding
+    def _ensure_min_length(self, system, script, brief, run_id, template_id):
+        """Small local models sometimes emit a 1-scene stub. If a draft is far too short, ask once
+        more for the full-length script and keep whichever draft is longer."""
+        if len(script.scenes) >= 2 and script.word_count >= 40:
+            return script
+        self._log.warning(
+            "script_too_short", words=script.word_count, scenes=len(script.scenes)
+        )
+        boost = (
+            f"Your previous draft was only {script.word_count} words in {len(script.scenes)} "
+            f"scene(s) — far too short. Write the COMPLETE script now: about "
+            f"{self._settings.script_target_words} spoken words across "
+            f"{self._settings.scenes_per_video} scenes, each 3-6 full sentences. Return ONLY the JSON."
+        )
+        try:
+            resp = self._llm.complete(
+                boost, system=system, temperature=self._settings.llm_temperature,
+                max_tokens=self._settings.llm_max_tokens,
+                model=select_model(
+                    self._settings, TaskTier.HEAVY, fallback=self._settings.generator_model
+                ),
+            )
+            longer = self._repair_grounding(
+                self._coerce_script(
+                    json.loads(extract_json(resp.text)), run_id=run_id, template_id=template_id
+                ),
+                brief,
+            )
+            if longer.word_count > script.word_count:
+                return longer
+        except (json.JSONDecodeError, LLMError, SchemaValidationError) as exc:
+            self._log.warning("length_retry_failed", error=str(exc))
+        return script
+
     def _repair_grounding(self, script: Script, brief: DataBrief) -> Script:
         offending = set(ungrounded_scene_indices(script, brief))
         if offending:
@@ -192,6 +234,62 @@ class ScriptGenerator:
         )
         script.word_count = _word_count(script)
         return script
+
+    def _stamp_sources(self, script: Script, brief: DataBrief) -> Script:
+        """HARD RULE (Ch. 8.6): a statistic is never shown without its exact source. Every scene
+        whose narration still cites a (grounded) stat gets its source surfaced in on_screen_text —
+        guaranteed in code, never left to the model."""
+        for scene in script.scenes:
+            if not STAT_RE.search(scene.narration):
+                continue
+            ref = scene.fact_ref
+            if ref is None or not (0 <= ref < len(brief.key_facts)):
+                continue  # ungrounded stats are stripped in _repair_grounding
+            label = _source_label(brief.key_facts[ref].citation)
+            caption = (scene.on_screen_text or "").strip()
+            if _has_source(caption, label):
+                continue
+            scene.on_screen_text = f"{caption} · Source: {label}" if caption else f"Source: {label}"
+        return script
+
+
+_SOURCE_LABELS = {
+    "adzuna": "Adzuna",
+    "layoffs": "Layoffs.fyi",
+    "news": "News",
+    "bls": "U.S. BLS",
+}
+
+
+def _source_label(citation) -> str:
+    """A short, human-readable source for the on-screen citation."""
+    key = (citation.source or "").lower()
+    return _SOURCE_LABELS.get(key, (citation.source or "source").title())
+
+
+def _has_source(caption: str, label: str) -> bool:
+    text = (caption or "").lower()
+    return "source" in text or label.lower() in text
+
+
+def _coerce_int(value):
+    """LLMs occasionally return an int field as a list of indices ([3, 5]) or a stringified number.
+    Normalise to a single int (the first usable one) or None so model validation never blows up."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        v = value.strip()
+        return int(v) if v.lstrip("-").isdigit() else None
+    if isinstance(value, list):
+        for item in value:
+            ref = _coerce_int(item)
+            if ref is not None:
+                return ref
+    return None
 
 
 def _strip_stats(text: str) -> str:

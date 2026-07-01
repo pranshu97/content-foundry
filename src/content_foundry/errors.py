@@ -44,6 +44,10 @@ class GroundingError(CareerEngineError):
     """An ungrounded claim could not be repaired."""
 
 
+class TTSError(CareerEngineError):
+    """Text-to-speech synthesis failed (missing voice model/binary, provider error, or bad audio)."""
+
+
 class RenderError(CareerEngineError):
     """ffmpeg/render-backend failure."""
 

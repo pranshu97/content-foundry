@@ -1,8 +1,10 @@
-"""Typer CLI exposed as ``career`` — thin wrappers over the orchestrator (Ch. 17)."""
+"""Typer CLI exposed as ``content-foundry`` — thin wrappers over the orchestrator (Ch. 17)."""
 
 from __future__ import annotations
 
+import contextlib
 import os
+import sys
 
 import typer
 from rich.console import Console
@@ -12,6 +14,12 @@ from .config import PROFILES, get_settings, reset_settings_cache
 from .errors import CareerEngineError
 from .logging import configure_logging
 from .persistence import Repository, init_db, make_engine, make_session_factory
+
+# Windows consoles / redirected pipes default to cp1252 and crash on the ✓/✗/emoji we print;
+# force UTF-8 so `config check`, logs, and run output never raise UnicodeEncodeError.
+for _stream in (sys.stdout, sys.stderr):
+    with contextlib.suppress(AttributeError, ValueError):  # non-reconfigurable stream
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
 
 app = typer.Typer(add_completion=False, help="Content Foundry CLI.")
 config_app = typer.Typer(help="Configuration utilities.")
@@ -52,33 +60,106 @@ def main(
     configure_logging()
 
 
+class _RunReporter:
+    """Clean, live pipeline progress for interactive runs: a spinner per step + judge scores."""
+
+    def __init__(self, con: Console) -> None:
+        self._c = con
+        self._status = None
+
+    def close(self) -> None:
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+
+    def __call__(self, event: str, **d: object) -> None:
+        if event == "start":
+            self._c.print(
+                f"\n[bold cyan]▶ content-foundry[/]  [dim]niche[/] {d.get('niche')}  "
+                f"[dim]·[/]  {d.get('from_stage')} → {d.get('to_stage')}"
+            )
+        elif event == "step":
+            self.close()
+            self._status = self._c.status(f"[cyan]{d['label']}…[/]", spinner="dots")
+            self._status.start()
+        elif event == "done":
+            self.close()
+            detail = f"  [dim]— {d['detail']}[/]" if d.get("detail") else ""
+            self._c.print(f"  [green]✓[/] {d['label']}{detail}")
+        elif event == "judge":
+            self.close()
+            verdict = str(d.get("verdict"))
+            color = {"PASS": "green", "REVISE": "yellow", "FAIL": "red"}.get(verdict, "white")
+            failing = d.get("failing") or []
+            fail_txt = f"  [red]↓ below floor: {', '.join(failing)}[/]" if failing else ""
+            self._c.print(
+                f"  [{color}]⚖ attempt {d['n']} → {verdict}[/]  [dim]score[/] "
+                f"[bold]{float(d['total']):.2f}[/][dim]/10 · insight[/] "
+                f"{float(d['insight']):.1f}{fail_txt}"
+            )
+        elif event == "gate":
+            self.close()
+            if d.get("ok"):
+                self._c.print("  [green]✓ production gate passed[/]")
+            else:
+                self._c.print(
+                    f"  [red]⛔ blocked at production gate[/] "
+                    f"[dim](needs a PASS — got {d.get('verdict')})[/]"
+                )
+        elif event == "end":
+            self.close()
+
+
 def _repo() -> Repository:
     engine = make_engine(get_settings().database_url)
     init_db(engine)
     return Repository(make_session_factory(engine))
 
 
+def _infer_next_stage(run_id: str) -> str:
+    """Fallback resume point for states without a clean 'next' (e.g. FAILED): resume from the first
+    missing stage based on which artifacts exist on disk — a FAILED script retries from 'generate',
+    a render that died resumes from 'render', etc."""
+    from .pipeline.artifacts import run_paths
+
+    paths = run_paths(run_id, get_settings().output_dir)
+    for artifact, nxt in (
+        ("video", "publish"),
+        ("visuals", "render"),
+        ("voiceover", "visuals"),
+        ("data_brief", "generate"),
+    ):
+        if paths.artifact(artifact).exists():
+            return nxt
+    return "fetch"
+
+
 def _run(**kwargs):
     from .pipeline.orchestrator import run_pipeline
 
     kwargs.setdefault("dry_run", _STATE["dry_run"])
+    reporter = _RunReporter(console)
     try:
-        result = run_pipeline(**kwargs)
+        result = run_pipeline(reporter=reporter, **kwargs)
     except CareerEngineError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        reporter.close()
+        console.print(f"[red]✗ Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
+    reporter.close()
+
     color = {"PASS": "green", "REVISE": "yellow", "FAIL": "red"}.get(
         result.verdict.value if result.verdict else "", "cyan"
     )
+    console.print()
     console.print(
-        f"[bold]run_id:[/bold] {result.run_id}  "
-        f"[bold]state:[/bold] {result.final_state.value}  "
-        f"[{color}]verdict: {result.verdict.value if result.verdict else 'n/a'}[/{color}]"
+        f"[bold]run_id[/] {result.run_id}   "
+        f"[bold]state[/] [{color}]{result.final_state.value}[/]   "
+        f"[bold]verdict[/] [{color}]{result.verdict.value if result.verdict else 'n/a'}[/]"
     )
     for stage, path in result.artifacts.items():
-        console.print(f"  {stage}: {path}")
+        console.print(f"  [dim]{stage:<12}[/] {path}")
     if result.video_url:
-        console.print(f"  youtube: {result.video_url}")
+        console.print(f"  [bold]youtube[/]      {result.video_url}")
     return result
 
 
@@ -181,15 +262,17 @@ def publish(
 def resume(
     run_id: str = typer.Option(..., "--run-id"),
     to_stage: str = typer.Option("publish", "--to-stage"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
-    """Continue a run from its next stage."""
+    """Continue a run from its next stage (auto-detected from the run's state / artifacts)."""
     run = _repo().get_run(run_id)
     if run is None:
         console.print(f"[red]No such run:[/red] {run_id}")
         raise typer.Exit(code=1)
-    next_stage = _NEXT_STAGE.get(run.state, "fetch")
+    next_stage = _NEXT_STAGE.get(run.state) or _infer_next_stage(run_id)
     console.print(f"Resuming {run_id} from [cyan]{next_stage}[/cyan] (state={run.state})")
-    _run(run_id=run_id, from_stage=next_stage, to_stage=to_stage, force=True)
+    _run(run_id=run_id, from_stage=next_stage, to_stage=to_stage, force=True,
+         dry_run=dry_run or _STATE["dry_run"])
 
 
 @app.command()

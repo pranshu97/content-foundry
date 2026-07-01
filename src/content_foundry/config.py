@@ -41,7 +41,7 @@ PROFILES: dict[str, dict[str, object]] = {
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=os.environ.get("ENV_FILE", ".env"),
+        env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -87,16 +87,23 @@ class Settings(BaseSettings):
     target_niche: str = "tech careers"
     script_target_words: int = 900
     min_facts: int = 3
+    # Completeness gate (Ch. 9.3a): reject stub scripts the quality rubric would otherwise pass. A
+    # grounded single-scene draft scores well on every dimension but is far too short for a video.
+    min_scenes: int = Field(3, ge=1)
+    min_script_word_ratio: float = Field(0.5, ge=0, le=1)
     # 0 = disabled (default). When > 0, abort the revision loop once a script still scores below
     # this weighted total on attempt >= 2 — it can't realistically reach PASS, so stop paying.
     fail_fast_score: float = Field(0.0, ge=0, le=10)
 
     # ---------- Voiceover (TTS) ----------
-    tts_provider: Literal["elevenlabs", "openai"] = "elevenlabs"
+    tts_provider: Literal["elevenlabs", "openai", "edge", "piper"] = "elevenlabs"
     elevenlabs_api_key: str = ""
     tts_voice_id: str = "Rachel"
     tts_model: str = "eleven_multilingual_v2"
     tts_format: str = "mp3_44100_128"
+    # Free voices: edge = Microsoft neural (online, no key); piper = fully offline (needs a .onnx model).
+    piper_model_path: str = ""
+    piper_executable: str = "piper"
 
     # ---------- Visuals ----------
     image_provider: Literal["openai", "stability", "none"] = "openai"
@@ -108,6 +115,7 @@ class Settings(BaseSettings):
 
     # ---------- Render ----------
     render_backend: Literal["ffmpeg", "moviepy", "avatar"] = "ffmpeg"
+    ffmpeg_path: str = ""  # optional explicit path to ffmpeg(.exe); auto-discovered when blank
     avatar_provider: Literal["none", "heygen", "did"] = "none"
     heygen_api_key: str = ""
     video_resolution: str = "1920x1080"
@@ -242,6 +250,9 @@ class Settings(BaseSettings):
         if self.tts_provider == "elevenlabs" and not self.elevenlabs_api_key:
             raise ValueError("TTS_PROVIDER=elevenlabs requires ELEVENLABS_API_KEY")
 
+        if self.tts_provider == "piper" and not self.piper_model_path:
+            raise ValueError("TTS_PROVIDER=piper requires PIPER_MODEL_PATH (path to a .onnx voice)")
+
         if self.image_provider == "stability" and not self.stability_api_key:
             raise ValueError("IMAGE_PROVIDER=stability requires STABILITY_API_KEY")
 
@@ -307,7 +318,8 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Build (once) and return the shared :class:`Settings`. Fails fast on bad config."""
     try:
-        return Settings()
+        # Resolve the dotenv path at call time so ``ENV_FILE`` can repoint it (and tests stay hermetic).
+        return Settings(_env_file=os.environ.get("ENV_FILE", ".env"))
     except ConfigError:
         raise
     except Exception as exc:  # pydantic ValidationError, etc.

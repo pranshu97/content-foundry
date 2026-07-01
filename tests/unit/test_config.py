@@ -63,6 +63,22 @@ def test_local_fallback_skips_cloud_key(monkeypatch):
     assert get_settings().fallback_provider == "local"
 
 
+def test_tts_edge_needs_no_key(monkeypatch):
+    # Edge (free Microsoft neural TTS) needs no API key.
+    monkeypatch.setenv("TTS_PROVIDER", "edge")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "")
+    reset_settings_cache()
+    assert get_settings().tts_provider == "edge"
+
+
+def test_tts_piper_requires_model_path(monkeypatch):
+    monkeypatch.setenv("TTS_PROVIDER", "piper")
+    monkeypatch.setenv("PIPER_MODEL_PATH", "")
+    reset_settings_cache()
+    with pytest.raises(ConfigError):
+        get_settings()
+
+
 def test_disclosure_gate_blocks_auto_public(monkeypatch):
     monkeypatch.setenv("PUBLISH_MODE", "auto")
     monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "public")

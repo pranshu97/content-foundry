@@ -44,6 +44,8 @@ _BASE_ENV = {
     "JUDGE_MODE": "hybrid",
     "MAX_REVISIONS": "3",
     "MIN_FACTS": "3",
+    # Small, so the tiny canned test scripts clear the Judge completeness floor (Ch. 9.3a).
+    "SCRIPT_TARGET_WORDS": "40",
     "LOG_LEVEL": "ERROR",
     "LOG_FORMAT": "console",
 }
@@ -58,6 +60,9 @@ def _env(monkeypatch, tmp_path):
         monkeypatch.setenv(key, value)
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output" / "runs"))
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
+    # Hermetic: point the dotenv loader at a path that won't exist so the developer's real .env
+    # never leaks into tests — they depend only on these env vars and the field defaults.
+    monkeypatch.setenv("ENV_FILE", str(tmp_path / "hermetic-none.env"))
     reset_settings_cache()
     yield
     reset_settings_cache()

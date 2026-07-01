@@ -142,3 +142,32 @@ def test_local_provider_factory(monkeypatch):
     llm = build_llm_provider(settings)
     assert llm.primary.name == "local"
     assert llm.secondary is None
+
+
+def test_tts_factory_builds_edge_and_piper(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("TTS_PROVIDER", "edge")
+    reset_settings_cache()
+    assert build_tts_provider(get_settings()).name == "edge"
+
+    monkeypatch.setenv("TTS_PROVIDER", "piper")
+    monkeypatch.setenv("PIPER_MODEL_PATH", "voices/en_US-amy.onnx")
+    reset_settings_cache()
+    assert build_tts_provider(get_settings()).name == "piper"
+
+
+def test_resolve_ffmpeg_prefers_configured_path(tmp_path):
+    from content_foundry.providers.render_backend import resolve_ffmpeg
+
+    fake = tmp_path / "ffmpeg.exe"
+    fake.write_text("x")
+    assert resolve_ffmpeg(str(fake)) == str(fake)
+
+
+def test_resolve_ffmpeg_never_returns_missing_configured(tmp_path, monkeypatch):
+    import content_foundry.providers.render_backend as rb
+
+    monkeypatch.setattr(rb.shutil, "which", lambda _name: None)
+    bad = str(tmp_path / "does-not-exist.exe")
+    assert rb.resolve_ffmpeg(bad) != bad  # a non-existent path is skipped, never returned

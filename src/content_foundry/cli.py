@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .config import PROFILES, get_settings, reset_settings_cache
-from .errors import CareerEngineError
+from .errors import ContentFoundryError
 from .logging import configure_logging
 from .persistence import Repository, init_db, make_engine, make_session_factory
 
@@ -141,7 +141,7 @@ def _run(**kwargs):
     reporter = _RunReporter(console)
     try:
         result = run_pipeline(reporter=reporter, **kwargs)
-    except CareerEngineError as exc:
+    except ContentFoundryError as exc:
         reporter.close()
         console.print(f"[red]✗ Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
@@ -356,7 +356,7 @@ def config_check(profile: str | None = typer.Option(None)) -> None:
         reset_settings_cache()
     try:
         settings = get_settings()
-    except CareerEngineError as exc:
+    except ContentFoundryError as exc:
         console.print(f"[red]Config invalid:[/red] {exc}")
         raise typer.Exit(code=2) from exc
     table = Table("credential", "status")

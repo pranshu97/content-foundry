@@ -2,16 +2,16 @@
 
 ### 21.1 Exception hierarchy
 ```python
-class CareerEngineError(Exception): ...            # base
-class ConfigError(CareerEngineError): ...          # bad/missing settings (fail fast at startup)
-class DataSourceError(CareerEngineError): ...       # one source failed (recoverable)
-class NoDataError(CareerEngineError): ...           # all sources failed
-class InsufficientDataError(CareerEngineError): ... # < MIN_FACTS grounded facts
-class LLMError(CareerEngineError): ...              # provider failure after retries
-class SchemaValidationError(CareerEngineError): ... # artifact/JSON invalid
-class GroundingError(CareerEngineError): ...        # ungrounded claim couldn't be repaired
-class RenderError(CareerEngineError): ...           # ffmpeg/backend failure
-class PublishError(CareerEngineError): ...          # upload/auth/quota failure
+class ContentFoundryError(Exception): ...            # base
+class ConfigError(ContentFoundryError): ...          # bad/missing settings (fail fast at startup)
+class DataSourceError(ContentFoundryError): ...       # one source failed (recoverable)
+class NoDataError(ContentFoundryError): ...           # all sources failed
+class InsufficientDataError(ContentFoundryError): ... # < MIN_FACTS grounded facts
+class LLMError(ContentFoundryError): ...              # provider failure after retries
+class SchemaValidationError(ContentFoundryError): ... # artifact/JSON invalid
+class GroundingError(ContentFoundryError): ...        # ungrounded claim couldn't be repaired
+class RenderError(ContentFoundryError): ...           # ffmpeg/backend failure
+class PublishError(ContentFoundryError): ...          # upload/auth/quota failure
 ```
 
 ### 21.2 Layered policy

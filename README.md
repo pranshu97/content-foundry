@@ -7,14 +7,15 @@ strict quality rubric, and compliant with synthetic-content disclosure by defaul
 **Pipeline:** Data Fetcher → Script Generator → Judge → Voiceover → Visuals → Render → Publish
 
 > The complete engineering specification (single source of truth) lives in [`spec/`](spec/README.md).
-> Build learnings & conventions are tracked in [`Reference.md`](Reference.md).
+> A high-level architecture summary is in [`TECH_REPORT.md`](TECH_REPORT.md), and the operator guide
+> in [`Tutorial.md`](Tutorial.md). Build learnings & conventions are tracked in [`Reference.md`](Reference.md).
 
 ## Quickstart
 
 ```bash
 # 1. Create & activate a Python 3.11+ environment, then install
 pip install -r requirements.txt
-pip install -e .            # exposes the `career` CLI
+pip install -e .            # exposes the `content-foundry` CLI
 
 # 2. Configure
 cp .env.example .env        # fill in your keys (see Human_Tasks.txt)

@@ -1,6 +1,6 @@
 ## 17. CLI Interface
 
-A `typer` app (`cli.py`, exposed as `career`). All commands are thin wrappers over the orchestrator. Global options: `--profile {cheap|quality}`, `--log-level`, `--dry-run`.
+A `typer` app (`cli.py`, exposed as `content-foundry`). All commands are thin wrappers over the orchestrator. Global options: `--profile {cheap|quality}`, `--log-level`, `--dry-run`.
 
 ### 17.1 Commands
 | Command | Purpose | Key options |

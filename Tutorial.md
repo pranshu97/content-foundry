@@ -183,6 +183,13 @@ no matter the total:
 - **REVISE**: a floor missed or total too low → the Judge's critique is fed into a rewrite.
 - **FAIL**: never passed within `MAX_REVISIONS` (usually a *data* problem, not writing).
 
+**Completeness gate (hard).** Independent of the score, a script is REVISEd if it's too short — fewer
+than `MIN_SCENES` (3) scenes **or** below `MIN_SCRIPT_WORD_RATIO × SCRIPT_TARGET_WORDS` words (default
+`0.5 × 900 = 450`). This is why a script can score **8+/10 and still not PASS**: high quality but too
+short — `report` shows a `LENGTH:` line when it fires. If your local model under-produces, lower
+`SCRIPT_TARGET_WORDS` (e.g. `350`) or use a bigger model. Every statistic also carries its **source**
+on screen (`… · Source: Adzuna`), enforced in code so a stat can never appear un-sourced.
+
 Inspect it: `content-foundry report --run-id <id>` shows every dimension's score + the reasoning.
 
 `JUDGE_MODE`: `hybrid` (default, 1 small LLM call), `deterministic` (0 LLM, heuristics only — free
@@ -229,7 +236,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 |---|---|
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
 | **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
-| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `TARGET_NICHE`, `FAIL_FAST_SCORE` |
+| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
 | **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `PIPER_MODEL_PATH` |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `SCENES_PER_VIDEO` |
 | **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `AVATAR_OVERLAY_ENABLED` |
@@ -285,7 +292,8 @@ approve drafts — the thin human layer. You're never in the writing loop.
 |---|---|
 | **"ffmpeg not found"** | It auto-discovers now; if it still can't find it, set `FFMPEG_PATH=` to your `ffmpeg.exe`, or **fully restart your editor** so the PATH refreshes (reopening a terminal isn't enough). |
 | **`ollama`/`ffmpeg` missing after reopening a terminal** | VS Code caches its environment at launch. **Quit and reopen VS Code entirely** (or reboot). The app talks to Ollama over HTTP, so it doesn't need the `ollama` CLI on PATH — only ffmpeg matters for rendering. |
-| **Run ends `FAILED` / verdict `FAIL`** | The script never cleared the Judge's floors in `MAX_REVISIONS` tries. Run `content-foundry report --run-id <id>` to see which dimension failed. Usually **insight** or **grounding**. |
+| **Run ends `FAILED` / verdict `FAIL`** | The script never cleared the Judge's floors in `MAX_REVISIONS` tries. Run `content-foundry report --run-id <id>` and read `revision_instructions` — the failing gate is named there. Usually **length** (too short), **insight**, or **grounding**. |
+| **Scored high (8+) but still `FAILED`** | The **completeness gate**: the script is too short (< `MIN_SCENES` scenes or < `MIN_SCRIPT_WORD_RATIO`×`SCRIPT_TARGET_WORDS` words). `report` shows a `LENGTH:` note. Lower `SCRIPT_TARGET_WORDS` (e.g. `350` for a 7B local model) or use a bigger model like `qwen2.5:14b`. |
 | **Score too low / insight floor** | Use a stronger model (`LOCAL_LLM_MODEL=qwen2.5:7b-instruct` beats llama3.1), lower `INSIGHT_MIN` for testing, or use `--profile cheap` (deterministic judge skips the insight LLM floor). |
 | **Score went *down* on a revision** | Each revision rewrites from scratch, so a weak model can regress. The revision prompt now feeds the Judge's exact reasoning back in to reduce this. |
 | **"insufficient facts" / no data** | A data source returned too little. Add real Adzuna keys, verify `LAYOFFS_FEED_URL` (try `https://layoffs.fyi/feed/`), or enable `bls` (keyless). Need ≥ `MIN_FACTS` (3). |

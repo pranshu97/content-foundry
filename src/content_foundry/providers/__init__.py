@@ -88,7 +88,7 @@ def build_broll_client(settings: Settings) -> BrollClient:
     if settings.pexels_api_key:
         from .broll import PexelsBrollClient
 
-        return PexelsBrollClient(settings.pexels_api_key)
+        return PexelsBrollClient(settings.pexels_api_key, settings.broll_pool_size)
     from .broll import NullBrollClient
 
     return NullBrollClient()

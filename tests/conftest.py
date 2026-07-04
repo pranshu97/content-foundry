@@ -46,6 +46,8 @@ _BASE_ENV = {
     "MIN_FACTS": "3",
     # Small, so the tiny canned test scripts clear the Judge completeness floor (Ch. 9.3a).
     "SCRIPT_TARGET_WORDS": "40",
+    # Off by default in tests so the fake LLM's call sequence stays deterministic; enabled per-test.
+    "BRAINSTORM_ENABLED": "false",
     "LOG_LEVEL": "ERROR",
     "LOG_FORMAT": "console",
 }
@@ -255,13 +257,18 @@ class FakeImageProvider:
 class FakeBrollClient:
     enabled = True
 
-    def __init__(self, url: str | None = "https://example.com/clip.mp4"):
-        self._url = url
+    def __init__(self, urls: list[str] | None = None):
+        # A pool of distinct clips so the visuals stage can hand each scene a fresh one.
+        self._urls = urls if urls is not None else [
+            f"https://example.com/clip_{i}.mp4" for i in range(10)
+        ]
+        self.downloaded: list[str] = []
 
-    def search(self, query: str) -> str | None:
-        return self._url
+    def search(self, query: str) -> list[str]:
+        return list(self._urls)
 
     def download(self, url: str) -> bytes:
+        self.downloaded.append(url)
         return b"FAKEVIDEO"
 
 
@@ -271,11 +278,13 @@ class FakeRenderBackend:
     def __init__(self):
         self.calls = 0
         self.last_overlay = None
+        self.last_citations_path = None
 
     def render(self, *, segments, audio_path, captions_path, output_path, resolution, fps,
-               burn_captions=True, overlay=None) -> str:
+               burn_captions=True, overlay=None, citations_path=None) -> str:
         self.calls += 1
         self.last_overlay = overlay
+        self.last_citations_path = citations_path
         from pathlib import Path
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)

@@ -62,6 +62,7 @@ class RenderBackend(Protocol):
         fps: int,
         burn_captions: bool = True,
         overlay: OverlaySpec | None = None,
+        citations_path: str | None = None,
     ) -> str:
         """Assemble the final mp4 and return its path."""
         ...
@@ -86,6 +87,7 @@ class FfmpegBackend:
         fps: int,
         burn_captions: bool = True,
         overlay: OverlaySpec | None = None,
+        citations_path: str | None = None,
     ) -> str:
         exe = resolve_ffmpeg(self._ffmpeg)
         if exe is None:
@@ -113,6 +115,15 @@ class FfmpegBackend:
         video = ffmpeg.concat(*inputs, v=1, n=len(inputs)) if inputs else ffmpeg.input(audio_path)
         if burn_captions and captions_path:
             video = video.filter("subtitles", captions_path)
+        if citations_path:  # pragma: no cover - requires ffmpeg on PATH
+            # Source citations pinned to the very top. Each cue also carries an inline {\an8}
+            # override (see captions.build_scene_srt) which libass honours reliably; force_style is a
+            # belt-and-suspenders default plus the compact font and opaque box.
+            video = video.filter(
+                "subtitles", citations_path,
+                force_style="Alignment=8,MarginV=1,FontSize=12,BorderStyle=3,"
+                "PrimaryColour=&H00FFFFFF&,BackColour=&HB0000000&",
+            )
         if overlay is not None:  # pragma: no cover - requires ffmpeg on PATH
             avatar = ffmpeg.input(overlay.image_path).filter(
                 "scale", -1, overlay.scaled_height(int(height))

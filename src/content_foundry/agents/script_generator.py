@@ -49,8 +49,9 @@ class ScriptGenerator:
         perspective_modifier: str = "",
         judge_feedback: str | None = None,
         attempt_number: int = 1,
+        idea: str = "",
     ) -> Script:
-        system = self._build_prompt(brief, template, perspective_modifier, judge_feedback)
+        system = self._build_prompt(brief, template, perspective_modifier, judge_feedback, idea)
         text = self._complete(system)
         parsed = self._parse_json(system, text)
         script = self._coerce_script(parsed, run_id=run_id, template_id=template.id)
@@ -66,6 +67,7 @@ class ScriptGenerator:
         template: Template,
         perspective_modifier: str,
         judge_feedback: str | None,
+        idea: str = "",
     ) -> str:
         beats = "\n".join(f"{i + 1}) {b}" for i, b in enumerate(template.beats))
         facts = [
@@ -95,12 +97,20 @@ class ScriptGenerator:
         per_scene = max(
             40, round(self._settings.script_target_words / max(self._settings.scenes_per_video, 1))
         )
+        idea_focus = (
+            "THIS VIDEO'S TOPIC — the single most important instruction. The whole script must "
+            f'deliver EXACTLY this specific, helpful video, NOT generic "{brief.niche}" advice. Use '
+            "the data only where it genuinely supports this topic:\n"
+            f">>> {idea} <<<\n\n"
+            if idea else ""
+        )
         return render_prompt(
             load_prompt("script_generator.system"),
             target_words=self._settings.script_target_words,
             scenes=self._settings.scenes_per_video,
             min_words=floor,
             words_per_scene=per_scene,
+            idea_focus=idea_focus,
             niche=brief.niche,
             template_name=template.name,
             template_beats=beats,

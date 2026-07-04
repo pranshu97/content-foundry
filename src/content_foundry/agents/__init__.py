@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .brainstorm import Brainstormer
 from .data_fetcher import DataFetcher
 from .judge import Judge
 from .publisher import Publisher
@@ -12,6 +13,7 @@ from .voiceover import Voiceover
 
 __all__ = [
     "DataFetcher",
+    "Brainstormer",
     "ScriptGenerator",
     "Judge",
     "Voiceover",

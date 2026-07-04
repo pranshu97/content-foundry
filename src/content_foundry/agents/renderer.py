@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..logging import get_logger
 from ..models import Provenance, VideoAsset, VisualPackage, VoiceoverAsset
+from ..production.captions import source_only, write_scene_srt
 from ..production.overlay import build_overlay_spec
 from ..production.timeline import build_timeline
 
@@ -31,6 +32,12 @@ class Renderer:
         captions_real = (
             str(run_root / visuals.captions_path) if self._settings.captions_enabled else None
         )
+        citations_rel = "assets/citations.srt"
+        has_citations = write_scene_srt(
+            run_root / citations_rel,
+            [(s.start, s.end, source_only(s.on_screen_text or "")) for s in segments],
+        )
+        citations_real = str(run_root / citations_rel) if has_citations else None
         out_real = run_root / _VIDEO_REL
         out_real.parent.mkdir(parents=True, exist_ok=True)
 
@@ -43,6 +50,7 @@ class Renderer:
             segments=resolved,
             audio_path=audio_real,
             captions_path=captions_real,
+            citations_path=citations_real,
             output_path=str(out_real),
             resolution=self._settings.video_resolution,
             fps=self._settings.video_fps,

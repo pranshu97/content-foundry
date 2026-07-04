@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     grounding_min: float = Field(8.0, ge=0, le=10)
     fatigue_lookback: int = 5
     target_niche: str = "tech careers"
+    # Brainstormer (Agent 0): an LLM proposes a fresh, specific video idea each run to avoid topic
+    # collapse; falls back to a deterministic content angle. Disable to reuse the raw topic/niche.
+    brainstorm_enabled: bool = True
+    brainstorm_idea_count: int = Field(5, ge=1, le=10)
     script_target_words: int = 900
     min_facts: int = 3
     # Completeness gate (Ch. 9.3a): reject stub scripts the quality rubric would otherwise pass. A
@@ -99,6 +103,9 @@ class Settings(BaseSettings):
     # 0 = disabled (default). When > 0, abort the revision loop once a script still scores below
     # this weighted total on attempt >= 2 — it can't realistically reach PASS, so stop paying.
     fail_fast_score: float = Field(0.0, ge=0, le=10)
+    # Human-in-the-loop: when true, a PASSed script pauses before production (voiceover onward) so you
+    # can review script.json, then `content-foundry resume` to continue. Default off (fully automatic).
+    require_script_approval: bool = False
 
     # ---------- Voiceover (TTS) ----------
     tts_provider: Literal["elevenlabs", "openai", "edge", "piper"] = "elevenlabs"
@@ -114,6 +121,9 @@ class Settings(BaseSettings):
     image_provider: Literal["openai", "stability", "none"] = "openai"
     stability_api_key: str = ""
     pexels_api_key: str = ""
+    # How many candidate clips to pull per B-roll query so each scene can get a distinct clip
+    # (and no clip repeats more than twice across the video). Pexels allows up to 80 per page.
+    broll_pool_size: int = Field(15, ge=1, le=80)
     visual_style: str = "clean infographic, high-contrast, bold text"
     scenes_per_video: int = 10
     thumbnail_size: str = "1280x720"

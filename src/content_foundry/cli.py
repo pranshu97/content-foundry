@@ -101,6 +101,11 @@ class _RunReporter:
             self.close()
             if d.get("ok"):
                 self._c.print("  [green]✓ production gate passed[/]")
+            elif d.get("awaiting_approval"):
+                self._c.print(
+                    "  [yellow]⏸ script approved by the reviewer — awaiting your sign-off[/]  "
+                    f"[dim]review script.json, then:[/] content-foundry resume --run-id {d.get('run_id')}"
+                )
             else:
                 self._c.print(
                     f"  [red]⛔ blocked at production gate[/] "
@@ -134,11 +139,29 @@ def _infer_next_stage(run_id: str) -> str:
     return "fetch"
 
 
+def _make_idea_chooser(reporter: _RunReporter):
+    """An interactive picker: show the brainstormed ideas and let the operator choose one."""
+    def _choose(ideas: list[str]) -> str:
+        reporter.close()  # stop the spinner before prompting
+        console.print("\n[bold]Pick a video idea:[/]")
+        for i, idea in enumerate(ideas, 1):
+            console.print(f"  [cyan]{i}[/]. {idea}")
+        try:
+            n = typer.prompt("Your choice", type=int, default=1)
+        except (typer.Abort, EOFError):
+            return ideas[0]
+        return ideas[n - 1] if 1 <= n <= len(ideas) else ideas[0]
+
+    return _choose
+
+
 def _run(**kwargs):
     from .pipeline.orchestrator import run_pipeline
 
     kwargs.setdefault("dry_run", _STATE["dry_run"])
     reporter = _RunReporter(console)
+    if kwargs.pop("interactive_idea", False) and sys.stdin.isatty():
+        kwargs["idea_chooser"] = _make_idea_chooser(reporter)
     try:
         result = run_pipeline(reporter=reporter, **kwargs)
     except ContentFoundryError as exc:
@@ -167,6 +190,7 @@ def _run(**kwargs):
 def run(
     niche: str | None = typer.Option(None),
     topic: str | None = typer.Option(None),
+    idea: str | None = typer.Option(None, "--idea", help="Focus the brainstormer on your concept (it proposes angles you pick from)"),
     template: str | None = typer.Option(None),
     from_stage: str = typer.Option("fetch", "--from-stage"),
     to_stage: str = typer.Option("publish", "--to-stage"),
@@ -179,7 +203,7 @@ def run(
     _run(
         run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input,
         template_id=template, force=force, dry_run=dry_run or _STATE["dry_run"],
-        niche=niche, topic_seed=topic,
+        niche=niche, topic_seed=topic, idea=idea, interactive_idea=True,
     )
 
 

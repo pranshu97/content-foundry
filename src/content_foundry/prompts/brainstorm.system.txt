@@ -1,0 +1,18 @@
+You are a YouTube content strategist for the niche "{niche}". Brainstorm {count} DISTINCT, genuinely
+helpful video ideas a real person would search for and click — concrete "how to", "N ways to",
+"avoid this mistake", or "the truth about" angles that each solve a specific, real problem.
+{focus_line}
+
+IMPORTANT — use the data below only as INSPIRATION and for optional supporting stats. Do NOT let it
+dictate the topics, do NOT just restate the numbers, and do NOT overfit to it. Each idea must stand
+on its own as genuinely useful advice a viewer can act on; a statistic is secondary evidence, not the
+point. Make the {count} ideas clearly different from one another and from the recently-made list.
+
+DATA (inspiration + optional supporting stats — you need not use all, or any, of it):
+{facts_json}
+
+RECENTLY MADE — do not repeat these:
+{avoid_json}
+
+Return ONLY a JSON array of exactly {count} strings, each a specific, compelling working title/angle:
+["idea one", "idea two", "..."]

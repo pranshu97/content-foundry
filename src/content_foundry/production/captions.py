@@ -39,3 +39,38 @@ def write_srt(path: str | Path, word_timings: Sequence[WordTiming], max_words: i
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return str(target)
+
+
+def build_scene_srt(cues: Sequence[tuple[float, float, str]]) -> str:
+    """Build an SRT from explicit (start, end, text) cues — e.g. on-screen source citations."""
+    out: list[str] = []
+    idx = 1
+    for start, end, text in cues:
+        text = (text or "").strip()
+        if not text:
+            continue
+        # Prepend the ASS \an8 override (top-centre). libass honours inline overrides even in an
+        # SRT track, which is far more reliable than the subtitles filter's force_style Alignment.
+        out.append(f"{idx}\n{_fmt_ts(start)} --> {_fmt_ts(max(end, start))}\n{{\\an8}}{text}\n")
+        idx += 1
+    return "\n".join(out)
+
+
+def write_scene_srt(path: str | Path, cues: Sequence[tuple[float, float, str]]) -> bool:
+    """Write a scene-timed SRT; returns False and writes nothing when no cue carries text."""
+    content = build_scene_srt(cues)
+    if not content:
+        return False
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return True
+
+
+def source_only(on_screen_text: str) -> str:
+    """Return just the 'Source: …' citation from an on-screen callout; '' when there is none.
+
+    on_screen_text is '<callout> · Source: <name>'; only the source belongs on the burned top strip.
+    """
+    idx = (on_screen_text or "").lower().rfind("source:")
+    return on_screen_text[idx:].strip() if idx >= 0 else ""

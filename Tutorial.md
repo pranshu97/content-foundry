@@ -159,8 +159,9 @@ Global flags go **before** the command: `content-foundry --profile cheap --dry-r
 | `notify-test` | Send a sample of each alert to verify your bot |
 | `schedule [--cron "0 9 * * MON"]` | Run on a schedule |
 
-Key `run` options: `--niche`, `--topic`, `--template`, `--from-stage`, `--to-stage`, `--run-id`,
-`--input`, `--force`, `--dry-run`.
+Key `run` options: `--niche`, `--topic`, `--idea`, `--template`, `--from-stage`, `--to-stage`, `--run-id`,
+`--input`, `--force`, `--dry-run`. `--idea "resume optimization"` **focuses** the brainstormer on your
+concept — it proposes a few specific angles and (in a terminal) asks you to pick one before writing.
 
 ---
 
@@ -241,7 +242,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 |---|---|
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
 | **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
-| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
+| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `BRAINSTORM_IDEA_COUNT`, `REQUIRE_SCRIPT_APPROVAL`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
 | **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `PIPER_MODEL_PATH` |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `SCENES_PER_VIDEO` |
 | **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `AVATAR_OVERLAY_ENABLED` |

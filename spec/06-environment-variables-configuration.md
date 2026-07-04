@@ -34,6 +34,9 @@ INSIGHT_MIN=7.0                            # hard floor on Insight Score
 GROUNDING_MIN=8.0                          # hard floor on factual grounding
 FATIGUE_LOOKBACK=5                         # # of recent runs checked for template repetition
 TARGET_NICHE=tech careers                  # default content domain
+BRAINSTORM_ENABLED=true                     # Agent 0 proposes a fresh idea each run (fixes topic collapse)
+BRAINSTORM_IDEA_COUNT=5                      # ideas proposed per run (interactive pick on a TTY, else first)
+REQUIRE_SCRIPT_APPROVAL=false               # true = pause after a PASS for sign-off, then resume
 SCRIPT_TARGET_WORDS=900                    # ~6-7 min video
 MIN_FACTS=3                                # min grounded facts Agent 1 must produce (else the run fails)
 MIN_SCENES=3                               # completeness gate: reject scripts with fewer scenes

@@ -11,6 +11,7 @@ from pathlib import Path
 from ulid import ULID
 
 from ..agents import (
+    Brainstormer,
     DataFetcher,
     Judge,
     Publisher,
@@ -92,9 +93,11 @@ class Orchestrator:
         render_backend=None,
         publisher=None,
         reporter=None,
+        idea_chooser=None,
     ) -> None:
         self.s = settings or get_settings()
         self._reporter = reporter
+        self._idea_chooser = idea_chooser
         # With a live progress reporter (the CLI), keep the console quiet so it doesn't fight the
         # spinner — surface only real errors; the reporter shows the human-friendly progress.
         if reporter is not None:
@@ -137,6 +140,7 @@ class Orchestrator:
         force: bool = False,
         niche: str | None = None,
         topic_seed: str | None = None,
+        idea: str | None = None,
     ) -> RunResult:
         start = time.time()
         niche = niche or self.s.target_niche
@@ -154,7 +158,7 @@ class Orchestrator:
         try:
             result = self._execute(
                 run_id, stages, paths, produced, hashes,
-                niche=niche, topic_seed=topic_seed, template_id=template_id, force=force,
+                niche=niche, topic_seed=topic_seed, template_id=template_id, force=force, idea=idea,
             )
         except ContentFoundryError as exc:
             self.repo.update_run(run_id, state=RunState.FAILED.value)
@@ -189,7 +193,8 @@ class Orchestrator:
 
     # ============================================================== execution
     def _execute(
-        self, run_id, stages, paths, produced, hashes, *, niche, topic_seed, template_id, force
+        self, run_id, stages, paths, produced, hashes, *, niche, topic_seed, template_id, force,
+        idea=None,
     ) -> RunResult:
         run_root = paths.root
         verdict = self._latest_verdict(run_id, produced)
@@ -212,11 +217,13 @@ class Orchestrator:
             elif stage == "generate":
                 if "judge" in stages:
                     verdict = self._gen_judge_loop(
-                        run_id, paths, produced, hashes, template_id=template_id
+                        run_id, paths, produced, hashes, template_id=template_id, idea=idea
                     )
                     handled_judge = True
                 else:
-                    self._generate_once(run_id, paths, produced, hashes, template_id=template_id)
+                    self._generate_once(
+                        run_id, paths, produced, hashes, template_id=template_id, idea=idea
+                    )
 
             elif stage == "judge":
                 if handled_judge:
@@ -228,6 +235,10 @@ class Orchestrator:
                     if not (force or verdict == Verdict.PASS):
                         self.log.info("production_gate_blocked", run_id=run_id, verdict=str(verdict))
                         self._emit("gate", ok=False, verdict=verdict.value if verdict else None)
+                        break
+                    if self.s.require_script_approval and handled_judge and not force:
+                        self.log.info("awaiting_script_approval", run_id=run_id)
+                        self._emit("gate", ok=False, awaiting_approval=True, run_id=run_id)
                         break
                     self._emit("gate", ok=True)
                     gate_checked = True
@@ -261,11 +272,31 @@ class Orchestrator:
             bits.append("template fatigue")
         return "; ".join(bits) or f"score {report.weighted_total:.2f} < {self.s.pass_threshold}"
 
-    def _gen_judge_loop(self, run_id, paths, produced, hashes, *, template_id) -> Verdict | None:
+    def _resolve_idea(self, brief, seed, recent_hooks) -> str:
+        """The user's --idea (``seed``) FOCUSES the brainstormer rather than being used verbatim, so
+        the script is a concrete, relevant video instead of generic niche filler. The Brainstormer
+        proposes several ideas; an interactive chooser (CLI) picks one, else the first is used.
+        Brainstorm off => the seed is used raw."""
+        seed = (seed or "").strip()
+        if not self.s.brainstorm_enabled:
+            return seed
+        ideas = Brainstormer(self.s, self._llm_provider()).propose(
+            brief, recent_ideas=recent_hooks, count=self.s.brainstorm_idea_count, focus=seed
+        )
+        if not ideas:
+            return seed
+        chosen = (self._idea_chooser(ideas) if self._idea_chooser else ideas[0]) or ideas[0]
+        self._emit("done", label="Idea", detail=chosen[:80])
+        return chosen
+
+    def _gen_judge_loop(
+        self, run_id, paths, produced, hashes, *, template_id, idea=None
+    ) -> Verdict | None:
         brief = self._need(produced, "data_brief", paths)
         recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
         recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback)
         template = get_template(template_id) if template_id else select_template(recent_ids)
+        idea = self._resolve_idea(brief, idea, recent_hooks)
 
         feedback: str | None = None
         perspective = ""
@@ -285,7 +316,7 @@ class Orchestrator:
             script = ScriptGenerator(self.s, self._llm_provider()).run(
                 run_id, brief, template,
                 perspective_modifier=perspective, judge_feedback=feedback,
-                attempt_number=attempt_number,
+                attempt_number=attempt_number, idea=idea,
             )
             self.repo.add_attempt(attempt_id, run_id, db_offset + attempt_number, template.id, forced)
             self._persist(
@@ -347,13 +378,14 @@ class Orchestrator:
 
         return verdict
 
-    def _generate_once(self, run_id, paths, produced, hashes, *, template_id) -> None:
+    def _generate_once(self, run_id, paths, produced, hashes, *, template_id, idea=None) -> None:
         brief = self._need(produced, "data_brief", paths)
         recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
         template = get_template(template_id) if template_id else select_template(recent_ids)
+        idea = self._resolve_idea(brief, idea, self.repo.recent_hooks(self.s.fatigue_lookback))
         attempt_id = str(ULID())
         script = ScriptGenerator(self.s, self._llm_provider()).run(
-            run_id, brief, template, attempt_number=1
+            run_id, brief, template, attempt_number=1, idea=idea
         )
         self.repo.add_attempt(attempt_id, run_id, 1, template.id, False)
         self._persist(
@@ -675,12 +707,14 @@ def run_pipeline(
     dry_run: bool = False,
     niche: str | None = None,
     topic_seed: str | None = None,
+    idea: str | None = None,
+    idea_chooser=None,
     orchestrator: Orchestrator | None = None,
     reporter=None,
 ) -> RunResult:
     """Thin functional entry point over :class:`Orchestrator` (Ch. 14.3)."""
-    orch = orchestrator or Orchestrator(dry_run=dry_run, reporter=reporter)
+    orch = orchestrator or Orchestrator(dry_run=dry_run, reporter=reporter, idea_chooser=idea_chooser)
     return orch.run(
         run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input_path,
-        template_id=template_id, force=force, niche=niche, topic_seed=topic_seed,
+        template_id=template_id, force=force, niche=niche, topic_seed=topic_seed, idea=idea,
     )

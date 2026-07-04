@@ -61,3 +61,52 @@ def test_render_artifact_written(settings, sample_signals, fakes):
     assert result.final_state == RunState.RENDERED
     video_mp4 = Path(result.artifacts["video"]).parent / "assets" / "video.mp4"
     assert video_mp4.exists()
+
+
+def test_require_script_approval_pauses_then_resumes(monkeypatch, sample_signals, fakes):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("REQUIRE_SCRIPT_APPROVAL", "true")
+    reset_settings_cache()
+    s = get_settings()
+
+    def make_orch():
+        return Orchestrator(
+            s, notifier=NullNotifier(), dry_run=True, llm_provider=fakes.LLM(),
+            sources=[fakes.DataSource("adzuna", sample_signals)],
+            tts_provider=fakes.TTS(with_timings=True), image_provider=None, broll_client=None,
+            render_backend=fakes.Render(), publisher=DryRunPublisher(),
+        )
+
+    # A PASS pauses BEFORE production: state APPROVED, script written, no voiceover yet.
+    paused = make_orch().run(from_stage="fetch", to_stage="publish", niche="tech careers")
+    assert paused.verdict == Verdict.PASS
+    assert paused.final_state == RunState.APPROVED
+    assert "script" in paused.artifacts
+    assert not (Path(paused.artifacts["script"]).parent / "voiceover.json").exists()
+
+    # Signing off = resuming; production runs through to publish.
+    resumed = make_orch().run(from_stage="voiceover", to_stage="publish", run_id=paused.run_id)
+    assert resumed.final_state == RunState.PUBLISHED
+
+
+def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("BRAINSTORM_ENABLED", "true")
+    reset_settings_cache()
+    seen: dict[str, list[str]] = {}
+
+    def chooser(ideas: list[str]) -> str:
+        seen["ideas"] = ideas
+        return ideas[-1]  # deliberately pick the last
+
+    orch = Orchestrator(
+        get_settings(), notifier=NullNotifier(),
+        llm_provider=fakes.LLM(script_json=["Idea A", "Idea B", "Idea C"]),
+        idea_chooser=chooser,
+    )
+    # --idea 'resume optimization' focuses the brainstormer; the chooser picks among the proposals.
+    idea = orch._resolve_idea(data_brief, "resume optimization", [])
+    assert seen["ideas"] == ["Idea A", "Idea B", "Idea C"]
+    assert idea == "Idea C"

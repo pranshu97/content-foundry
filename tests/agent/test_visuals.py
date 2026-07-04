@@ -53,6 +53,27 @@ def test_visuals_use_broll_when_available(settings, good_script, tmp_path, fakes
     assert any(sv.kind == "broll" and sv.source == "pexels" for sv in pkg.scenes)
 
 
+def test_broll_clips_capped_at_two_uses(settings, good_script, tmp_path, fakes):
+    # Only 2 clips available for a multi-scene script -> no clip downloaded more than twice.
+    from collections import Counter
+
+    broll = fakes.Broll(urls=["https://x/a.mp4", "https://x/b.mp4"])
+    Visuals(settings, image_provider=None, broll_client=broll).run(
+        "R", good_script, _voiceover(good_script), run_root=tmp_path
+    )
+    counts = Counter(broll.downloaded)
+    assert counts and all(c <= 2 for c in counts.values())
+
+
+def test_broll_prefers_fresh_clips(settings, good_script, tmp_path, fakes):
+    # With a large pool, each scene gets a distinct clip (no repeats).
+    broll = fakes.Broll()  # 10 distinct clips
+    Visuals(settings, image_provider=None, broll_client=broll).run(
+        "R", good_script, _voiceover(good_script), run_root=tmp_path
+    )
+    assert broll.downloaded and len(set(broll.downloaded)) == len(broll.downloaded)
+
+
 def test_visuals_use_image_provider(settings, good_script, tmp_path, fakes):
     vo = _voiceover(good_script)
     image = fakes.Image()

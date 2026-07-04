@@ -15,6 +15,7 @@ class SceneVisual(BaseModel):
     path: str  # assets/scenes/scene_<n>.{png|mp4}
     source: str  # openai | stability | pexels | card
     prompt_or_query: str
+    on_screen_text: str | None = None  # caption / source citation to burn onto the frame
     duration_sec: float  # mirrors scene timing
 
 

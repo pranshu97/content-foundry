@@ -39,10 +39,12 @@ class Visuals:
         scenes_dir.mkdir(parents=True, exist_ok=True)
 
         scene_visuals: list[SceneVisual] = []
+        used_clips: dict[str, int] = {}
         for scene in sorted(script.scenes, key=lambda s: s.index):
             scene_visuals.append(
                 self._build_scene_visual(
-                    scene, run_root, duration=durations.get(scene.index, 3.0)
+                    scene, run_root, duration=durations.get(scene.index, 3.0),
+                    used_clips=used_clips,
                 )
             )
 
@@ -67,11 +69,24 @@ class Visuals:
         )
 
     # ------------------------------------------------------------------ scene
-    def _build_scene_visual(self, scene, run_root: Path, *, duration: float) -> SceneVisual:
+    def _pick_broll(self, query: str, used: dict[str, int], *, max_uses: int = 2) -> str | None:
+        """Pick a clip, preferring one not yet used and never reusing any clip more than ``max_uses``
+        times across the video, so B-roll doesn't visibly repeat."""
+        candidates = self._broll.search(query)
+        for threshold in (0, max_uses - 1):
+            for url in candidates:
+                if used.get(url, 0) <= threshold:
+                    used[url] = used.get(url, 0) + 1
+                    return url
+        return None
+
+    def _build_scene_visual(
+        self, scene, run_root: Path, *, duration: float, used_clips: dict[str, int]
+    ) -> SceneVisual:
         broll_enabled = bool(self._broll and getattr(self._broll, "enabled", False))
         if scene.b_roll_keywords and broll_enabled:
             query = " ".join(scene.b_roll_keywords[:2])
-            url = self._broll.search(query)
+            url = self._pick_broll(query, used_clips)
             if url:
                 rel = f"assets/scenes/scene_{scene.index}.mp4"
                 (run_root / rel).write_bytes(self._broll.download(url))
@@ -81,6 +96,7 @@ class Visuals:
                     path=rel,
                     source="pexels",
                     prompt_or_query=query,
+                    on_screen_text=scene.on_screen_text,
                     duration_sec=round(duration, 3),
                 )
 
@@ -102,6 +118,7 @@ class Visuals:
             path=rel,
             source=source,
             prompt_or_query=prompt,
+            on_screen_text=scene.on_screen_text,
             duration_sec=round(duration, 3),
         )
 

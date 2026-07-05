@@ -135,6 +135,29 @@ def test_subscribe_nudge_built_at_midpoint(monkeypatch, tmp_path, fakes):
     assert spec.start == 1.0  # _voiceover() is 6.0s -> midpoint 3.0, 4s badge starts at 1.0
 
 
+def test_subscribe_bell_rings_when_badge_appears(monkeypatch, tmp_path, fakes):
+    monkeypatch.setenv("SUBSCRIBE_NUDGE_ENABLED", "true")
+    monkeypatch.setenv("SFX_ENABLED", "true")
+    reset_settings_cache()
+    sfx = fakes.Sfx()  # records the keywords the renderer asks it to resolve
+    Renderer(get_settings(), fakes.Render(), sfx).run(
+        "R", _voiceover(), _visuals(), run_root=tmp_path
+    )
+    assert sfx.requested == ["bell"]  # the badge's midpoint arrival is announced with a bell
+
+
+def test_subscribe_bell_can_be_silenced(monkeypatch, tmp_path, fakes):
+    monkeypatch.setenv("SUBSCRIBE_NUDGE_ENABLED", "true")
+    monkeypatch.setenv("SFX_ENABLED", "true")
+    monkeypatch.setenv("SUBSCRIBE_BELL_ENABLED", "false")
+    reset_settings_cache()
+    sfx = fakes.Sfx()
+    Renderer(get_settings(), fakes.Render(), sfx).run(
+        "R", _voiceover(), _visuals(), run_root=tmp_path
+    )
+    assert sfx.requested == []  # the badge still shows, but no bell cue is emitted
+
+
 def test_avatar_overlay_passed_to_backend(monkeypatch, tmp_path, fakes):
     avatar = tmp_path / "me.png"
     avatar.write_bytes(b"PNG")

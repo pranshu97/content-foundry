@@ -8,7 +8,7 @@ from collections import Counter
 import httpx
 import respx
 
-from content_foundry.agents.visuals import _broll_source, _BrollPicker
+from content_foundry.agents.visuals import _broll_source, _BrollPicker, _search_terms
 from content_foundry.config import get_settings, reset_settings_cache
 from content_foundry.providers import build_broll_client
 from content_foundry.providers.broll import (
@@ -90,6 +90,26 @@ def test_picker_varies_across_runs():
         for rid in ("0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010")
     }
     assert len(firsts) > 1  # different runs don't all open on the same clip
+
+
+def test_picker_favors_more_relevant_clips():
+    # Candidates arrive in relevance order (search rank). Across many runs the top-ranked clip should
+    # be chosen more often than the least-ranked, while still leaving room for variety.
+    pool = ["a", "b", "c", "d"]  # "a" = most relevant
+    firsts = Counter(_BrollPicker(random.Random(str(i))).pick(list(pool)) for i in range(60))
+    assert firsts["a"] > firsts["d"]
+
+
+def test_search_terms_shortens_beat_to_keywords():
+    # Long LLM phrases are trimmed to a short stock-searchable query (articles/filler dropped).
+    assert _search_terms("two professionals shaking hands across an office desk") == (
+        "professionals shaking hands office desk"
+    )
+    assert _search_terms("a manager and employee talking at a laptop") == (
+        "manager employee talking laptop"
+    )
+    assert _search_terms("office handshake") == "office handshake"  # already short -> unchanged
+    assert _search_terms("") == ""
 
 
 def test_build_broll_client_selects_sources(monkeypatch):

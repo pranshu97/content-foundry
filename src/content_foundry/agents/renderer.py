@@ -36,8 +36,16 @@ class Renderer:
             for seg in segments
         ]
         audio_real = str(run_root / voiceover.audio_path)
+        _, _, frame_h = self._settings.video_resolution.partition("x")
+        subscribe = build_subscribe_spec(
+            self._settings, run_root=run_root,
+            total_duration=voiceover.duration_sec, frame_height=int(frame_h or 0) or 1080,
+        )
         if self._sfx is not None and getattr(self._sfx, "enabled", False):
             cues = [(seg.start, seg.sfx) for seg in segments if seg.sfx]
+            # Ring a bell the instant the Subscribe badge fades in at the midpoint.
+            if subscribe is not None and self._settings.subscribe_bell_enabled:
+                cues.append((subscribe.start, self._settings.subscribe_bell_sound))
             if cues:
                 mixed = run_root / "assets/narration_mixed.mp3"
                 if mix_sfx(
@@ -60,12 +68,6 @@ class Renderer:
         if self._settings.avatar_overlay_enabled and overlay is None:
             self._log.warning("avatar_overlay_skipped_missing_image",
                               path=self._settings.avatar_image_path)
-
-        _, _, frame_h = self._settings.video_resolution.partition("x")
-        subscribe = build_subscribe_spec(
-            self._settings, run_root=run_root,
-            total_duration=voiceover.duration_sec, frame_height=int(frame_h or 0) or 1080,
-        )
 
         path = self._backend.render(
             segments=resolved,

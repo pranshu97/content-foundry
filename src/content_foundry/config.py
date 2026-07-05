@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # ---------- Pipeline Behaviour ----------
     max_revisions: int = 3
     judge_mode: Literal["hybrid", "deterministic", "llm"] = "hybrid"
-    pass_threshold: float = Field(7.5, ge=0, le=10)
+    pass_threshold: float = Field(8.0, ge=0, le=10)
     insight_min: float = Field(7.0, ge=0, le=10)
     grounding_min: float = Field(8.0, ge=0, le=10)
     fatigue_lookback: int = 5
@@ -167,6 +167,11 @@ class Settings(BaseSettings):
     subscribe_nudge_position: Literal[
         "top-left", "top-right", "bottom-left", "bottom-right", "top-center", "bottom-center"
     ] = "bottom-center"
+    # Ring a short notification bell (resolved from sfx_dir, e.g. bell.mp3) the instant the Subscribe
+    # badge fades in. It rides the sound-effects mixer, so it needs sfx_enabled; set the keyword to
+    # any file in sfx_dir ("bell" -> bell.mp3), or disable it to show the badge silently.
+    subscribe_bell_enabled: bool = True
+    subscribe_bell_sound: str = "bell"
 
     # ---------- Sound effects ----------
     # Script-authored SFX cues mixed into the narration at each scene's start. Local library first,

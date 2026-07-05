@@ -47,7 +47,7 @@ The optional LLM scoring pass (Actionability & Insight) follows evaluation best 
 - **Reason-before-score (chain-of-thought):** the model writes a one-sentence justification **before** the integer, and must **quote ≥1 concrete span** from the script as evidence (combats hallucinated grading).
 - **Bias mitigations stated explicitly in the prompt:**
   - *Recency / position bias* — evaluate the script as a whole; do not over-weight the first or last lines.
-  - *Leniency / central-tendency bias* — use the full 1–5 range; reserve **5** for genuinely exceptional; default-skeptical.
+  - *Leniency / central-tendency bias* — grade **hard**: most drafts sit at 2–3, a **4** must be genuinely non-obvious, **5** is rare; when torn between two scores, pick the **lower**. Effort, confidence, length, and fluent writing earn nothing.
   - *Verbosity bias* — length ≠ quality; long is not insightful.
   - *Self-preference bias* — grade against the rubric, not against "how an LLM would phrase it."
 - **Independent dimensions:** Actionability and Insight are scored separately; one must not anchor the other.

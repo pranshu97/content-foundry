@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -37,6 +38,25 @@ def _broll_source(url: str) -> str:
     return "stock"
 
 
+# Stock-video engines match short keyword queries far better than long sentences, so trim each beat
+# to its salient words before searching (the full description is kept on the shot for provenance).
+_QUERY_STOPWORDS = frozenset({
+    "a", "an", "the", "of", "and", "or", "with", "at", "in", "on", "to", "for", "as", "by",
+    "across", "over", "into", "from", "two", "three", "some", "their", "his", "her", "that",
+    "this", "being", "is", "are",
+})
+
+
+def _search_terms(beat: str, *, max_words: int = 5) -> str:
+    """Reduce a beat description to a short, stock-searchable query (drop articles/filler, cap
+    length). Falls back to the original text if nothing meaningful remains."""
+    words = [
+        w for w in re.split(r"[^a-z0-9]+", (beat or "").lower())
+        if w and w not in _QUERY_STOPWORDS
+    ]
+    return " ".join(words[:max_words]) or (beat or "").strip()
+
+
 class _BrollPicker:
     """Chooses B-roll clips for one run: keeps the most relevant candidates near the top, adds
     cross-video variety with a per-run seed, prefers unused clips, never repeats a clip in
@@ -62,7 +82,11 @@ class _BrollPicker:
         for eligible in tiers:
             tier = [u for u in pool if eligible(u)]
             if tier:
-                chosen = self._rng.choice(tier[: self._TOP_K])
+                window = tier[: self._TOP_K]
+                # Bias toward the most relevant (higher-ranked) clip, but keep seeded variety so
+                # different runs still differ — weights decrease with rank.
+                weights = list(range(len(window), 0, -1))
+                chosen = self._rng.choices(window, weights=weights, k=1)[0]
                 self._used[chosen] = self._used.get(chosen, 0) + 1
                 self._prev = chosen
                 return chosen
@@ -125,7 +149,7 @@ class Visuals:
             if not term:
                 continue
             try:
-                combined.extend(self._broll.search(term))
+                combined.extend(self._broll.search(_search_terms(term)))
             except Exception as exc:  # a flaky search must not kill the scene
                 self._log.warning("broll_search_failed", query=term, error=str(exc))
         return combined

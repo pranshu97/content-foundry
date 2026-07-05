@@ -21,8 +21,8 @@ flowchart TD
 - **Timeline:** scene durations come straight from `VoiceoverAsset.scene_timings`, so audio and visuals stay locked. Each scene is assembled from its ordered **per-beat clips** (`RenderSegment.clips`) concatenated to fill the scene, then scenes are joined.
 - **Transitions & grade:** consecutive scenes cross-blend via ffmpeg `xfade` when `SCENE_TRANSITION != none` (`SCENE_TRANSITION_SEC`); a warm colour grade is applied when `COLOR_WARMTH > 0`.
 - **Captions & citations:** `captions.srt` (word-timed) is burned in with a readable style; a separate top-pinned track burns the on-screen **source citations** (`Source: Adzuna`) for each scene's stat.
-- **Sound effects:** when `SFX_ENABLED`, the script's `sfx` cues are mixed onto the narration at each scene's start (`production/sound_design.py::mix_sfx` → `assets/narration_mixed.mp3`).
-- **Branding:** an optional avatar image is composited in a corner (`AVATAR_OVERLAY_ENABLED`), and a small **Subscribe** badge fades in at the video's midpoint (`SUBSCRIBE_NUDGE_ENABLED`, `production/subscribe.py`).
+- **Sound effects:** when `SFX_ENABLED`, the script's `sfx` cues are mixed onto the narration at each scene's start (`production/sound_design.py::mix_sfx` → `assets/narration_mixed.mp3`); the Subscribe bell (when enabled) is mixed in as one extra cue at the badge's fade-in time.
+- **Branding:** an optional avatar image is composited in a corner (`AVATAR_OVERLAY_ENABLED`), and a small **Subscribe** badge (a bell + label) fades in at the video's midpoint (`SUBSCRIBE_NUDGE_ENABLED`, `production/subscribe.py`); when `SUBSCRIBE_BELL_ENABLED` and SFX are on, a bell chime (`SUBSCRIBE_BELL_SOUND` → a clip in `sfx_dir`) rings exactly as it appears.
 - **Speed:** the whole video can be sped up/slowed via `VIDEO_SPEED` (audio pitch preserved; captions stay in sync).
 - **Audio:** the single narration track (SFX-mixed if enabled) is muxed to H.264/AAC.
 

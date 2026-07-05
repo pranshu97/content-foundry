@@ -20,10 +20,10 @@ career-advice-channel/
 │       │   ├── __init__.py
 │       │   ├── signals.py         # RawSignal, NormalizedSignal
 │       │   ├── data_brief.py      # DataBrief artifact
-│       │   ├── script.py          # Script artifact (+ ScriptSection)
+│       │   ├── script.py          # Script artifact (+ SceneCue: narration, b_roll shots, sfx, fact_ref)
 │       │   ├── judge_report.py    # JudgeReport, RubricScore, Verdict enum
 │       │   ├── voiceover.py       # VoiceoverAsset (audio path + word timings)
-│       │   ├── visuals.py         # VisualPackage (thumbnail, scenes, captions)
+│       │   ├── visuals.py         # VisualPackage (thumbnail, scenes, captions) + VisualShot beats
 │       │   ├── video.py           # VideoAsset (final mp4 + metadata)
 │       │   ├── publish.py         # PublishResult (video id, privacy, disclosure)
 │       │   └── run.py             # Run, Attempt, RunState enum
@@ -36,7 +36,8 @@ career-advice-channel/
 │       │   ├── fallback.py        # FallbackProvider (primary→secondary)
 │       │   ├── tts.py             # TTSProvider + ElevenLabs/OpenAI impls
 │       │   ├── image.py           # ImageProvider + OpenAI/Stability impls
-│       │   ├── broll.py           # Pexels stock-footage client
+│       │   ├── broll.py           # Pexels + Pixabay stock-footage clients + MultiBrollClient
+│       │   ├── sfx.py             # SfxLibrary (local data/sounds) + optional Freesound download
 │       │   ├── render_backend.py  # RenderBackend + Ffmpeg/MoviePy/Avatar impls
 │       │   └── youtube.py         # Publisher protocol + YouTubePublisher (OAuth)
 │       │
@@ -47,6 +48,7 @@ career-advice-channel/
 │       │   ├── layoffs.py         # layoffs RSS/dataset
 │       │   ├── news.py            # industry reports / news
 │       │   ├── bls.py             # optional gov baseline
+│       │   ├── search.py          # domain-agnostic web search (DuckDuckGo/Tavily/Brave)
 │       │   └── registry.py        # builds enabled sources from config
 │       │
 │       ├── agents/                # The seven agents
@@ -64,7 +66,12 @@ career-advice-channel/
 │       ├── production/            # Render helpers (non-vendor logic)
 │       │   ├── __init__.py
 │       │   ├── captions.py        # build .srt/.ass from word timings
-│       │   └── timeline.py        # map script scenes -> timed media segments
+│       │   ├── timeline.py        # map script scenes -> timed media segments (per-beat clips)
+│       │   ├── sound_design.py    # mix SFX cues onto the narration
+│       │   ├── subscribe.py       # Subscribe-nudge badge (Pillow) + overlay spec
+│       │   ├── overlay.py         # avatar overlay spec
+│       │   ├── seo.py             # title/description/tag optimization
+│       │   └── timebox.py         # time-context / year-stamping
 │       │
 │       ├── prompts/               # Exact prompt text (see Ch. 15)
 │       │   ├── __init__.py        # loader: load_prompt(name) -> str
@@ -113,7 +120,8 @@ career-advice-channel/
 │   └── runs/                      # <run_id>/ -> *.json artifacts, assets/ (audio,images,video), package.md
 │
 ├── data/
-│   └── content_foundry.db           # SQLite (gitignored)
+│   ├── content_foundry.db           # SQLite (gitignored)
+│   └── sounds/                     # bundled sound-effect clips for SFX (whoosh, ding, cash register, ...)
 │
 ├── scripts/
 │   ├── init_db.py                 # create tables

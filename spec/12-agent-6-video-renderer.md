@@ -10,18 +10,21 @@ Assemble the narration, per-scene visuals, and captions into a single, upload-re
 ### 12.3 Processing flow
 ```mermaid
 flowchart TD
-    A[Build timeline from scene_timings] --> B[Per scene: place visual for its duration]
-    B --> C[Stills: Ken Burns zoom/pan; B-roll: trim/loop to fit]
-    C --> D[Burn-in captions.srt (styled)]
-    D --> E[Optional intro/outro cards]
-    E --> F[Mux narration.mp3 as audio track]
+    A[Build timeline from scene_timings] --> B[Per scene: concat its per-beat clips]
+    B --> C[Crossfade between scenes (SCENE_TRANSITION) + warm grade (COLOR_WARMTH)]
+    C --> D[Burn-in captions.srt + top-pinned Source citations]
+    D --> E[Overlay avatar + midpoint Subscribe nudge]
+    E --> F[Mix SFX cues onto narration; mux audio (speed via VIDEO_SPEED)]
     F --> G[Encode to VIDEO_RESOLUTION @ VIDEO_FPS (H.264/AAC)]
     G --> H[Persist VideoAsset + provenance]
 ```
-- **Timeline:** scene durations come straight from `VoiceoverAsset.scene_timings`, so audio and visuals stay locked.
-- **Motion:** still images get a subtle Ken Burns effect; B-roll is trimmed or gently looped to its scene length.
-- **Captions:** `captions.srt` is burned in with a readable style (configurable font/size/position).
-- **Audio:** the single narration track is muxed; optional bed music can be mixed at low gain (future toggle).
+- **Timeline:** scene durations come straight from `VoiceoverAsset.scene_timings`, so audio and visuals stay locked. Each scene is assembled from its ordered **per-beat clips** (`RenderSegment.clips`) concatenated to fill the scene, then scenes are joined.
+- **Transitions & grade:** consecutive scenes cross-blend via ffmpeg `xfade` when `SCENE_TRANSITION != none` (`SCENE_TRANSITION_SEC`); a warm colour grade is applied when `COLOR_WARMTH > 0`.
+- **Captions & citations:** `captions.srt` (word-timed) is burned in with a readable style; a separate top-pinned track burns the on-screen **source citations** (`Source: Adzuna`) for each scene's stat.
+- **Sound effects:** when `SFX_ENABLED`, the script's `sfx` cues are mixed onto the narration at each scene's start (`production/sound_design.py::mix_sfx` → `assets/narration_mixed.mp3`).
+- **Branding:** an optional avatar image is composited in a corner (`AVATAR_OVERLAY_ENABLED`), and a small **Subscribe** badge fades in at the video's midpoint (`SUBSCRIBE_NUDGE_ENABLED`, `production/subscribe.py`).
+- **Speed:** the whole video can be sped up/slowed via `VIDEO_SPEED` (audio pitch preserved; captions stay in sync).
+- **Audio:** the single narration track (SFX-mixed if enabled) is muxed to H.264/AAC.
 
 ### 12.4 Render-backend abstraction
 `RenderBackend.render(timeline, assets, config) -> mp4_path`, selected by `RENDER_BACKEND`:
@@ -41,6 +44,7 @@ class VideoAsset(BaseModel):
     fps: int
     backend: str               # ffmpeg|moviepy|avatar
     has_captions: bool
+    has_avatar: bool           # true if an avatar overlay was composited
     file_size_bytes: int
     provenance: Provenance
 ```

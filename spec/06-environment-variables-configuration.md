@@ -27,8 +27,8 @@ LAYOFFS_FEED_URL=https://example.com/layoffs.rss
 # Web search (domain-agnostic; queries the run's topic). Add "search" to ENABLED_SOURCES. Free via
 # DuckDuckGo (no key); SEARCH_PROVIDER=tavily|brave use a free API key for a real index.
 SEARCH_PROVIDER=duckduckgo                 # duckduckgo (no key) | tavily | brave
-TAVILY_API_KEY=                            # only if SEARCH_PROVIDER=tavily
-BRAVE_API_KEY=                             # only if SEARCH_PROVIDER=brave
+TAVILY_API_KEY=                            # required if SEARCH_PROVIDER=tavily
+BRAVE_API_KEY=                             # required if SEARCH_PROVIDER=brave
 SEARCH_MAX_RESULTS=8                       # web results fetched per run
 SIGNAL_CACHE_TTL_MIN=720                   # reuse cached signals within 12h
 

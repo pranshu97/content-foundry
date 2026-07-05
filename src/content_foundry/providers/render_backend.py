@@ -115,16 +115,26 @@ class FfmpegBackend:
         pad = float(transition_sec) if crossfade else 0.0
         inputs = []
         for seg in segments:
-            dur = max(seg.duration, 0.1) + pad
-            if seg.visual_path.lower().endswith(video_exts):
-                # B-roll clip: loop it to fill the scene's duration (the image-only `loop` option
-                # is invalid for a video input and makes ffmpeg abort with "Option loop not found").
-                stream = ffmpeg.input(seg.visual_path, stream_loop=-1, t=dur)
-            else:
-                # Still image (Pillow card / AI image): loop the single frame for the scene duration.
-                stream = ffmpeg.input(seg.visual_path, loop=1, t=dur)
-            stream = stream.filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
-            inputs.append(stream)
+            # A scene may be a sequence of beat clips (finer B-roll); build them, then treat the
+            # whole scene as one stream so captions, citations, sfx and transitions stay scene-level.
+            beats = list(seg.clips) or [(seg.visual_path, max(seg.duration, 0.1))]
+            substreams = []
+            last = len(beats) - 1
+            for j, (path, clip_dur) in enumerate(beats):
+                d = max(clip_dur, 0.1) + (pad if j == last else 0.0)  # pad only the scene's tail
+                if path.lower().endswith(video_exts):
+                    s = ffmpeg.input(path, stream_loop=-1, t=d)
+                else:
+                    s = ffmpeg.input(path, loop=1, t=d)
+                substreams.append(
+                    s.filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
+                )
+            seg_stream = (
+                ffmpeg.concat(*substreams, v=1, n=len(substreams))
+                if len(substreams) > 1
+                else substreams[0]
+            )
+            inputs.append(seg_stream)
         if crossfade and inputs:  # pragma: no cover - requires ffmpeg on PATH
             # Blend consecutive scenes. Each clip is padded by the transition length and the xfade
             # offset sits on the narration boundary, so scenes stay in sync with the voiceover.

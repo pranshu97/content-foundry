@@ -326,7 +326,7 @@ approve drafts — the thin human layer. You're never in the writing loop.
 ## 14. Glossary
 
 - **Artifact** — the versioned JSON (+ media) each stage writes; the unit of resumability.
-- **run_id** — the ULID identifying a run; also its folder name under `output\runs\`.
+- **run_id** — the short sequential number (e.g. `0006`) identifying a run; also its folder name under `output\runs\`.
 - **Brief** — `data_brief.json`; the grounded facts the script must cite.
 - **Verdict** — the Judge's decision: PASS / REVISE / FAIL.
 - **Floor** — a minimum score a dimension must hit (grounding, insight) regardless of the total.

@@ -44,7 +44,7 @@ class VoiceoverAsset(BaseModel):
     duration_sec: float
     sample_rate: int
     voice_id: str
-    provider: str                   # elevenlabs | openai
+    provider: str                   # elevenlabs | edge | piper | openai
     word_timings: list[WordTiming]
     scene_timings: list[SceneTiming]
     provenance: Provenance
@@ -53,8 +53,12 @@ class VoiceoverAsset(BaseModel):
 ### 10.5 Provider abstraction
 `TTSProvider.synthesize(text) -> (audio_bytes, word_timings | None)`:
 - **`ElevenLabsTTS`** (primary) — high quality; returns character/word timestamps natively.
+- **`EdgeTTS`** — free Microsoft neural voices (online, no key); returns word timings.
+- **`PiperTTS`** — fully offline neural TTS (free; needs a downloaded `.onnx` voice).
 - **`OpenAITTS`** (fallback) — no native word timings ⇒ alignment falls back to `faster-whisper`.
 Voice, model, and format come from `TTS_VOICE_ID` / `TTS_MODEL` / `TTS_FORMAT`.
+
+**Voice by run-id parity:** `pick_voice(run_id, ...)` in `providers/tts.py` alternates the narrator so consecutive videos don't sound identical — the **male** voice (`TTS_VOICE_MALE`) for odd run ids, the **female** voice (`TTS_VOICE_FEMALE`) for even. Both blank ⇒ always use `TTS_VOICE_ID`. The chosen voice is recorded in `VoiceoverAsset.voice_id`.
 
 ### 10.6 Resumability hooks
 - The operator can swap the voice or hand-edit `voiceover.json` (e.g., trim a pause) and resume at Agent 5.

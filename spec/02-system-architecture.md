@@ -41,7 +41,7 @@ Every stage reads one artifact and writes one artifact. Because each artifact is
 Each artifact carries a `schema_version`, the `run_id`, the producing `stage`, and a `provenance` block (what produced it, when, with which model/config hash).
 
 ### 2.4 Run lifecycle
-- A **Run** = one end-to-end effort to produce a published video, identified by a `run_id` (ULID).
+- A **Run** = one end-to-end effort to produce a published video, identified by a short sequential `run_id` (4 digits, e.g. `0001`, `0002` — the next number after the highest existing run folder). `attempt_id`/`artifact_id` remain ULIDs internally.
 - A run moves through states: `CREATED → FETCHED → GENERATED → JUDGED → APPROVED → VOICED → VISUALIZED → RENDERED → PUBLISHED`, with `REVISING` (Generator⇄Judge loop) and `FAILED` as branches.
 - The Judge verdict `PASS` is a **hard gate**: the production stages (4–7) run only after approval.
 - The **revision loop** (Generator ⇄ Judge) is bounded by `MAX_REVISIONS` (default 3). Each revision is a new attempt linked to the same run, preserving full history.

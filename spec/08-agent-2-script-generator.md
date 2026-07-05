@@ -30,8 +30,9 @@ class SceneCue(BaseModel):
     index: int
     narration: str                 # exact words to be spoken (drives TTS)
     on_screen_text: str | None     # caption / lower-third / big-number callout
-    b_roll_keywords: list[str]     # hints for Agent 5 (e.g. ["server room","layoff headline"])
+    b_roll_keywords: list[str]     # ORDERED per-beat shot descriptions for Agent 5 (one clip each)
     fact_ref: int | None           # index into DataBrief.key_facts if this scene cites data
+    sfx: str | None                # optional sound-effect keyword, mixed at this scene's start
 
 class Script(BaseModel):
     schema_version: str = "1.0"
@@ -53,7 +54,15 @@ class Script(BaseModel):
 
 ### 8.6 Generation rules (enforced in the prompt + post-checks)
 - **Grounding:** Every quantitative claim must map to a `DataBrief.key_facts[i]` via `fact_ref`; ungrounded numbers are stripped in a repair pass.
-- **Sources (never broken):** every scene that states a statistic surfaces the referenced fact's exact source in `on_screen_text` (`… · Source: Adzuna`), stamped deterministically in a post-pass so a stat can never appear un-sourced.
+- **Sources are on-screen only (never spoken):** every scene that states a statistic surfaces the referenced fact's exact source in `on_screen_text` (`… · Source: Adzuna`), stamped **deterministically** in a post-pass (`_stamp_sources`) so a stat can never appear un-sourced. The narration must never *say* the source out loud; the prompt forbids it and `_clean_narration` strips any spoken/bracketed source that leaks through.
+- **Narration hygiene (prompt + guaranteed in code):** the spoken narration is sanitized after generation so these never reach the audio, captions, title, or description:
+  - **No leaked meta tokens** — `_clean_narration` strips JSON/field annotations a model sometimes writes inline (e.g. `(fact_ref: 0)`, `[b_roll: …]`).
+  - **No company first-person voice (legal)** — `_neutralize_company_voice` rewrites "At Expedia Group we…" to the third person so the video never implies affiliation with a named company.
+  - **No em dashes** — `_replace_em_dashes` converts every em dash (`—`) to a comma across all script fields; a single hyphen (`well-known`) is left alone.
+- **Voice & wit:** the prompt writes an entertaining, witty script (an occasional well-timed joke) while keeping every fact accurate.
+- **B-roll shots (ordered per beat):** `b_roll_keywords` is an ordered list where each entry is a concrete, filmable shot description for one beat of the scene, matched to what is being said at that moment (Agent 5 fetches a separate clip per beat).
+- **Sound design (deterministic fallback):** when `SFX_ENABLED`, `SceneCue.sfx` is authored by the model; because a local model usually leaves them null, `_design_sound`/`_auto_sfx` deterministically assign resolvable cues by scene role (opening→whoosh, money→cash register, myth→wrong answer, stat reveal→notification…), later mixed onto the narration at render time.
+- **Voice by run-id parity:** odd run ids use `TTS_VOICE_MALE`, even use `TTS_VOICE_FEMALE` (blank → `TTS_VOICE_ID`); see `providers/tts.py::pick_voice`.
 - **Specificity:** The hook and at least 3 scenes must contain a concrete, non-obvious takeaway (no "network more" filler).
 - **Length:** Target `SCRIPT_TARGET_WORDS`; a repair pass re-prompts once for the full script when a draft falls below the Judge's completeness floor (`MIN_SCENES` / `MIN_SCRIPT_WORD_RATIO`), keeping the longer draft. Narration is plain spoken English (no stage directions inside `narration`).
 - **Robust parsing:** malformed model output is tolerated — an int field returned as a list (`[3, 5]`), a stringified number, or `null` is coerced to a single valid value instead of failing schema validation.

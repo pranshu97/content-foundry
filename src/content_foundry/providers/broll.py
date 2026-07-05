@@ -1,4 +1,7 @@
-"""Pexels stock B-roll client (Ch. 11.5). Disabled gracefully when no key is set."""
+"""Stock B-roll clients: Pexels + Pixabay, aggregated by MultiBrollClient (Ch. 11.5).
+
+Disabled gracefully (NullBrollClient) when no key is set; each scene then falls back to generation.
+"""
 
 from __future__ import annotations
 

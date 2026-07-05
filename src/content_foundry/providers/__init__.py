@@ -93,13 +93,24 @@ def build_image_provider(settings: Settings) -> ImageProvider | None:
 
 
 def build_broll_client(settings: Settings) -> BrollClient:
+    clients = []
     if settings.pexels_api_key:
         from .broll import PexelsBrollClient
 
-        return PexelsBrollClient(settings.pexels_api_key, settings.broll_pool_size)
-    from .broll import NullBrollClient
+        clients.append(PexelsBrollClient(settings.pexels_api_key, settings.broll_pool_size))
+    if settings.pixabay_api_key:
+        from .broll import PixabayBrollClient
 
-    return NullBrollClient()
+        clients.append(PixabayBrollClient(settings.pixabay_api_key, settings.broll_pool_size))
+    if not clients:
+        from .broll import NullBrollClient
+
+        return NullBrollClient()
+    if len(clients) == 1:
+        return clients[0]
+    from .broll import MultiBrollClient
+
+    return MultiBrollClient(clients)
 
 
 def build_render_backend(settings: Settings) -> RenderBackend:

@@ -29,6 +29,10 @@ HARD RULES:
   and energetic, with vivid analogies and an occasional well-timed joke or playful aside (aim for a
   genuine laugh or two across the video). The humor rides on top of real substance, never replaces
   it, never mocks the viewer, and never bends a fact for a punchline — keep every number accurate.
+- NO EM DASHES (hard rule, never break): do not use an em dash (the "—" character) anywhere in the
+  script — not in narration, titles, on_screen_text, or the description. Use the punctuation the
+  sentence actually needs instead: a comma for a pause, a colon before a list, or a period between
+  two full thoughts.
 - NARRATION IS SPEECH ONLY: scene.narration is exactly the words the voice will say — plain spoken
   English. It must contain NO JSON keys, field names, indices, or brackets (e.g. "(fact_ref: 0)",
   "index:", "b_roll", "sfx") and NO spoken source attribution ("Source: X", "according to X",

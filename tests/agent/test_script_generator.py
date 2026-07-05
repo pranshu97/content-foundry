@@ -178,6 +178,61 @@ def test_company_voice_neutralized_through_full_run(settings, data_brief, fakes)
     assert "we " not in script.hook.lower()  # the hook is cleaned too (it shows on the thumbnail)
 
 
+def test_replace_em_dashes_uses_commas():
+    from content_foundry.agents.script_generator import _replace_em_dashes
+
+    assert (
+        _replace_em_dashes("The truth \u2014 and it's wild \u2014 is simple.")
+        == "The truth, and it's wild, is simple."
+    )
+    assert _replace_em_dashes("Wait\u2014what?") == "Wait, what?"
+    assert _replace_em_dashes("One thing matters -- grit.") == "One thing matters, grit."
+    assert _replace_em_dashes("\u2014 really?") == "really?"  # leading comma dropped
+    # A normal hyphen (well-known) is never touched.
+    assert _replace_em_dashes("A well-known, state-of-the-art tool.") == (
+        "A well-known, state-of-the-art tool."
+    )
+    assert _replace_em_dashes(None) is None
+
+
+def test_em_dashes_never_survive_a_run(settings, data_brief, fakes):
+    d = "\u2014"  # em dash
+    payload = {
+        "title_options": [f"The Truth {d} Revealed"],
+        "hook": f"Here is the shocking truth {d} recruiters skim resumes incredibly fast.",
+        "scenes": [
+            {"index": 0,
+             "narration": f"Tailor your resume {d} every single bullet point {d} to the job you want.",
+             "on_screen_text": f"Do this {d} now", "b_roll_keywords": ["resume"],
+             "fact_ref": None, "sfx": None},
+            {"index": 1,
+             "narration": f"Recruiters are busy {d} so lead with your strongest, most relevant wins.",
+             "on_screen_text": None, "b_roll_keywords": ["office"], "fact_ref": None, "sfx": None},
+            {"index": 2,
+             "narration": f"Keep it clean {d} one page, clear sections, and real measurable impact.",
+             "on_screen_text": None, "b_roll_keywords": ["laptop"], "fact_ref": None, "sfx": None},
+        ],
+        "cta": f"Subscribe {d} you won't regret it.",
+        "description": f"A guide {d} with real data {d} for you. Uses synthetic content.",
+        "tags": [], "thumbnail_concept": f"Bold text {d} high contrast",
+        "grounded_fact_refs": [],
+    }
+    script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
+        "R", data_brief, get_template("contrarian")
+    )
+    parts = [
+        script.hook, script.cta, script.description, script.thumbnail_concept,
+        *script.title_options,
+        *(s.narration for s in script.scenes),
+        *(s.on_screen_text or "" for s in script.scenes),
+    ]
+    assert d not in " ".join(parts)  # the hard rule holds across every field
+    assert script.scenes[0].narration == (
+        "Tailor your resume, every single bullet point, to the job you want."
+    )
+
+
+
 
 def _all_null_sfx_payload():
     return {

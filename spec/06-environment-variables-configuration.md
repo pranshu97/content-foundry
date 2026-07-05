@@ -63,6 +63,7 @@ TTS_FORMAT=mp3_44100_128
 IMAGE_PROVIDER=openai                        # openai | stability | none (none = B-roll/Pillow cards only)
 STABILITY_API_KEY=xxxx                       # required if IMAGE_PROVIDER=stability
 PEXELS_API_KEY=xxxx                          # optional B-roll
+PIXABAY_API_KEY=                             # optional 2nd free B-roll source (more variety)
 VISUAL_STYLE=clean infographic, high-contrast, bold text
 SCENES_PER_VIDEO=10                          # target number of distinct visuals
 THUMBNAIL_SIZE=1280x720

@@ -21,10 +21,12 @@
 | Structured logging | `structlog` | JSON logs, run-scoped context |
 | Rich CLI output | `rich` | Tables, progress, readable reports in terminal |
 | Date/time | stdlib `datetime` + `python-dateutil` | Parsing feed timestamps |
-| IDs | `python-ulid` | Sortable, timestamped `run_id`s |
+| IDs | `python-ulid` | Sortable `attempt_id`/`artifact_id` (the `run_id` is a sequential 4-digit number) |
 | TTS narration | `elevenlabs` (primary), `openai` TTS (fallback) | Voiceover with word-level timings |
 | Image generation | `openai` Images / `stability-sdk` | Thumbnail + per-scene visuals |
-| Stock B-roll | Pexels API via `httpx` | Free background footage |
+| Stock B-roll | Pexels + Pixabay APIs via `httpx` | Free background footage (multi-source, aggregated for variety) |
+| Web search (data source) | `ddgs` (DuckDuckGo) + Tavily/Brave via `httpx` | Domain-agnostic topic research |
+| Sound effects mixing | `pydub` | Overlay SFX clips onto the narration |
 | Forced alignment (captions) | `faster-whisper` (fallback) | Word timings when TTS lacks them |
 | Image/text overlay | `Pillow` | Thumbnail composition |
 | Video assembly | `ffmpeg` via `ffmpeg-python` (primary), `moviepy` (optional) | Render slideshow/B-roll + captions |
@@ -51,14 +53,18 @@ All external data access goes through a `DataSource` protocol (`fetch() -> list[
 - **Layoffs:** `layoffs.fyi`-style RSS / public dataset, or a configurable RSS endpoint.
 - **Industry reports / news:** NewsAPI (or RSS fallback) filtered to labor-market keywords.
 - **Government baseline (optional):** U.S. BLS public data series for occupation outlook.
+- **Web search (domain-agnostic):** a general web-search source that queries the run's topic (niche + idea) directly, so **any** niche works, not just the labor-market feeds. Free via DuckDuckGo (no key); optional Tavily/Brave keys for a stronger index. Enable by adding `search` to `ENABLED_SOURCES`.
 
-> Any source can be disabled; the pipeline tolerates missing sources and notes coverage gaps in the `DataBrief`.
+> Any source can be disabled; the pipeline tolerates missing sources and notes coverage gaps in the `DataBrief`. Valid sources: `adzuna | layoffs | news | bls | search`.
 
 ### 3.5a Media & publishing abstractions
 Production agents depend only on these protocols, never on a concrete vendor:
 - **`TTSProvider`** → `ElevenLabsTTS` (primary), `OpenAITTS` (fallback). Returns audio bytes + optional word timings.
 - **`ImageProvider`** → `OpenAIImage` / `StabilityImage` for thumbnail + scene art.
-- **`RenderBackend`** → `FfmpegBackend` (default faceless slideshow + B-roll + captions), with optional `MoviePyBackend` and `AvatarBackend` (HeyGen/D-ID), selected via `RENDER_BACKEND`.
+- **`RenderBackend`** → `FfmpegBackend` (default faceless slideshow + B-roll + captions, plus scene crossfades, a warm colour grade, SFX mixing and a subscribe-nudge badge), with optional `MoviePyBackend` and `AvatarBackend` (HeyGen/D-ID), selected via `RENDER_BACKEND`.
+- **`BrollClient`** → `PexelsBrollClient` + `PixabayBrollClient` aggregated by `MultiBrollClient` (free stock video; more variety across videos); `NullBrollClient` when no key is set.
+- **`SearchProvider`** → `DuckDuckGoProvider` (default, no key; the `ddgs` library with a DuckDuckGo Instant-Answer API fallback), `TavilyProvider`, `BraveProvider`, selected via `SEARCH_PROVIDER`.
+- **`SfxClient`** → `SfxLibrary` (local `data/sounds` match + optional Freesound download) or `NullSfxClient`, gated by `SFX_ENABLED`.
 - **`Publisher`** → `YouTubePublisher` (OAuth, privacy-gated upload, disclosure flag).
 All are swappable via config; nothing downstream depends on a concrete vendor.
 
@@ -82,8 +88,12 @@ structlog>=24.1
 rich>=13.7
 python-dateutil>=2.9
 python-ulid>=2.7
+ddgs>=6.0
 # media / production
 elevenlabs>=1.5
+edge-tts>=6.1
+piper-tts>=1.2
+pydub>=0.25
 stability-sdk>=0.8
 Pillow>=10.4
 ffmpeg-python>=0.2

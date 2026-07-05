@@ -17,7 +17,7 @@ erDiagram
 ```sql
 -- A Run = one end-to-end effort to produce a publishable script.
 CREATE TABLE runs (
-    run_id           TEXT PRIMARY KEY,                 -- ULID
+    run_id           TEXT PRIMARY KEY,                 -- sequential 4-digit (e.g. 0001, 0002)
     topic_seed       TEXT,                             -- optional operator-provided angle
     state            TEXT NOT NULL,                    -- CREATED|FETCHED|GENERATED|JUDGED|APPROVED|REVISING|FAILED
     final_verdict    TEXT,                             -- PASS|REVISE|FAIL (nullable until judged)
@@ -75,7 +75,7 @@ CREATE TABLE template_usage (
 -- Optional cache of normalized data signals to avoid refetching within a TTL.
 CREATE TABLE signal_cache (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    source           TEXT NOT NULL,                    -- adzuna|layoffs|news|bls
+    source           TEXT NOT NULL,                    -- adzuna|layoffs|news|bls|search
     fetched_at       TEXT NOT NULL DEFAULT (datetime('now')),
     payload          TEXT NOT NULL                     -- JSON list of NormalizedSignal
 );

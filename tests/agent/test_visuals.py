@@ -82,3 +82,31 @@ def test_visuals_use_image_provider(settings, good_script, tmp_path, fakes):
     )
     assert image.calls >= 1
     assert any(sv.source == "fake-image" for sv in pkg.scenes)
+
+
+def test_visuals_split_long_scene_into_ordered_beat_clips(settings, good_script, tmp_path, fakes):
+    # A longer scene with several ordered keywords -> one B-roll clip per beat (moment-matched),
+    # instead of a single broad clip for the whole scene.
+    scene = good_script.scenes[0]
+    scene.b_roll_keywords = [
+        "handshake across a desk", "reading a job offer letter", "typing on a laptop",
+    ]
+    one = good_script.model_copy(update={"scenes": [scene]})
+    vo = VoiceoverAsset(
+        run_id="0001", audio_path="assets/narration.mp3", duration_sec=6.0, sample_rate=16000,
+        voice_id="v", provider="fake", word_timings=[],
+        scene_timings=[SceneTiming(scene_index=scene.index, start=0.0, end=6.0)],
+        provenance=Provenance(produced_by="voiceover"),
+    )
+    broll = fakes.Broll()  # 10 distinct clips
+    pkg = Visuals(settings, image_provider=None, broll_client=broll).run(
+        "0001", one, vo, run_root=tmp_path
+    )
+    sv = pkg.scenes[0]
+    assert sv.kind == "broll"
+    assert len(sv.shots) == 3  # 6s / 2s-min = 3 beats, and 3 keywords supplied
+    assert len(broll.downloaded) == 3  # a distinct clip pulled per beat
+    assert [s.query for s in sv.shots] == scene.b_roll_keywords  # each beat -> its own search
+    for shot in sv.shots:
+        assert (tmp_path / shot.path).exists()
+        assert abs(shot.duration_sec - 2.0) < 0.01  # the 6s scene split evenly across 3 beats

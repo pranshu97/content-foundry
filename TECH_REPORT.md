@@ -7,7 +7,7 @@
 | **Version** | 1.0.0 |
 | **Language** | Python ≥ 3.11 |
 | **Source** | 72 modules · ~5,300 LOC |
-| **Tests** | 150 passing · ~91% coverage · `ruff` clean |
+| **Tests** | 213 passing · ~91% coverage · `ruff` clean |
 | **Design spec** | 26 chapters (`spec/`) |
 | **License** | MIT |
 
@@ -27,6 +27,14 @@ from a naive "prompt-to-video" script:
 A fifth cross-cutting concern, **cost control**, lets the entire pipeline run **fully offline and
 free** (local LLM + offline TTS + procedural visuals) or scale up to paid cloud providers, selected
 per-stage through a uniform provider abstraction.
+
+Recent additions extend the free tier further: a **domain-agnostic web-search** data source (any
+niche, no key), **moment-matched multi-source B-roll** (a separate clip per narration beat, from
+Pexels + Pixabay), **sound effects** mixed into the narration, scene **crossfades**, a **warm colour
+grade**, and a midpoint **Subscribe nudge**, plus **run-alternating male/female voices** — all local
+or free-tier. Narration is additionally hardened in code (no leaked meta tokens, no spoken sources,
+no company first-person "we", no em dashes), and runs are identified by short sequential ids (`0001`,
+`0002`, …) that are easy to resume.
 
 ---
 

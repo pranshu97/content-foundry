@@ -18,7 +18,7 @@ flowchart TD
     F --> G[Validate & assemble DataBrief]
     G --> H[Persist artifact + provenance]
 ```
-1. **Fetch:** Each `DataSource.fetch()` runs concurrently (`httpx` + `asyncio`), wrapped in `tenacity` retries. A failing source logs a warning and is skipped — the run continues with partial coverage.
+1. **Fetch:** Each enabled `DataSource.fetch()` runs (`httpx` + `tenacity` retries). Sources: **Adzuna** (jobs/salary), **Layoffs** (RSS), **News**, **BLS**, and **Search** — a domain-agnostic web-search source that queries the run's topic (niche + idea) directly so **any** niche works, not just labor-market feeds (free via DuckDuckGo; optional Tavily/Brave for a stronger index). Valid sources: `adzuna | layoffs | news | bls | search`. A failing source logs a warning and is skipped — the run continues with partial coverage.
 2. **Normalize:** Source-specific payloads → uniform `NormalizedSignal` (`source`, `kind`, `title`, `value`, `unit`, `observed_at`, `url`, `raw`).
 3. **Dedup & rank:** Drop near-duplicates; rank by recency × relevance to `niche`/`topic_seed`.
 4. **Cache:** Store normalized signals in `signal_cache` (TTL `SIGNAL_CACHE_TTL_MIN`) to avoid hammering APIs during iteration.
@@ -27,7 +27,7 @@ flowchart TD
 ### 7.4 `DataBrief` schema (Pydantic)
 ```python
 class Citation(BaseModel):
-    source: str            # adzuna|layoffs|news|bls
+    source: str            # adzuna|layoffs|news|bls|search
     url: str | None
     observed_at: datetime
     snippet: str           # the exact normalized signal text supporting the fact

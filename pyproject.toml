@@ -37,6 +37,7 @@ dependencies = [
     "Pillow>=10.4",
     "ffmpeg-python>=0.2",
     "moviepy>=1.0.3",
+    "pydub>=0.25",
     "faster-whisper>=1.0",
     "google-api-python-client>=2.140",
     "google-auth-oauthlib>=1.2",

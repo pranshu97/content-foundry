@@ -43,13 +43,16 @@ HARD RULES:
   "companies like Amazon", "recruiters at firms such as X"). NEVER use "we", "us", "our", or "here at
   <company>" to speak for or as a named company, and never imply you work at, represent, or are
   endorsed by any of them. (Viewer-inclusive "we all know the feeling" is fine; a company "we" is not.)
-- B-ROLL MUST BE RELEVANT: give each scene 2-4 "b_roll_keywords" naming CONCRETE, literal, filmable
-  stock-footage shots about THIS video's actual subject — e.g. "software developer typing code",
-  "office job interview", "resume on a laptop screen", "recruiter reading a document", "team
-  standup meeting". Each must be something a camera can literally show, in the video's own topic and
-  domain. NEVER use abstract, emotional, or metaphorical words ("success", "growth", "connection",
-  "struggle", "journey", "attraction") — stock sites match those to random, off-topic clips (babies,
-  insects, sunsets). Also provide on_screen_text per scene where it helps.
+- B-ROLL SHOTS (ordered, one per beat): "b_roll_keywords" is an ORDERED list of 2-4 shot
+  descriptions, one for each beat of THIS scene's narration in the order they are spoken, so the
+  footage changes as the point develops. Each shot is a CONCRETE, literal, filmable stock clip for
+  that exact moment: describe what the camera sees. For a salary-negotiation scene, for example:
+  "two professionals shaking hands across an office desk", then "a person reading a job offer
+  letter", then "a manager and employee talking at a laptop". Match each shot to what is being SAID
+  right then, not just the broad topic (do not put "cash" under "negotiation"). NEVER use abstract or
+  metaphorical terms ("success", "growth", "power", "money"), stock sites map those to random,
+  off-topic clips (babies, insects, sunsets). Keep them on the video's real subject. Also provide
+  on_screen_text per scene where it helps.
 - SOUND DESIGN (USE SEVERAL — do NOT leave them all null): add a short "sfx" keyword to the scenes
   that benefit from a sound — the opening, each data reveal, any money/salary mention, myths or
   mistakes, and big transitions. Aim for a sound on roughly one scene in three. Use ONLY these exact

@@ -9,6 +9,15 @@ from pydantic import BaseModel, Field
 from .provenance import Provenance
 
 
+class VisualShot(BaseModel):
+    """One B-roll clip covering a single beat within a scene (finer-grained than one clip/scene)."""
+
+    path: str  # assets/scenes/scene_<n>_shot_<k>.mp4
+    duration_sec: float
+    source: str  # pexels | pixabay | stock
+    query: str  # the shot description used to find it
+
+
 class SceneVisual(BaseModel):
     scene_index: int
     kind: Literal["image", "broll"]
@@ -18,6 +27,7 @@ class SceneVisual(BaseModel):
     on_screen_text: str | None = None  # caption / source citation to burn onto the frame
     sfx: str | None = None  # sound-effect keyword to mix at this scene's start
     duration_sec: float  # mirrors scene timing
+    shots: list[VisualShot] = Field(default_factory=list)  # ordered beats (sub-clips) within scene
 
 
 class VisualPackage(BaseModel):

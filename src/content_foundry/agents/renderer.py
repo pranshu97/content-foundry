@@ -28,7 +28,11 @@ class Renderer:
     ) -> VideoAsset:
         segments = build_timeline(voiceover, visuals)
         resolved = [
-            replace(seg, visual_path=str(run_root / seg.visual_path) if seg.visual_path else "")
+            replace(
+                seg,
+                visual_path=str(run_root / seg.visual_path) if seg.visual_path else "",
+                clips=tuple((str(run_root / p), d) for p, d in seg.clips),
+            )
             for seg in segments
         ]
         audio_real = str(run_root / voiceover.audio_path)

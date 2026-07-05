@@ -10,7 +10,7 @@ from .run import Attempt, Run, RunResult, RunState
 from .script import SceneCue, Script
 from .signals import SIGNAL_KINDS, NormalizedSignal, RawSignal
 from .video import VideoAsset
-from .visuals import SceneVisual, VisualPackage
+from .visuals import SceneVisual, VisualPackage, VisualShot
 from .voiceover import SceneTiming, VoiceoverAsset, WordTiming
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     "VoiceoverAsset",
     "SceneVisual",
     "VisualPackage",
+    "VisualShot",
     "VideoAsset",
     "PublishResult",
     "RunState",

@@ -7,11 +7,13 @@ from io import BytesIO
 from pathlib import Path
 
 from ..logging import get_logger
-from ..models import Provenance, SceneVisual, Script, VisualPackage, VoiceoverAsset
+from ..models import Provenance, SceneVisual, Script, VisualPackage, VisualShot, VoiceoverAsset
 from ..production.captions import write_srt
 
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
+_MIN_SHOT_SEC = 2.0  # each B-roll beat runs at least this long, to avoid choppiness
+_MAX_SHOTS_PER_SCENE = 3
 
 
 def build_image_prompt(
@@ -128,24 +130,44 @@ class Visuals:
                 self._log.warning("broll_search_failed", query=term, error=str(exc))
         return combined
 
+    def _build_shots(
+        self, scene, run_root: Path, *, duration: float, picker: _BrollPicker
+    ) -> list[VisualShot]:
+        """Break the scene into ordered visual beats — one B-roll clip per keyword/description, each
+        matched to that moment — so the footage changes with the narration instead of one broad clip
+        covering the whole scene."""
+        beats = [k.strip() for k in scene.b_roll_keywords if k and k.strip()]
+        n = max(1, min(len(beats), int(duration // _MIN_SHOT_SEC) or 1, _MAX_SHOTS_PER_SCENE))
+        found: list[tuple[str, str, str]] = []  # (rel_path, source, query)
+        for j, beat in enumerate(beats[:n]):
+            url = picker.pick(self._broll_candidates([beat]))  # footage for THIS beat only
+            if not url:
+                continue
+            rel = f"assets/scenes/scene_{scene.index}_shot_{j}.mp4"
+            (run_root / rel).write_bytes(self._broll.download(url))
+            found.append((rel, _broll_source(url), beat))
+        if not found:
+            return []
+        per = round(duration / len(found), 3)  # split the scene evenly across the beats we found
+        return [VisualShot(path=r, duration_sec=per, source=src, query=q) for r, src, q in found]
+
     def _build_scene_visual(
         self, scene, run_root: Path, *, duration: float, picker: _BrollPicker
     ) -> SceneVisual:
         broll_enabled = bool(self._broll and getattr(self._broll, "enabled", False))
         if scene.b_roll_keywords and broll_enabled:
-            url = picker.pick(self._broll_candidates(scene.b_roll_keywords))
-            if url:
-                rel = f"assets/scenes/scene_{scene.index}.mp4"
-                (run_root / rel).write_bytes(self._broll.download(url))
+            shots = self._build_shots(scene, run_root, duration=duration, picker=picker)
+            if shots:
                 return SceneVisual(
                     scene_index=scene.index,
                     kind="broll",
-                    path=rel,
-                    source=_broll_source(url),
-                    prompt_or_query=", ".join(scene.b_roll_keywords[:2]),
+                    path=shots[0].path,
+                    source=shots[0].source,
+                    prompt_or_query=", ".join(scene.b_roll_keywords[:_MAX_SHOTS_PER_SCENE]),
                     on_screen_text=scene.on_screen_text,
                     sfx=scene.sfx,
                     duration_sec=round(duration, 3),
+                    shots=shots,
                 )
 
         prompt = build_image_prompt(

@@ -10,8 +10,8 @@ Produce every visual the renderer needs: a click-worthy **thumbnail**, one **vis
 ### 11.3 Processing flow
 ```mermaid
 flowchart TD
-    A[For each SceneCue] --> B{b_roll_keywords present\nand Pexels enabled?}
-    B -->|stock| C[Pexels search -> pick clip]
+    A[For each SceneCue] --> B{b_roll_keywords present\nand B-roll enabled?}
+    B -->|stock| C[Search per beat -> pick a clip per beat]
     B -->|generated| D[Build image prompt from template\nkeywords + on_screen_text + VISUAL_STYLE]
     D --> D2[ImageProvider.generate]
     C --> E[Record scene visual + source]
@@ -20,19 +20,28 @@ flowchart TD
     F --> G[Compose thumbnail (Pillow): base image + overlay text]
     G --> H[Persist VisualPackage + provenance]
 ```
-- **Visual choice per scene:** data/number-heavy scenes prefer **generated infographic-style images** (driven by `VISUAL_STYLE`); narrative/illustrative scenes prefer **B-roll** from Pexels. Falls back to generation if no good stock match.
+- **Moment-matched B-roll:** `b_roll_keywords` is an ordered list of per-beat shot descriptions; the agent fetches a **separate clip per beat** (one search each) and plays them in sequence within the scene, so the footage tracks what is being said. Clips come from a **multi-source** pool (Pexels + Pixabay, aggregated by `MultiBrollClient`) chosen by a **run-seeded picker** that de-dups, never repeats a clip back-to-back, caps reuse at 2/video, and makes different runs pick different clips. Scenes with no stock match fall back to a generated image or a Pillow card.
 - **Captions:** generated directly from `word_timings`, grouped into ≤ 7-word cues; written as `captions.srt` (style applied at render time).
 - **Thumbnail:** base image (generated from `Script.thumbnail_concept`) + bold overlay text via `Pillow`, sized to `THUMBNAIL_SIZE`.
 
 ### 11.4 `VisualPackage` schema (Pydantic)
 ```python
+class VisualShot(BaseModel):       # one B-roll clip covering a single beat within a scene
+    path: str                  # assets/scenes/scene_<n>_shot_<k>.mp4
+    duration_sec: float
+    source: str                # pexels|pixabay|stock
+    query: str                 # the beat's shot description used to find it
+
 class SceneVisual(BaseModel):
     scene_index: int
     kind: Literal["image", "broll"]
-    path: str                  # assets/scenes/scene_<n>.{png|mp4}
-    source: str                # openai|stability|pexels
+    path: str                  # assets/scenes/scene_<n>.{png|mp4} (first beat clip when broll)
+    source: str                # openai|stability|pexels|pixabay|card
     prompt_or_query: str
+    on_screen_text: str | None # caption / source citation burned on the frame
+    sfx: str | None            # sound-effect keyword mixed at this scene's start
     duration_sec: float        # mirrors scene timing
+    shots: list[VisualShot]    # ordered per-beat clips (empty for a single image/card)
 
 class VisualPackage(BaseModel):
     schema_version: str = "1.0"
@@ -48,7 +57,7 @@ class VisualPackage(BaseModel):
 
 ### 11.5 Provider abstraction
 - **`ImageProvider`** → `OpenAIImage` / `StabilityImage`, selected by `IMAGE_PROVIDER`.
-- **B-roll** → `broll.py` Pexels client (`PEXELS_API_KEY`); disabled gracefully if no key (all scenes generated).
+- **B-roll** → `broll.py`: `PexelsBrollClient` (`PEXELS_API_KEY`) + `PixabayBrollClient` (`PIXABAY_API_KEY`) aggregated by `MultiBrollClient` (more variety; resilient if one source is rate-limited); `NullBrollClient` when no key (all scenes generated). A run-seeded picker de-dups, avoids back-to-back repeats, and caps reuse at 2/video.
 - **Prompt building is deterministic (no LLM).** Per-scene image prompts are assembled by code from a fixed f-string template: `f"{VISUAL_STYLE}; {', '.join(b_roll_keywords)}; on-screen text '{on_screen_text}'; no logos, no real people"`. Scene `kind` is chosen by a simple rule (B-roll when keywords + Pexels available, else generated). The thumbnail prompt is templated from `Script.thumbnail_concept` + overlay text. This removes the dedicated LLM pass entirely.
 
 > **Max-savings option:** set `IMAGE_PROVIDER=none` to skip paid image generation too — every scene then uses Pexels B-roll or a Pillow-rendered text/infographic card, for near-zero visual cost.

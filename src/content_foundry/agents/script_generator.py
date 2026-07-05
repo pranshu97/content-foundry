@@ -21,9 +21,9 @@ SCRIPT_JSON_SHAPE = """{
   "hook": "first ~10s, specific, opens a curiosity gap",
   "scenes": [
     {"index": 0, "narration": "3-6 full spoken sentences", "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["software developer typing code", "office job interview"], "fact_ref": 0, "sfx": "whoosh"},
+     "b_roll_keywords": ["software developer typing code", "team standup meeting", "code on a monitor"], "fact_ref": 0, "sfx": "whoosh"},
     {"index": 1, "narration": "3-6 full spoken sentences", "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["resume on a laptop screen"], "fact_ref": 1, "sfx": null}
+     "b_roll_keywords": ["recruiter reading a resume", "job interview handshake"], "fact_ref": 1, "sfx": null}
   ],
   "cta": "call to action",
   "description": "YouTube description draft (must mention synthetic content)",

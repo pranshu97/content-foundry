@@ -534,7 +534,7 @@ A selection of decisions and hardening that shaped the current system:
 **Glossary**
 
 - **Artifact** — the versioned JSON (+ media) each stage writes; the unit of resumability.
-- **run_id** — the ULID identifying a run; also its folder name under `output/runs/`.
+- **run_id** — a short sequential id (e.g. `0006`) identifying a run; also its folder name under `output/runs/`.
 - **Brief** — `data_brief.json`; the grounded facts a script must cite.
 - **fact_ref** — a scene's index into `DataBrief.key_facts`; the basis of grounding and source attribution.
 - **Verdict** — the Judge's decision: PASS / REVISE / FAIL.

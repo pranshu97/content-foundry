@@ -47,6 +47,19 @@ def run_paths(run_id: str, output_dir: str) -> RunPaths:
     return RunPaths(run_id=run_id, root=root, assets=root / "assets", scenes=root / "assets" / "scenes")
 
 
+def next_run_id(output_dir: str) -> str:
+    """Next sequential, zero-padded run id (e.g. "0006") — a simple continuation of the highest
+    numbered run folder under ``output_dir``. Legacy non-numeric folders (old ULIDs) are ignored; an
+    empty or missing folder starts at "0001". Short and easy to type when resuming."""
+    root = Path(output_dir)
+    highest = 0
+    if root.exists():
+        for child in root.iterdir():
+            if child.is_dir() and child.name.isdigit():
+                highest = max(highest, int(child.name))
+    return f"{highest + 1:04d}"
+
+
 def ensure_run_dirs(paths: RunPaths) -> None:
     paths.scenes.mkdir(parents=True, exist_ok=True)
 

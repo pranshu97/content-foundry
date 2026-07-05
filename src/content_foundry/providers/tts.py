@@ -20,12 +20,22 @@ class TTSProvider(Protocol):
         ...
 
 
+def pick_voice(run_id: str | None, *, male: str, female: str, default: str) -> str:
+    """Alternate the narrator by run-id parity — male for ODD numeric ids, female for EVEN — so
+    consecutive videos don't sound identical. Falls back to ``default`` when the male/female voices
+    aren't configured or the run id isn't a plain number (e.g. a legacy ULID)."""
+    if run_id is not None and str(run_id).isdigit() and (male or female):
+        return (male if int(run_id) % 2 == 1 else female) or default
+    return default
+
+
 class ElevenLabsTTS:
     name = "elevenlabs"
 
     def __init__(self, api_key: str, voice_id: str, model: str, audio_format: str) -> None:
         self._api_key = api_key
         self._voice_id = voice_id
+        self.voice = voice_id  # public: the actual voice used (for reporting)
         self._model = model
         self._format = audio_format
         self.sample_rate = 44100
@@ -82,6 +92,7 @@ class OpenAITTS:
     def __init__(self, api_key: str, voice_id: str, model: str = "tts-1") -> None:
         self._api_key = api_key
         self._voice = voice_id
+        self.voice = voice_id
         self._model = model
         self.sample_rate = 24000
 
@@ -106,6 +117,7 @@ class EdgeTTS:
 
     def __init__(self, voice: str = "en-US-AriaNeural", *, rate: str = "+0%", pitch: str = "+0Hz"):
         self._voice = voice or "en-US-AriaNeural"
+        self.voice = self._voice
         self._rate = rate
         self._pitch = pitch
         self.sample_rate = 24000
@@ -166,6 +178,7 @@ class PiperTTS:
     def __init__(self, model_path: str, executable: str = "piper") -> None:
         self._model_path = model_path
         self._exe = executable or "piper"
+        self.voice = ""  # model-based; no named voice
         self.sample_rate = 22050
 
     @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, max=4), reraise=True)

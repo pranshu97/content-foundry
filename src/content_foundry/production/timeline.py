@@ -16,6 +16,7 @@ class RenderSegment:
     visual_path: str
     visual_kind: str  # image | broll | card
     on_screen_text: str | None = None
+    sfx: str | None = None
 
 
 def build_timeline(voiceover: VoiceoverAsset, visuals: VisualPackage) -> list[RenderSegment]:
@@ -33,6 +34,7 @@ def build_timeline(voiceover: VoiceoverAsset, visuals: VisualPackage) -> list[Re
                 visual_path=visual.path if visual else "",
                 visual_kind=visual.kind if visual else "card",
                 on_screen_text=visual.on_screen_text if visual else None,
+                sfx=visual.sfx if visual else None,
             )
         )
     return segments

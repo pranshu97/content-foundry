@@ -49,27 +49,35 @@ def build_llm_provider(settings: Settings) -> LLMProvider:
     return FallbackProvider(primary, secondary)
 
 
-def build_tts_provider(settings: Settings) -> TTSProvider:
+def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSProvider:
+    from .tts import pick_voice
+
+    voice = pick_voice(
+        run_id,
+        male=settings.tts_voice_male,
+        female=settings.tts_voice_female,
+        default=settings.tts_voice_id,
+    )
     if settings.tts_provider == "elevenlabs":
         from .tts import ElevenLabsTTS
 
         return ElevenLabsTTS(
             settings.elevenlabs_api_key,
-            settings.tts_voice_id,
+            voice,
             settings.tts_model,
             settings.tts_format,
         )
     if settings.tts_provider == "edge":
         from .tts import EdgeTTS
 
-        return EdgeTTS(settings.tts_voice_id)
+        return EdgeTTS(voice)
     if settings.tts_provider == "piper":
         from .tts import PiperTTS
 
         return PiperTTS(settings.piper_model_path, settings.piper_executable)
     from .tts import OpenAITTS
 
-    return OpenAITTS(settings.openai_api_key, settings.tts_voice_id)
+    return OpenAITTS(settings.openai_api_key, voice)
 
 
 def build_image_provider(settings: Settings) -> ImageProvider | None:
@@ -109,6 +117,16 @@ def build_render_backend(settings: Settings) -> RenderBackend:
     return AvatarBackend(settings.avatar_provider, settings.heygen_api_key, fallback)
 
 
+def build_sfx_client(settings: Settings):
+    if not settings.sfx_enabled:
+        from .sfx import NullSfxClient
+
+        return NullSfxClient()
+    from .sfx import SfxLibrary
+
+    return SfxLibrary(settings.sfx_dir, freesound_api_key=settings.freesound_api_key)
+
+
 def build_publisher(settings: Settings, *, dry_run: bool = False) -> Publisher:
     if dry_run:
         from .youtube import DryRunPublisher
@@ -128,6 +146,7 @@ __all__ = [
     "build_tts_provider",
     "build_image_provider",
     "build_broll_client",
+    "build_sfx_client",
     "build_render_backend",
     "build_publisher",
 ]

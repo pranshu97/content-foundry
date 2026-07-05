@@ -23,7 +23,7 @@ class DataFetcher:
 
     def run(self, run_id: str, *, niche: str, topic_seed: str | None = None) -> DataBrief:
         sources = list(self._sources) if self._sources is not None else build_sources(
-            self._settings, niche=niche
+            self._settings, niche=niche, topic_seed=topic_seed
         )
         if not sources:
             raise NoDataError("No data sources are enabled/configured.")

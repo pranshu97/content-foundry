@@ -15,6 +15,7 @@ class SceneCue(BaseModel):
     on_screen_text: str | None = None  # caption / lower-third / big-number callout
     b_roll_keywords: list[str] = Field(default_factory=list)
     fact_ref: int | None = None  # index into DataBrief.key_facts if this scene cites data
+    sfx: str | None = None  # optional sound-effect keyword, mixed in at this scene's start
 
 
 class Script(BaseModel):

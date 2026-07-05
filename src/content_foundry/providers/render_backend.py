@@ -12,6 +12,7 @@ from ..errors import RenderError
 
 if TYPE_CHECKING:
     from ..production.overlay import OverlaySpec
+    from ..production.subscribe import SubscribeSpec
     from ..production.timeline import RenderSegment
 
 
@@ -63,6 +64,11 @@ class RenderBackend(Protocol):
         burn_captions: bool = True,
         overlay: OverlaySpec | None = None,
         citations_path: str | None = None,
+        speed: float = 1.0,
+        transition: str = "none",
+        transition_sec: float = 0.5,
+        color_warmth: float = 0.0,
+        subscribe: SubscribeSpec | None = None,
     ) -> str:
         """Assemble the final mp4 and return its path."""
         ...
@@ -88,6 +94,11 @@ class FfmpegBackend:
         burn_captions: bool = True,
         overlay: OverlaySpec | None = None,
         citations_path: str | None = None,
+        speed: float = 1.0,
+        transition: str = "none",
+        transition_sec: float = 0.5,
+        color_warmth: float = 0.0,
+        subscribe: SubscribeSpec | None = None,
     ) -> str:
         exe = resolve_ffmpeg(self._ffmpeg)
         if exe is None:
@@ -100,9 +111,11 @@ class FfmpegBackend:
 
         width, _, height = resolution.partition("x")
         video_exts = (".mp4", ".mov", ".webm", ".mkv", ".avi")
+        crossfade = transition not in ("", "none") and len(segments) > 1
+        pad = float(transition_sec) if crossfade else 0.0
         inputs = []
         for seg in segments:
-            dur = max(seg.duration, 0.1)
+            dur = max(seg.duration, 0.1) + pad
             if seg.visual_path.lower().endswith(video_exts):
                 # B-roll clip: loop it to fill the scene's duration (the image-only `loop` option
                 # is invalid for a video input and makes ffmpeg abort with "Option loop not found").
@@ -112,7 +125,22 @@ class FfmpegBackend:
                 stream = ffmpeg.input(seg.visual_path, loop=1, t=dur)
             stream = stream.filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
             inputs.append(stream)
-        video = ffmpeg.concat(*inputs, v=1, n=len(inputs)) if inputs else ffmpeg.input(audio_path)
+        if crossfade and inputs:  # pragma: no cover - requires ffmpeg on PATH
+            # Blend consecutive scenes. Each clip is padded by the transition length and the xfade
+            # offset sits on the narration boundary, so scenes stay in sync with the voiceover.
+            video = _xfade_chain(
+                inputs, [max(s.duration, 0.1) for s in segments], transition, pad
+            )
+        else:
+            video = (
+                ffmpeg.concat(*inputs, v=1, n=len(inputs)) if inputs else ffmpeg.input(audio_path)
+            )
+        if color_warmth and float(color_warmth) > 1e-3:  # pragma: no cover - requires ffmpeg
+            w = min(max(float(color_warmth), 0.0), 1.0)
+            # Push mids/highlights toward red and pull blue back for a warm, amber cast.
+            video = video.filter(
+                "colorbalance", rm=0.15 * w, bm=-0.12 * w, rh=0.10 * w, bh=-0.10 * w
+            )
         if burn_captions and captions_path:
             video = video.filter("subtitles", captions_path)
         if citations_path:  # pragma: no cover - requires ffmpeg on PATH
@@ -130,7 +158,32 @@ class FfmpegBackend:
             )
             x, y = overlay.ffmpeg_xy()
             video = ffmpeg.overlay(video, avatar, x=x, y=y)
+        if subscribe is not None:  # pragma: no cover - requires ffmpeg on PATH
+            # A badge that fades in at the midpoint, holds, then fades out — a gentle nudge.
+            badge = (
+                ffmpeg.input(subscribe.image_path, loop=1, t=subscribe.end + 1.0, framerate=fps)
+                .filter("format", "rgba")
+                .filter(
+                    "fade", type="in", start_time=subscribe.start, duration=subscribe.fade, alpha=1
+                )
+                .filter(
+                    "fade", type="out",
+                    start_time=max(subscribe.start, subscribe.end - subscribe.fade),
+                    duration=subscribe.fade, alpha=1,
+                )
+            )
+            bx, by = subscribe.ffmpeg_xy()
+            video = ffmpeg.overlay(
+                video, badge, x=bx, y=by,
+                enable=f"between(t,{subscribe.start},{subscribe.end})",
+            )
         audio = ffmpeg.input(audio_path)
+        if speed and abs(speed - 1.0) > 1e-3:  # pragma: no cover - requires ffmpeg on PATH
+            # Play the whole thing faster/slower: compress the video PTS and time-stretch the audio
+            # (pitch preserved). Burned captions/citations live in the video stream, so they stay in
+            # sync automatically.
+            video = video.filter("setpts", f"{1.0 / speed}*PTS")
+            audio = _apply_atempo(audio, speed)
         try:
             (
                 ffmpeg.output(
@@ -151,6 +204,37 @@ class FfmpegBackend:
             detail = stderr.decode("utf-8", "ignore").strip() if stderr else str(exc)
             raise RenderError(f"ffmpeg render failed:\n{detail[-1200:]}") from exc
         return output_path
+
+
+def _xfade_chain(streams, durations, transition, dur):  # pragma: no cover - requires ffmpeg
+    """Chain ffmpeg xfade across scene ``streams``. Each clip is padded by ``dur`` and the k-th
+    transition offset is the cumulative narration length, keeping visuals aligned to the voiceover."""
+    import ffmpeg
+
+    trans = transition if transition not in ("", "none") else "fade"
+    acc = streams[0]
+    offset = 0.0
+    for i in range(1, len(streams)):
+        offset += max(durations[i - 1], 0.1)
+        acc = ffmpeg.filter(
+            [acc, streams[i]], "xfade", transition=trans, duration=dur, offset=round(offset, 3)
+        )
+    return acc
+
+
+def _apply_atempo(audio, speed: float):  # pragma: no cover - requires ffmpeg on PATH
+    """Time-stretch audio by ``speed`` with pitch preserved. atempo handles 0.5-2.0 per pass, so
+    chain it for larger factors."""
+    remaining = speed
+    while remaining > 2.0:
+        audio = audio.filter("atempo", 2.0)
+        remaining /= 2.0
+    while remaining < 0.5:
+        audio = audio.filter("atempo", 0.5)
+        remaining /= 0.5
+    if abs(remaining - 1.0) > 1e-3:
+        audio = audio.filter("atempo", round(remaining, 4))
+    return audio
 
 
 class MoviePyBackend:  # pragma: no cover - optional heavy backend

@@ -22,8 +22,14 @@ LLM_MAX_TOKENS=4096
 ADZUNA_APP_ID=xxxx                         # required if adzuna enabled
 ADZUNA_APP_KEY=xxxx
 NEWSAPI_KEY=xxxx                           # optional
-ENABLED_SOURCES=adzuna,layoffs,news        # comma list: adzuna|layoffs|news|bls
+ENABLED_SOURCES=adzuna,layoffs,news        # comma list: adzuna|layoffs|news|bls|search
 LAYOFFS_FEED_URL=https://example.com/layoffs.rss
+# Web search (domain-agnostic; queries the run's topic). Add "search" to ENABLED_SOURCES. Free via
+# DuckDuckGo (no key); SEARCH_PROVIDER=tavily|brave use a free API key for a real index.
+SEARCH_PROVIDER=duckduckgo                 # duckduckgo (no key) | tavily | brave
+TAVILY_API_KEY=                            # only if SEARCH_PROVIDER=tavily
+BRAVE_API_KEY=                             # only if SEARCH_PROVIDER=brave
+SEARCH_MAX_RESULTS=8                       # web results fetched per run
 SIGNAL_CACHE_TTL_MIN=720                   # reuse cached signals within 12h
 
 # ---------- Pipeline Behavior ----------
@@ -47,7 +53,9 @@ GATE_RELIEF_RATIO=0.20                     # slack amount (20%); never grounding
 # ---------- Voiceover (TTS) ----------
 TTS_PROVIDER=elevenlabs                     # elevenlabs | openai
 ELEVENLABS_API_KEY=xxxx                     # required if TTS_PROVIDER=elevenlabs
-TTS_VOICE_ID=Rachel                         # provider voice id / name
+TTS_VOICE_ID=Rachel                         # provider voice id / name (fallback)
+TTS_VOICE_MALE=                             # odd run ids -> male voice (blank = use TTS_VOICE_ID)
+TTS_VOICE_FEMALE=                           # even run ids -> female voice (blank = use TTS_VOICE_ID)
 TTS_MODEL=eleven_multilingual_v2
 TTS_FORMAT=mp3_44100_128
 
@@ -67,6 +75,20 @@ VIDEO_RESOLUTION=1920x1080
 VIDEO_FPS=30
 CAPTIONS_ENABLED=true
 CAPTION_ALIGNER=tts                           # tts | whisper (fallback alignment)
+
+# ---------- Scene polish ----------
+SCENE_TRANSITION=none                         # none | fade | fadewhite | dissolve | slideleft ...
+SCENE_TRANSITION_SEC=0.5                      # crossfade length between scenes (0.1-2.0s)
+COLOR_WARMTH=0.0                              # warm colour grade: 0 = neutral, 1 = strongly warm
+SUBSCRIBE_NUDGE_ENABLED=false                 # small "Subscribe" badge at the video's midpoint
+SUBSCRIBE_NUDGE_SEC=4                         # seconds the badge stays on screen
+SUBSCRIBE_NUDGE_POSITION=bottom-center        # corners or *-center
+
+# ---------- Sound effects ----------
+SFX_ENABLED=false                             # true = author 'sfx' cues in the script + mix them in
+SFX_DIR=data/sounds                           # local library of .mp3/.wav/.ogg/.m4a/.flac clips
+FREESOUND_API_KEY=                            # optional: fetch missing effects from freesound.org
+SFX_VOLUME_DB=-8.0                            # gain per effect relative to narration (-40..+6 dB)
 
 # ---------- Publishing (YouTube) ----------
 YOUTUBE_CLIENT_SECRETS_FILE=secrets/client_secrets.json

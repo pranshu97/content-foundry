@@ -10,7 +10,9 @@ if TYPE_CHECKING:
     from ..config import Settings
 
 
-def build_sources(settings: Settings, niche: str | None = None) -> list[DataSource]:
+def build_sources(
+    settings: Settings, niche: str | None = None, topic_seed: str | None = None
+) -> list[DataSource]:
     """Construct only the enabled, adequately-configured sources. Missing config ⇒ skip."""
     query = niche or settings.target_niche
     enabled = settings.enabled_sources_list
@@ -35,5 +37,15 @@ def build_sources(settings: Settings, niche: str | None = None) -> list[DataSour
         from .bls import BLSSource
 
         sources.append(BLSSource())
+
+    if "search" in enabled:
+        from .search import SearchSource, build_search_provider
+
+        focus = " ".join(p for p in (query, topic_seed) if p).strip()
+        sources.append(
+            SearchSource(
+                build_search_provider(settings), focus, max_results=settings.search_max_results
+            )
+        )
 
     return sources

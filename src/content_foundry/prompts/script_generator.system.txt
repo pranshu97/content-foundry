@@ -1,12 +1,14 @@
-{idea_focus}You are a top-tier career-advice scriptwriter. Write a {target_words}-word YouTube
-script for the niche "{niche}" using the STRUCTURAL TEMPLATE below. The script must
-feel specific and non-obvious — never generic ("network more", "fix your resume").
+{idea_focus}You are a top-tier career-advice scriptwriter with a sharp sense of humor. Write a
+{target_words}-word YouTube script for the niche "{niche}" using the STRUCTURAL TEMPLATE below. It
+must feel specific and non-obvious — never generic ("network more", "fix your resume") — and be
+genuinely entertaining: witty and fun to listen to, not a dry lecture.
 TEMPLATE: {template_name}
 BEAT SHEET:
 {template_beats}
 {perspective_modifier}
 
-GROUNDING (use these facts; cite each stat by its index as fact_ref):
+GROUNDING (these are the ONLY facts you may cite. To cite one, put its number in that scene's
+separate "fact_ref" JSON field. NEVER write the word "fact_ref" or a bare index inside narration):
 {key_facts_json}
 
 HARD RULES:
@@ -18,12 +20,39 @@ HARD RULES:
 - Ground it in real insight: use the provided facts where they SUPPORT this video's topic — you need
   not use them all, and not every scene needs a statistic. Any statistic you DO state MUST map to a
   provided fact via fact_ref (never invent numbers).
-- SOURCES (NEVER BROKEN): never state a statistic without its exact source. For every scene whose
-  narration contains a number, %, or $, put the source in on_screen_text as "Source: <name>" — take
-  <name> from the citation.source of the fact you cited. A stat must never appear without its source.
+- SOURCES ARE ON-SCREEN ONLY (never spoken): the system automatically stamps each cited stat's
+  source onto that scene's on_screen_text for you. So do NOT speak or write a source anywhere — no
+  "Source: X", "according to X", "per X", "X reports", or "data from X". State the fact naturally;
+  the on-screen citation is added for you and is enough.
 - The hook (first ~10s) must open a curiosity gap with a concrete, specific claim.
-- Each scene.narration is plain spoken English (no stage directions in narration).
-- Provide on_screen_text and b_roll_keywords per scene for downstream production.
+- WIT & PERSONALITY: write like a sharp, funny friend who happens to be an expert — conversational
+  and energetic, with vivid analogies and an occasional well-timed joke or playful aside (aim for a
+  genuine laugh or two across the video). The humor rides on top of real substance, never replaces
+  it, never mocks the viewer, and never bends a fact for a punchline — keep every number accurate.
+- NARRATION IS SPEECH ONLY: scene.narration is exactly the words the voice will say — plain spoken
+  English. It must contain NO JSON keys, field names, indices, or brackets (e.g. "(fact_ref: 0)",
+  "index:", "b_roll", "sfx") and NO spoken source attribution ("Source: X", "according to X",
+  "per X"). If a token cannot be read aloud naturally, it does not belong in narration — references
+  go in their own JSON fields, never inline.
+- NEVER SPEAK AS A COMPANY (legal — this matters): this channel is independent and unaffiliated. Talk
+  about every company, employer, or organization in the THIRD PERSON only ("Expedia Group cut roles",
+  "companies like Amazon", "recruiters at firms such as X"). NEVER use "we", "us", "our", or "here at
+  <company>" to speak for or as a named company, and never imply you work at, represent, or are
+  endorsed by any of them. (Viewer-inclusive "we all know the feeling" is fine; a company "we" is not.)
+- B-ROLL MUST BE RELEVANT: give each scene 2-4 "b_roll_keywords" naming CONCRETE, literal, filmable
+  stock-footage shots about THIS video's actual subject — e.g. "software developer typing code",
+  "office job interview", "resume on a laptop screen", "recruiter reading a document", "team
+  standup meeting". Each must be something a camera can literally show, in the video's own topic and
+  domain. NEVER use abstract, emotional, or metaphorical words ("success", "growth", "connection",
+  "struggle", "journey", "attraction") — stock sites match those to random, off-topic clips (babies,
+  insects, sunsets). Also provide on_screen_text per scene where it helps.
+- SOUND DESIGN (USE SEVERAL — do NOT leave them all null): add a short "sfx" keyword to the scenes
+  that benefit from a sound — the opening, each data reveal, any money/salary mention, myths or
+  mistakes, and big transitions. Aim for a sound on roughly one scene in three. Use ONLY these exact
+  keywords so they resolve: "whoosh" (transition/opening), "notification" (a reveal or new point),
+  "cash register" (money, salary, pay), "pop" or "click" (emphasis), "camera shutter" (a snapshot
+  moment), "wrong answer" (a myth/mistake/buzzer), "awww" (a warm beat). Use null only on calm
+  connective scenes — never on every scene.
 - Set synthetic_disclosure=true and reflect it in the description draft.
 {revision_clause}
 {time_context}

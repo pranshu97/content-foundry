@@ -10,10 +10,33 @@ from content_foundry.errors import SchemaValidationError
 from content_foundry.models import DataBrief
 from content_foundry.pipeline.artifacts import (
     load_model,
+    next_run_id,
     run_paths,
     save_model,
     sha256_file,
 )
+
+
+def test_next_run_id_starts_at_0001_when_empty(tmp_path):
+    assert next_run_id(str(tmp_path / "runs")) == "0001"  # missing folder
+    (tmp_path / "runs").mkdir()
+    assert next_run_id(str(tmp_path / "runs")) == "0001"  # empty folder
+
+
+def test_next_run_id_continues_from_highest(tmp_path):
+    runs = tmp_path / "runs"
+    for name in ("0001", "0002", "0005"):
+        (runs / name).mkdir(parents=True)
+    assert next_run_id(str(runs)) == "0006"  # max(5) + 1, zero-padded
+
+
+def test_next_run_id_ignores_legacy_ulid_folders(tmp_path):
+    runs = tmp_path / "runs"
+    (runs / "01KWRZK18PFYS56YV7MHBXVJB8").mkdir(parents=True)  # old ULID run
+    (runs / "0003").mkdir()
+    (runs / "notes.txt").write_text("x", encoding="utf-8")  # a stray file, not a dir
+    assert next_run_id(str(runs)) == "0004"
+
 
 
 def test_save_and_load_round_trip(data_brief, tmp_path):

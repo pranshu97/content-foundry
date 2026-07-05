@@ -157,6 +157,30 @@ def test_tts_factory_builds_edge_and_piper(monkeypatch):
     assert build_tts_provider(get_settings()).name == "piper"
 
 
+def test_pick_voice_alternates_by_run_id_parity():
+    from content_foundry.providers.tts import pick_voice
+
+    assert pick_voice("0001", male="M", female="F", default="D") == "M"  # odd -> male
+    assert pick_voice("0002", male="M", female="F", default="D") == "F"  # even -> female
+    assert pick_voice("0007", male="M", female="F", default="D") == "M"
+    assert pick_voice(None, male="M", female="F", default="D") == "D"  # no run id
+    assert pick_voice("01KWZ9", male="M", female="F", default="D") == "D"  # legacy ULID -> default
+    assert pick_voice("0003", male="", female="", default="D") == "D"  # unset -> default
+
+
+def test_build_tts_provider_alternates_voice_by_run(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("TTS_PROVIDER", "edge")
+    monkeypatch.setenv("TTS_VOICE_MALE", "en-US-GuyNeural")
+    monkeypatch.setenv("TTS_VOICE_FEMALE", "en-US-AriaNeural")
+    reset_settings_cache()
+    s = get_settings()
+    assert build_tts_provider(s, run_id="0001").voice == "en-US-GuyNeural"  # odd -> male
+    assert build_tts_provider(s, run_id="0002").voice == "en-US-AriaNeural"  # even -> female
+    assert build_tts_provider(s, run_id=None).voice == s.tts_voice_id  # no id -> default
+
+
 def test_resolve_ffmpeg_prefers_configured_path(tmp_path):
     from content_foundry.providers.render_backend import resolve_ffmpeg
 

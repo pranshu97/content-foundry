@@ -36,11 +36,11 @@ flowchart LR
 | # | Stage name | What it does | Writes | Uses money? |
 |---|-----------|--------------|--------|-------------|
 | 1 | **fetch** | Pulls job/salary/layoff/news signals, distills grounded facts (no LLM) | `data_brief.json` | data-source keys (mostly free) |
-| 2 | **generate** | Writes the script from the brief (the one always-on LLM call) | `script.json` | LLM (or **free** local) |
+| 2 | **generate** | Writes the script from the brief (the one always-on LLM call); also authors optional `sfx` cues | `script.json` | LLM (or **free** local) |
 | 3 | **judge** | Scores the script on 7 dimensions; PASS / REVISE / FAIL | `judge_report.json` | LLM (hybrid) or **free** deterministic |
 | 4 | **voiceover** | Text-to-speech narration + word timings | `voiceover.json`, `assets/narration.mp3` | TTS (or **free** Edge/Piper) |
 | 5 | **visuals** | Thumbnail + per-scene images/B-roll + captions | `visuals.json`, `assets/thumbnail.png`, `assets/scenes/`, `assets/captions.srt` | image API (or **free** cards/Pexels) |
-| 6 | **render** | Assembles audio + visuals + captions into an mp4 (ffmpeg) | `video.json`, `assets/video.mp4` | free (local) |
+| 6 | **render** | Assembles audio + visuals + captions into an mp4 (ffmpeg); mixes any `sfx` cues in | `video.json`, `assets/video.mp4` | free (local) |
 | 7 | **publish** | Uploads to YouTube as a Private draft (or dry-run) | `publish_result.json` | free |
 
 Generate ⇄ Judge is a **loop**: a REVISE verdict feeds the Judge's critique back into a rewrite, up
@@ -92,14 +92,15 @@ The `--dry-run` still produces a real `assets/video.mp4` — it just skips the Y
   ✓ Rendering video
   ✓ Publishing
 
-run_id 01KWF8VZ3QFMN256SVCFV0T1D4   state PUBLISHED   verdict PASS
-  data_brief   output\runs\01KWF8VZ3QFMN256SVCFV0T1D4\data_brief.json
-  script       output\runs\01KWF8VZ3QFMN256SVCFV0T1D4\script.json
+run_id 0006   state PUBLISHED   verdict PASS
+  data_brief   output\runs\0006\data_brief.json
+  script       output\runs\0006\script.json
   ...
 ```
 
-- **The `run_id`** (e.g. `01KWF8…`) is the ULID printed on the last lines — you use it to resume,
-  inspect, or publish that run later. It is also the **folder name** under `output\runs\`.
+- **The `run_id`** (e.g. `0006`) is a short, sequential number printed on the last lines — you use
+  it to resume, inspect, or publish that run later. It's just the next number after the highest run
+  folder under `output\runs\`, so it's easy to type (`--run-id 0006`). It's also the **folder name**.
 - Each `⚖ attempt` line shows the Judge verdict + score, so you see exactly why a script passed or
   needed revision.
 
@@ -241,11 +242,14 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 | Group | Key settings |
 |---|---|
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
-| **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
+| **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls\|**search**), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
+| **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS` |
 | **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `BRAINSTORM_IDEA_COUNT`, `REQUIRE_SCRIPT_APPROVAL`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
-| **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `PIPER_MODEL_PATH` |
+| **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `TTS_VOICE_MALE`/`TTS_VOICE_FEMALE` (alternate narrator by run-id parity), `PIPER_MODEL_PATH` |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `SCENES_PER_VIDEO` |
-| **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `AVATAR_OVERLAY_ENABLED` |
+| **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `VIDEO_SPEED`, `AVATAR_OVERLAY_ENABLED` |
+| **Scene polish** | `SCENE_TRANSITION` (fade/dissolve/…), `SCENE_TRANSITION_SEC`, `COLOR_WARMTH` (warm grade), `SUBSCRIBE_NUDGE_ENABLED` |
+| **Sound FX** | `SFX_ENABLED`, `SFX_DIR` (local clip library), `FREESOUND_API_KEY` (optional), `SFX_VOLUME_DB` |
 | **Publish** | `PUBLISH_MODE` (draft\|auto), `YOUTUBE_PRIVACY_STATUS`, `REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC` |
 | **Budget** | `MONTHLY_BUDGET_USD`, `ENFORCE_BUDGET_CAP` (hard stop when over budget) |
 
@@ -303,11 +307,14 @@ approve drafts — the thin human layer. You're never in the writing loop.
 | **Score too low / insight floor** | Use a stronger model (`LOCAL_LLM_MODEL=qwen2.5:7b-instruct` beats llama3.1), lower `INSIGHT_MIN` for testing, or use `--profile cheap` (deterministic judge skips the insight LLM floor). |
 | **Score went *down* on a revision** | Each revision rewrites from scratch, so a weak model can regress. The revision prompt now feeds the Judge's exact reasoning back in to reduce this. |
 | **"insufficient facts" / no data** | A data source returned too little. Add real Adzuna keys, verify `LAYOFFS_FEED_URL` (try `https://layoffs.fyi/feed/`), or enable `bls` (keyless). Need ≥ `MIN_FACTS` (3). |
+| **Any niche / the feeds don't fit your topic** | Add `search` to `ENABLED_SOURCES` (e.g. `ENABLED_SOURCES=search` for search-only, or `adzuna,search`). It runs a web search on your run's topic (`--niche` + `--idea`), so it works for **any** subject — not just jobs/layoffs. Free via DuckDuckGo (no key); set `SEARCH_PROVIDER=tavily` or `brave` with a free key for a stronger index. |
 | **A data source failed** | Runs degrade gracefully — the `✓ Data brief` line shows which sources succeeded. As long as ≥3 facts come back, it proceeds. |
 | **Want to resume after a crash** | `content-foundry resume --run-id <id>` — it continues from the next stage; completed stages are reused. |
 | **Change the model and retry** | Edit `LOCAL_LLM_MODEL`, then `content-foundry run --run-id <id> --from-stage generate --dry-run`. |
 | **Want a real video but no upload** | `--dry-run`. The mp4 is at `output\runs\<id>\assets\video.mp4`. |
 | **Want better visuals** | Get a free Pexels key (`PEXELS_API_KEY`) for real B-roll, or set `IMAGE_PROVIDER=openai`/`stability` (paid) for AI images. |
+| **Want sound effects** | Set `SFX_ENABLED=true`. The script author writes short `sfx` cues (whoosh, ding, cash register…) into scenes and the renderer mixes the matching clip from `data/sounds` in at each cue's moment. Add more clips to that folder or set `FREESOUND_API_KEY` to auto-download missing ones; tune loudness with `SFX_VOLUME_DB`. |
+| **Smoother look / branding** | `SCENE_TRANSITION=fade` crossfades between scenes (`fadewhite` = a light flash); `COLOR_WARMTH=0.25` warms the whole grade; `SUBSCRIBE_NUDGE_ENABLED=true` pops a small Subscribe badge at the midpoint. All three are render-only — apply them to an existing run with `content-foundry run --run-id <id> --from-stage render`. |
 | **Telegram 404 / notification error** | Harmless with placeholder tokens. Set `NOTIFY_ENABLED=false`, or add a real bot token (`Human_Tasks.txt` §5). |
 | **Config won't load** | `content-foundry config check` prints the exact validation error. |
 | **Budget hit** | `ENFORCE_BUDGET_CAP=true` stopped the run. Raise `MONTHLY_BUDGET_USD` or set it false. |

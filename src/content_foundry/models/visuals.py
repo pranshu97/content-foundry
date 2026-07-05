@@ -16,6 +16,7 @@ class SceneVisual(BaseModel):
     source: str  # openai | stability | pexels | card
     prompt_or_query: str
     on_screen_text: str | None = None  # caption / source citation to burn onto the frame
+    sfx: str | None = None  # sound-effect keyword to mix at this scene's start
     duration_sec: float  # mirrors scene timing
 
 

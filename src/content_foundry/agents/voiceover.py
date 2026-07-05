@@ -51,7 +51,7 @@ class Voiceover:
             audio_path=_AUDIO_REL,
             duration_sec=round(cursor, 3),
             sample_rate=getattr(self._tts, "sample_rate", 44100),
-            voice_id=self._settings.tts_voice_id,
+            voice_id=getattr(self._tts, "voice", "") or self._settings.tts_voice_id,
             provider=getattr(self._tts, "name", self._settings.tts_provider),
             word_timings=word_timings,
             scene_timings=scene_timings,

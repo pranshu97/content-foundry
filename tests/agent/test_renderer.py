@@ -66,6 +66,75 @@ def test_on_screen_citations_burned_as_track(settings, tmp_path, fakes):
     assert render.last_citations_path == str(srt)
 
 
+def test_video_speed_passed_and_duration_adjusted(monkeypatch, tmp_path, fakes):
+    monkeypatch.setenv("VIDEO_SPEED", "1.5")
+    reset_settings_cache()
+    render = fakes.Render()
+    video = Renderer(get_settings(), render).run("R", _voiceover(), _visuals(), run_root=tmp_path)
+    assert render.last_speed == 1.5
+    assert video.duration_sec == round(6.0 / 1.5, 3)  # _voiceover() is 6.0s -> 4.0s at 1.5x
+
+
+def test_sfx_cue_resolved_only_for_scenes_that_carry_one(settings, tmp_path, fakes):
+    visuals = VisualPackage(
+        run_id="R", thumbnail_path="assets/thumbnail.png", thumbnail_text="t",
+        captions_path="assets/captions.srt", visual_style="clean",
+        scenes=[
+            SceneVisual(scene_index=0, kind="broll", path="assets/scenes/scene_0.mp4",
+                        source="pexels", prompt_or_query="p", duration_sec=3.0, sfx="whoosh"),
+            SceneVisual(scene_index=1, kind="broll", path="assets/scenes/scene_1.mp4",
+                        source="pexels", prompt_or_query="p", duration_sec=3.0),
+        ],
+        provenance=Provenance(produced_by="visuals"),
+    )
+    sfx = fakes.Sfx()  # resolves to None -> no real mixing, just records the request
+    Renderer(settings, fakes.Render(), sfx).run("R", _voiceover(), visuals, run_root=tmp_path)
+    assert sfx.requested == ["whoosh"]  # scene 1 has no cue, so it is never asked for
+
+
+def test_disabled_sfx_client_is_never_queried(settings, tmp_path, fakes):
+    from content_foundry.providers.sfx import NullSfxClient
+
+    visuals = VisualPackage(
+        run_id="R", thumbnail_path="assets/thumbnail.png", thumbnail_text="t",
+        captions_path="assets/captions.srt", visual_style="clean",
+        scenes=[SceneVisual(scene_index=0, kind="broll", path="assets/scenes/scene_0.mp4",
+                            source="pexels", prompt_or_query="p", duration_sec=3.0, sfx="whoosh"),
+                SceneVisual(scene_index=1, kind="broll", path="assets/scenes/scene_1.mp4",
+                            source="pexels", prompt_or_query="p", duration_sec=3.0)],
+        provenance=Provenance(produced_by="visuals"),
+    )
+    render = fakes.Render()
+    # NullSfxClient.enabled is False -> the renderer skips mixing entirely and audio is untouched.
+    Renderer(settings, render, NullSfxClient()).run("R", _voiceover(), visuals, run_root=tmp_path)
+    assert render.calls == 1
+
+
+def test_scene_transition_and_warmth_passed_to_backend(monkeypatch, tmp_path, fakes):
+    monkeypatch.setenv("SCENE_TRANSITION", "fade")
+    monkeypatch.setenv("SCENE_TRANSITION_SEC", "0.6")
+    monkeypatch.setenv("COLOR_WARMTH", "0.3")
+    reset_settings_cache()
+    render = fakes.Render()
+    Renderer(get_settings(), render).run("R", _voiceover(), _visuals(), run_root=tmp_path)
+    assert render.last_transition == "fade"
+    assert render.last_transition_sec == 0.6
+    assert render.last_warmth == 0.3
+    assert render.last_subscribe is None  # nudge disabled by default
+
+
+def test_subscribe_nudge_built_at_midpoint(monkeypatch, tmp_path, fakes):
+    monkeypatch.setenv("SUBSCRIBE_NUDGE_ENABLED", "true")
+    monkeypatch.setenv("SUBSCRIBE_NUDGE_SEC", "4")
+    reset_settings_cache()
+    render = fakes.Render()
+    Renderer(get_settings(), render).run("R", _voiceover(), _visuals(), run_root=tmp_path)
+    spec = render.last_subscribe
+    assert spec is not None
+    assert (tmp_path / "assets" / "subscribe_badge.png").exists()
+    assert spec.start == 1.0  # _voiceover() is 6.0s -> midpoint 3.0, 4s badge starts at 1.0
+
+
 def test_avatar_overlay_passed_to_backend(monkeypatch, tmp_path, fakes):
     avatar = tmp_path / "me.png"
     avatar.write_bytes(b"PNG")

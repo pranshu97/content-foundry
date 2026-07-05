@@ -22,7 +22,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .errors import ConfigError
 
-VALID_SOURCES = {"adzuna", "layoffs", "news", "bls"}
+VALID_SOURCES = {"adzuna", "layoffs", "news", "bls", "search"}
 VALID_EVENTS = {
     "run_complete",
     "need_validation",
@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     enabled_sources: str = "adzuna,layoffs,news"
     layoffs_feed_url: str = ""
     signal_cache_ttl_min: int = 720
+    # Web search — a domain-agnostic source that queries the run's topic directly (add "search" to
+    # ENABLED_SOURCES). Free via DuckDuckGo (no key); set SEARCH_PROVIDER=tavily|brave + its key for a
+    # real index. Decoupled from the job/layoff/news feeds, so any niche works.
+    search_provider: Literal["duckduckgo", "tavily", "brave"] = "duckduckgo"
+    tavily_api_key: str = ""
+    brave_api_key: str = ""
+    search_max_results: int = Field(8, ge=1, le=25)
 
     # ---------- Pipeline Behaviour ----------
     max_revisions: int = 3
@@ -111,6 +118,10 @@ class Settings(BaseSettings):
     tts_provider: Literal["elevenlabs", "openai", "edge", "piper"] = "elevenlabs"
     elevenlabs_api_key: str = ""
     tts_voice_id: str = "Rachel"
+    # Alternate the narrator by run-id parity: male voice for ODD run ids, female for EVEN. Leave
+    # both blank to always use tts_voice_id. Values are your TTS provider's own voice names.
+    tts_voice_male: str = ""
+    tts_voice_female: str = ""
     tts_model: str = "eleven_multilingual_v2"
     tts_format: str = "mp3_44100_128"
     # Free voices: edge = Microsoft neural (online, no key); piper = fully offline (needs a .onnx model).
@@ -135,9 +146,35 @@ class Settings(BaseSettings):
     heygen_api_key: str = ""
     video_resolution: str = "1920x1080"
     video_fps: int = 30
+    # Play the whole output faster/slower (1.5 = 1.5x). Audio pitch is preserved; captions stay in sync.
+    video_speed: float = Field(1.0, ge=0.25, le=4.0)
     captions_enabled: bool = True
     caption_aligner: Literal["tts", "whisper"] = "tts"
     render_fallback: bool = True
+    # Cross-blend consecutive scenes instead of hard cuts (ffmpeg xfade). "none" = hard cut.
+    # "fade" is a smooth crossfade; "fadewhite" flashes through white for a lighter feel.
+    scene_transition: Literal[
+        "none", "fade", "fadewhite", "fadeblack", "dissolve",
+        "smoothleft", "smoothright", "circleopen", "radial", "wipeleft", "slideleft",
+    ] = "none"
+    scene_transition_sec: float = Field(0.5, ge=0.1, le=2.0)
+    # Warm the whole video (0 = neutral/off, 1 = strongly warm). Pushes mids/highlights toward amber.
+    color_warmth: float = Field(0.0, ge=0.0, le=1.0)
+    # A small "Subscribe" badge that fades in at the video's midpoint for a few seconds.
+    subscribe_nudge_enabled: bool = False
+    subscribe_nudge_sec: float = Field(4.0, ge=1.0, le=12.0)
+    subscribe_nudge_position: Literal[
+        "top-left", "top-right", "bottom-left", "bottom-right", "top-center", "bottom-center"
+    ] = "bottom-center"
+
+    # ---------- Sound effects ----------
+    # Script-authored SFX cues mixed into the narration at each scene's start. Local library first,
+    # then an optional Freesound download (Pixabay has no SFX API — drop those files into sfx_dir).
+    sfx_enabled: bool = False
+    sfx_dir: str = "data/sounds"
+    freesound_api_key: str = ""
+    sfx_volume_db: float = Field(-8.0, ge=-40.0, le=6.0)
+
     # Personal avatar overlay (future plan 1): composited at a fixed corner of every frame.
     # The image is operator-supplied; rendering skips gracefully when the file is absent.
     avatar_overlay_enabled: bool = False

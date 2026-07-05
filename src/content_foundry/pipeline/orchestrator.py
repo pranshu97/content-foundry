@@ -43,6 +43,7 @@ from ..providers import (
     build_llm_provider,
     build_publisher,
     build_render_backend,
+    build_sfx_client,
     build_tts_provider,
 )
 from ..templates import get_template, pick_perspective_modifier, select_template
@@ -50,6 +51,7 @@ from .artifacts import (
     ARTIFACT_FILENAMES,
     ensure_run_dirs,
     load_model,
+    next_run_id,
     run_paths,
     save_model,
     sha256_file,
@@ -92,6 +94,7 @@ class Orchestrator:
         broll_client=None,
         render_backend=None,
         publisher=None,
+        sfx_client=None,
         reporter=None,
         idea_chooser=None,
     ) -> None:
@@ -115,6 +118,7 @@ class Orchestrator:
         self._broll = broll_client
         self._render = render_backend
         self._publisher = publisher
+        self._sfx = sfx_client
         self.credit = CreditMonitor(
             self.notifier,
             budget_usd=self.s.monthly_budget_usd,
@@ -206,7 +210,7 @@ class Orchestrator:
             if stage == "fetch":
                 self._emit("step", label="Fetching labor-market data")
                 brief = DataFetcher(self.s, self.repo, self._sources).run(
-                    run_id, niche=niche, topic_seed=topic_seed
+                    run_id, niche=niche, topic_seed=topic_seed or idea
                 )
                 self._persist(run_id, "data_brief", brief, paths, produced, hashes, None, {})
                 self.repo.update_run(run_id, state=RunState.FETCHED.value)
@@ -435,7 +439,7 @@ class Orchestrator:
         self._emit("step", label=label)
         if stage == "voiceover":
             script = self._need(produced, "script", paths)
-            vo = Voiceover(self.s, self._tts_provider()).run(run_id, script, run_root=run_root)
+            vo = Voiceover(self.s, self._tts_provider(run_id)).run(run_id, script, run_root=run_root)
             self._persist(run_id, "voiceover", vo, paths, produced, hashes, None,
                           {"script": hashes.get("script", "")})
             self.repo.update_run(run_id, state=RunState.VOICED.value)
@@ -453,7 +457,7 @@ class Orchestrator:
         elif stage == "render":
             vo = self._need(produced, "voiceover", paths)
             vis = self._need(produced, "visuals", paths)
-            video = Renderer(self.s, self._render_backend()).run(
+            video = Renderer(self.s, self._render_backend(), self._sfx_client()).run(
                 run_id, vo, vis, run_root=run_root
             )
             self._persist(run_id, "video", video, paths, produced, hashes, None,
@@ -653,7 +657,10 @@ class Orchestrator:
 
     def _ensure_run(self, run_id, topic_seed) -> str:
         if run_id is None:
-            run_id = str(ULID())
+            run_id = next_run_id(self.s.output_dir)
+            # Never reuse an id still in the DB (e.g. its output folder was deleted).
+            while self.repo.get_run(run_id) is not None:
+                run_id = f"{int(run_id) + 1:04d}"
             self.repo.create_run(run_id, topic_seed, RunState.CREATED.value)
         elif self.repo.get_run(run_id) is None:
             self.repo.create_run(run_id, topic_seed, RunState.CREATED.value)
@@ -670,10 +677,10 @@ class Orchestrator:
             self._llm = build_llm_provider(self.s)
         return self._llm
 
-    def _tts_provider(self):
-        if self._tts is None:
-            self._tts = build_tts_provider(self.s)
-        return self._tts
+    def _tts_provider(self, run_id=None):
+        if self._tts is not None:
+            return self._tts  # injected (tests) or already built
+        return build_tts_provider(self.s, run_id=run_id)
 
     def _image_provider(self):
         if self._image is _UNSET:
@@ -689,6 +696,11 @@ class Orchestrator:
         if self._render is None:
             self._render = build_render_backend(self.s)
         return self._render
+
+    def _sfx_client(self):
+        if self._sfx is None:
+            self._sfx = build_sfx_client(self.s)
+        return self._sfx
 
     def _publisher_obj(self):
         if self._publisher is None:

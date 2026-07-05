@@ -97,6 +97,7 @@ class Visuals:
                     source="pexels",
                     prompt_or_query=query,
                     on_screen_text=scene.on_screen_text,
+                    sfx=scene.sfx,
                     duration_sec=round(duration, 3),
                 )
 
@@ -119,6 +120,7 @@ class Visuals:
             source=source,
             prompt_or_query=prompt,
             on_screen_text=scene.on_screen_text,
+            sfx=scene.sfx,
             duration_sec=round(duration, 3),
         )
 

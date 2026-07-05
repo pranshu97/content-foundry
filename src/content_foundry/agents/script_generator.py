@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from ..errors import LLMError, SchemaValidationError
 from ..logging import get_logger
@@ -19,10 +20,10 @@ SCRIPT_JSON_SHAPE = """{
   "title_options": ["...", "..."],
   "hook": "first ~10s, specific, opens a curiosity gap",
   "scenes": [
-    {"index": 0, "narration": "3-6 full spoken sentences", "on_screen_text": "caption · Source: Adzuna",
-     "b_roll_keywords": ["kw1", "kw2"], "fact_ref": 0},
-    {"index": 1, "narration": "3-6 full spoken sentences", "on_screen_text": "caption · Source: BLS",
-     "b_roll_keywords": ["kw3"], "fact_ref": 1}
+    {"index": 0, "narration": "3-6 full spoken sentences", "on_screen_text": "short on-screen caption",
+     "b_roll_keywords": ["software developer typing code", "office job interview"], "fact_ref": 0, "sfx": "whoosh"},
+    {"index": 1, "narration": "3-6 full spoken sentences", "on_screen_text": "short on-screen caption",
+     "b_roll_keywords": ["resume on a laptop screen"], "fact_ref": 1, "sfx": null}
   ],
   "cta": "call to action",
   "description": "YouTube description draft (must mention synthetic content)",
@@ -58,6 +59,7 @@ class ScriptGenerator:
         script = self._repair_grounding(script, brief)
         script = self._ensure_min_length(system, script, brief, run_id, template.id)
         script = self._stamp_sources(script, brief)
+        script = self._design_sound(script)
         return script
 
     # ------------------------------------------------------------------ prompt
@@ -167,10 +169,11 @@ class ScriptGenerator:
             scenes.append(
                 SceneCue(
                     index=i if index is None else index,
-                    narration=raw_scene.get("narration", "") or "",
+                    narration=_clean_narration(raw_scene.get("narration", "") or ""),
                     on_screen_text=raw_scene.get("on_screen_text"),
                     b_roll_keywords=raw_scene.get("b_roll_keywords", []) or [],
                     fact_ref=_coerce_int(raw_scene.get("fact_ref")),
+                    sfx=_str_or_none(raw_scene.get("sfx")),
                 )
             )
 
@@ -180,7 +183,7 @@ class ScriptGenerator:
                 run_id=run_id,
                 template_id=template_id,
                 title_options=parsed.get("title_options", []) or [],
-                hook=parsed.get("hook", ""),
+                hook=_clean_narration(parsed.get("hook", "") or ""),
                 scenes=scenes,
                 cta=parsed.get("cta", ""),
                 description=description,
@@ -274,6 +277,38 @@ class ScriptGenerator:
             scene.on_screen_text = f"{caption} · Source: {label}" if caption else f"Source: {label}"
         return script
 
+    def _design_sound(self, script: Script) -> Script:
+        """Guarantee a tasteful sprinkle of sound effects when SFX is enabled — the same 'never rely
+        on the model alone' guarantee used for source stamping. Local models almost always return
+        sfx=null for every scene, so assign resolvable cues by scene role (opening, money, myth, data
+        reveal) at ~1-in-3 spacing, leaving any the model DID author untouched."""
+        if not self._settings.sfx_enabled:
+            return script
+        scenes = script.scenes
+        n = len(scenes)
+        if n == 0:
+            return script
+        authored = sum(1 for s in scenes if s.sfx)
+        if authored >= max(2, n // 3):
+            return script  # the model already designed enough sound; respect it
+        last, prev, added = n - 1, "", 0
+        for i, scene in enumerate(scenes):
+            if scene.sfx:
+                prev = scene.sfx
+                continue
+            text = scene.narration or ""
+            strong = bool(_MONEY_RE.search(text) or _MYTH_RE.search(text))
+            if not (strong or i == 0 or i == last or i % 3 == 0):
+                continue
+            kw = _auto_sfx(scene, is_first=(i == 0), is_last=(i == last), position=i)
+            if kw == prev:  # never play the same effect twice in a row
+                kw = next((c for c in _SFX_CYCLE if c != prev), kw)
+            scene.sfx = kw
+            prev = kw
+            added += 1
+        self._log.info("sound_designed", authored=authored, added=added, scenes=n)
+        return script
+
 
 _SOURCE_LABELS = {
     "adzuna": "Adzuna",
@@ -312,6 +347,103 @@ def _coerce_int(value):
             if ref is not None:
                 return ref
     return None
+
+
+def _str_or_none(value) -> str | None:
+    """Accept only a non-empty string (some models return null / lists for optional cue fields)."""
+    return (value.strip() or None) if isinstance(value, str) else None
+
+
+# Sound-design fallback: every keyword below resolves against the default data/sounds library, so a
+# script always gets audible effects even when the model authors none (see _design_sound).
+_MONEY_RE = re.compile(
+    r"\$|\b(?:salar(?:y|ies)|paycheck|income|compensation|wages?|bonus(?:es)?|six[- ]figure|raise)\b",
+    re.IGNORECASE,
+)
+_MYTH_RE = re.compile(
+    r"\b(?:myth|mistake|blunder|pitfall|red flag|deal ?breaker|avoid|reject|worst)\b", re.IGNORECASE
+)
+_SFX_CYCLE = ("whoosh", "pop", "notification", "click")
+
+
+def _auto_sfx(scene, *, is_first: bool, is_last: bool, position: int) -> str:
+    """Pick a resolvable sound-effect keyword for a scene from its role/content."""
+    text = scene.narration or ""
+    if _MONEY_RE.search(text):
+        return "cash register"
+    if _MYTH_RE.search(text):
+        return "wrong answer"
+    if is_first:
+        return "whoosh"
+    if scene.fact_ref is not None or STAT_RE.search(text):
+        return "notification"  # a data reveal
+    if is_last:
+        return "pop"
+    return _SFX_CYCLE[position % len(_SFX_CYCLE)]
+
+
+# Structured-field annotations a model sometimes leaks INTO the spoken narration — a JSON key written
+# inline, e.g. "(fact_ref: 0)" or "[b_roll: laptop]". These are never speech, so they must never be
+# voiced or captioned. The prompt forbids them at the source; this is the in-code safety net.
+_META_KEYS = "fact_ref|fact ref|factref|on_screen_text|b_roll_keywords|b_roll|b-roll|sfx|index"
+# Bracketed form can also safely drop a leaked source/attribution — the brackets bound it, so there's
+# no risk of mangling real prose (unlike a bare "Source:" whose label may contain periods).
+_BRACKET_KEYS = _META_KEYS + "|sources?|according to|data from"
+_META_BRACKET_RE = re.compile(
+    r"\s*[(\[{]\s*(?:" + _BRACKET_KEYS + r")\b[^)\]}]*[)\]}]", re.IGNORECASE
+)
+_META_BARE_RE = re.compile(
+    r"\s*\b(?:fact_ref|factref|on_screen_text|b_roll_keywords)\b\s*[:#=]?\s*\d*", re.IGNORECASE
+)
+
+# Company voice is a legal risk: the model must never speak AS a named company ("At Expedia Group we
+# ..."). We rewrite first-person-plural that asserts affiliation with a proper-noun company to the
+# third person. Bounded to the "at/with/here at <Company> ... we/our" shape so ordinary advice
+# ("we've all been there", "tailor your resume") is untouched. The prompt forbids it; this backstops.
+_THIRD_PERSON = {
+    "we": "they", "we're": "they're", "we've": "they've", "we'll": "they'll",
+    "our": "their", "ours": "theirs", "us": "them", "ourselves": "themselves",
+}
+_COMPANY = (
+    r"[A-Z][\w&.\-]*"
+    r"(?:\s+(?:[A-Z][\w&.\-]*|(?i:group|inc|llc|corp|co|ltd|labs|technologies|systems|software"
+    r"|studios|holdings|ventures)))"
+    r"{0,3}"
+)
+_AFFIL_AFTER_RE = re.compile(
+    r"((?i:at|for|with|here at|join us at)\s+" + _COMPANY + r"[,:]?\s+)"
+    r"((?i:we're|we've|we'll|we|ours|our|us|ourselves))\b"
+)
+_AFFIL_BEFORE_RE = re.compile(
+    r"\b((?i:we're|we've|we'll|we))(\s+(?i:at|here at)\s+" + _COMPANY + r")"
+)
+
+
+def _to_third_person(pron: str) -> str:
+    out = _THIRD_PERSON.get(pron.lower(), pron)
+    return out[:1].upper() + out[1:] if pron[:1].isupper() else out
+
+
+def _neutralize_company_voice(text: str) -> str:
+    """Rewrite first-person company voice ('At Expedia Group we...') to the third person so the video
+    never implies affiliation with any named company."""
+    if not text:
+        return text
+    text = _AFFIL_AFTER_RE.sub(lambda m: m.group(1) + _to_third_person(m.group(2)), text)
+    text = _AFFIL_BEFORE_RE.sub(lambda m: _to_third_person(m.group(1)) + m.group(2), text)
+    return text
+
+
+def _clean_narration(text: str) -> str:
+    """Make narration safe to speak: strip leaked structured-field annotations AND neutralize any
+    first-person company voice (the prompt forbids both; this guarantees it in code)."""
+    if not text:
+        return text
+    cleaned = _META_BRACKET_RE.sub("", text)
+    cleaned = _META_BARE_RE.sub("", cleaned)
+    cleaned = _neutralize_company_voice(cleaned)
+    cleaned = re.sub(r"\s+([.,!?;:])", r"\1", cleaned)  # tidy any space left before punctuation
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
 def _strip_stats(text: str) -> str:

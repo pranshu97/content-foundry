@@ -48,6 +48,8 @@ _BASE_ENV = {
     "SCRIPT_TARGET_WORDS": "40",
     # Off by default in tests so the fake LLM's call sequence stays deterministic; enabled per-test.
     "BRAINSTORM_ENABLED": "false",
+    # Off by default so the fake (non-mp3) TTS output isn't fed to the pydub mixer; enabled per-test.
+    "SFX_ENABLED": "false",
     "LOG_LEVEL": "ERROR",
     "LOG_FORMAT": "console",
 }
@@ -223,6 +225,7 @@ class FlakyDataSource:
 class FakeTTS:
     name = "fake-tts"
     sample_rate = 16000
+    voice = "fake-voice"
 
     def __init__(self, with_timings: bool = False):
         self._with_timings = with_timings
@@ -279,17 +282,42 @@ class FakeRenderBackend:
         self.calls = 0
         self.last_overlay = None
         self.last_citations_path = None
+        self.last_speed = 1.0
+        self.last_transition = "none"
+        self.last_transition_sec = 0.5
+        self.last_warmth = 0.0
+        self.last_subscribe = None
 
     def render(self, *, segments, audio_path, captions_path, output_path, resolution, fps,
-               burn_captions=True, overlay=None, citations_path=None) -> str:
+               burn_captions=True, overlay=None, citations_path=None, speed=1.0,
+               transition="none", transition_sec=0.5, color_warmth=0.0, subscribe=None) -> str:
         self.calls += 1
         self.last_overlay = overlay
         self.last_citations_path = citations_path
+        self.last_speed = speed
+        self.last_transition = transition
+        self.last_transition_sec = transition_sec
+        self.last_warmth = color_warmth
+        self.last_subscribe = subscribe
         from pathlib import Path
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_bytes(b"FAKEMP4")
         return output_path
+
+
+class FakeSfxClient:
+    """Records the keywords the renderer asks it to resolve; mixes nothing."""
+
+    enabled = True
+
+    def __init__(self, resolve_to: str | None = None):
+        self._resolve_to = resolve_to
+        self.requested: list[str] = []
+
+    def resolve(self, keyword: str) -> str | None:
+        self.requested.append(keyword)
+        return self._resolve_to
 
 
 # --------------------------------------------------------------- data fixtures
@@ -376,6 +404,7 @@ def fakes():
         Image=FakeImageProvider,
         Broll=FakeBrollClient,
         Render=FakeRenderBackend,
+        Sfx=FakeSfxClient,
     )
 
 

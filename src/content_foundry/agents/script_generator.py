@@ -170,25 +170,29 @@ class ScriptGenerator:
                 SceneCue(
                     index=i if index is None else index,
                     narration=_clean_narration(raw_scene.get("narration", "") or ""),
-                    on_screen_text=raw_scene.get("on_screen_text"),
+                    on_screen_text=_replace_em_dashes(raw_scene.get("on_screen_text")),
                     b_roll_keywords=raw_scene.get("b_roll_keywords", []) or [],
                     fact_ref=_coerce_int(raw_scene.get("fact_ref")),
                     sfx=_str_or_none(raw_scene.get("sfx")),
                 )
             )
 
-        description = ensure_description_discloses(parsed.get("description", ""))
+        description = _replace_em_dashes(
+            ensure_description_discloses(parsed.get("description", ""))
+        )
         try:
             script = Script(
                 run_id=run_id,
                 template_id=template_id,
-                title_options=parsed.get("title_options", []) or [],
+                title_options=[
+                    _replace_em_dashes(t) for t in (parsed.get("title_options", []) or [])
+                ],
                 hook=_clean_narration(parsed.get("hook", "") or ""),
                 scenes=scenes,
-                cta=parsed.get("cta", ""),
+                cta=_replace_em_dashes(parsed.get("cta", "")),
                 description=description,
                 tags=parsed.get("tags", []) or [],
-                thumbnail_concept=parsed.get("thumbnail_concept", ""),
+                thumbnail_concept=_replace_em_dashes(parsed.get("thumbnail_concept", "")),
                 word_count=0,
                 grounded_fact_refs=[],
                 synthetic_disclosure=True,
@@ -434,14 +438,33 @@ def _neutralize_company_voice(text: str) -> str:
     return text
 
 
+# HARD RULE: an em dash never appears in the script. Match the em dash and its lookalikes (the
+# horizontal bar, and 2+ hyphens used as an em-dash substitute); a single hyphen in "well-known" is
+# left alone. Replaced with a comma, the natural spoken/written pause, then spacing is tidied.
+_EM_DASH_RE = re.compile(r"\s*(?:\u2014|\u2015|-{2,})\s*")
+
+
+def _replace_em_dashes(text):
+    """Replace every em dash with a comma (the appropriate substitute for a spoken pause) and tidy
+    the surrounding spacing. Non-string / empty input is returned unchanged."""
+    if not isinstance(text, str) or not text:
+        return text
+    out = _EM_DASH_RE.sub(", ", text)
+    out = re.sub(r"\s+([,.!?;:])", r"\1", out)  # no space before punctuation
+    out = re.sub(r",\s*(?=[,.!?;:])", "", out)  # drop a comma butting against other punctuation
+    out = re.sub(r"^\s*,\s*", "", out)  # no leading comma
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
 def _clean_narration(text: str) -> str:
-    """Make narration safe to speak: strip leaked structured-field annotations AND neutralize any
-    first-person company voice (the prompt forbids both; this guarantees it in code)."""
+    """Make narration safe to speak: strip leaked structured-field annotations, neutralize any
+    first-person company voice, and remove em dashes (the prompt forbids these; this guarantees it)."""
     if not text:
         return text
     cleaned = _META_BRACKET_RE.sub("", text)
     cleaned = _META_BARE_RE.sub("", cleaned)
     cleaned = _neutralize_company_voice(cleaned)
+    cleaned = _replace_em_dashes(cleaned)
     cleaned = re.sub(r"\s+([.,!?;:])", r"\1", cleaned)  # tidy any space left before punctuation
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 

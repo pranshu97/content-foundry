@@ -132,6 +132,7 @@ class Settings(BaseSettings):
     image_provider: Literal["openai", "stability", "none"] = "openai"
     stability_api_key: str = ""
     pexels_api_key: str = ""
+    pixabay_api_key: str = ""  # optional 2nd free B-roll source (more variety across videos)
     # How many candidate clips to pull per B-roll query so each scene can get a distinct clip
     # (and no clip repeats more than twice across the video). Pexels allows up to 80 per page.
     broll_pool_size: int = Field(15, ge=1, le=80)

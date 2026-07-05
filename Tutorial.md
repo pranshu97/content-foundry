@@ -246,7 +246,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 | **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS` |
 | **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `BRAINSTORM_IDEA_COUNT`, `REQUIRE_SCRIPT_APPROVAL`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
 | **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `TTS_VOICE_MALE`/`TTS_VOICE_FEMALE` (alternate narrator by run-id parity), `PIPER_MODEL_PATH` |
-| **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `SCENES_PER_VIDEO` |
+| **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `PIXABAY_API_KEY` (2nd free B-roll source), `SCENES_PER_VIDEO` |
 | **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `VIDEO_SPEED`, `AVATAR_OVERLAY_ENABLED` |
 | **Scene polish** | `SCENE_TRANSITION` (fade/dissolve/…), `SCENE_TRANSITION_SEC`, `COLOR_WARMTH` (warm grade), `SUBSCRIBE_NUDGE_ENABLED` |
 | **Sound FX** | `SFX_ENABLED`, `SFX_DIR` (local clip library), `FREESOUND_API_KEY` (optional), `SFX_VOLUME_DB` |
@@ -313,6 +313,7 @@ approve drafts — the thin human layer. You're never in the writing loop.
 | **Change the model and retry** | Edit `LOCAL_LLM_MODEL`, then `content-foundry run --run-id <id> --from-stage generate --dry-run`. |
 | **Want a real video but no upload** | `--dry-run`. The mp4 is at `output\runs\<id>\assets\video.mp4`. |
 | **Want better visuals** | Get a free Pexels key (`PEXELS_API_KEY`) for real B-roll, or set `IMAGE_PROVIDER=openai`/`stability` (paid) for AI images. |
+| **Repetitive / off-topic B-roll** | Add a free `PIXABAY_API_KEY` alongside Pexels so each scene draws from a bigger, mixed pool. Clips are now pulled per keyword (per scene), never repeat back-to-back, cap at 2 uses each, and are seeded by the run id so different runs pick different clips. |
 | **Want sound effects** | Set `SFX_ENABLED=true`. The script author writes short `sfx` cues (whoosh, ding, cash register…) into scenes and the renderer mixes the matching clip from `data/sounds` in at each cue's moment. Add more clips to that folder or set `FREESOUND_API_KEY` to auto-download missing ones; tune loudness with `SFX_VOLUME_DB`. |
 | **Smoother look / branding** | `SCENE_TRANSITION=fade` crossfades between scenes (`fadewhite` = a light flash); `COLOR_WARMTH=0.25` warms the whole grade; `SUBSCRIBE_NUDGE_ENABLED=true` pops a small Subscribe badge at the midpoint. All three are render-only — apply them to an existing run with `content-foundry run --run-id <id> --from-stage render`. |
 | **Telegram 404 / notification error** | Harmless with placeholder tokens. Set `NOTIFY_ENABLED=false`, or add a real bot token (`Human_Tasks.txt` §5). |

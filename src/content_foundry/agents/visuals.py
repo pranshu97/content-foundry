@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from io import BytesIO
 from pathlib import Path
 
@@ -24,6 +25,48 @@ def build_image_prompt(
     )
 
 
+def _broll_source(url: str) -> str:
+    """Label a clip by the stock library its URL came from (metadata only)."""
+    u = (url or "").lower()
+    if "pixabay" in u:
+        return "pixabay"
+    if "pexels" in u:
+        return "pexels"
+    return "stock"
+
+
+class _BrollPicker:
+    """Chooses B-roll clips for one run: keeps the most relevant candidates near the top, adds
+    cross-video variety with a per-run seed, prefers unused clips, never repeats a clip in
+    consecutive scenes, and caps reuse at ``max_uses`` per video."""
+
+    _TOP_K = 4  # choose among the few most-relevant eligible clips (variety without going off-topic)
+
+    def __init__(self, rng: random.Random, *, max_uses: int = 2) -> None:
+        self._rng = rng
+        self._used: dict[str, int] = {}
+        self._prev = ""
+        self._max = max_uses
+
+    def pick(self, candidates: list[str]) -> str | None:
+        pool = [u for u in dict.fromkeys(candidates) if u]  # de-dup, keep relevance order
+        if not pool:
+            return None
+        tiers = (
+            lambda u: self._used.get(u, 0) == 0,  # fresh (never == prev, since prev was used)
+            lambda u: self._used.get(u, 0) < self._max and u != self._prev,  # reuse, not back-to-back
+            lambda u: self._used.get(u, 0) < self._max,  # last resort
+        )
+        for eligible in tiers:
+            tier = [u for u in pool if eligible(u)]
+            if tier:
+                chosen = self._rng.choice(tier[: self._TOP_K])
+                self._used[chosen] = self._used.get(chosen, 0) + 1
+                self._prev = chosen
+                return chosen
+        return None
+
+
 class Visuals:
     def __init__(self, settings, image_provider=None, broll_client=None):
         self._settings = settings
@@ -39,12 +82,13 @@ class Visuals:
         scenes_dir.mkdir(parents=True, exist_ok=True)
 
         scene_visuals: list[SceneVisual] = []
-        used_clips: dict[str, int] = {}
+        # Per-run picker: seeded so different runs pick different clips (varied videos), while
+        # de-duping, capping reuse, and never repeating a clip in consecutive scenes.
+        picker = _BrollPicker(random.Random(run_id))
         for scene in sorted(script.scenes, key=lambda s: s.index):
             scene_visuals.append(
                 self._build_scene_visual(
-                    scene, run_root, duration=durations.get(scene.index, 3.0),
-                    used_clips=used_clips,
+                    scene, run_root, duration=durations.get(scene.index, 3.0), picker=picker
                 )
             )
 
@@ -69,24 +113,27 @@ class Visuals:
         )
 
     # ------------------------------------------------------------------ scene
-    def _pick_broll(self, query: str, used: dict[str, int], *, max_uses: int = 2) -> str | None:
-        """Pick a clip, preferring one not yet used and never reusing any clip more than ``max_uses``
-        times across the video, so B-roll doesn't visibly repeat."""
-        candidates = self._broll.search(query)
-        for threshold in (0, max_uses - 1):
-            for url in candidates:
-                if used.get(url, 0) <= threshold:
-                    used[url] = used.get(url, 0) + 1
-                    return url
-        return None
+    def _broll_candidates(self, keywords: list[str]) -> list[str]:
+        """Pull a pool per keyword (a few searches, one per 'context') and combine — so each scene
+        gets a richer, more on-topic set than a single blended query would; downstream de-dup keeps
+        the mix varied."""
+        combined: list[str] = []
+        for kw in keywords[:3]:
+            term = (kw or "").strip()
+            if not term:
+                continue
+            try:
+                combined.extend(self._broll.search(term))
+            except Exception as exc:  # a flaky search must not kill the scene
+                self._log.warning("broll_search_failed", query=term, error=str(exc))
+        return combined
 
     def _build_scene_visual(
-        self, scene, run_root: Path, *, duration: float, used_clips: dict[str, int]
+        self, scene, run_root: Path, *, duration: float, picker: _BrollPicker
     ) -> SceneVisual:
         broll_enabled = bool(self._broll and getattr(self._broll, "enabled", False))
         if scene.b_roll_keywords and broll_enabled:
-            query = " ".join(scene.b_roll_keywords[:2])
-            url = self._pick_broll(query, used_clips)
+            url = picker.pick(self._broll_candidates(scene.b_roll_keywords))
             if url:
                 rel = f"assets/scenes/scene_{scene.index}.mp4"
                 (run_root / rel).write_bytes(self._broll.download(url))
@@ -94,8 +141,8 @@ class Visuals:
                     scene_index=scene.index,
                     kind="broll",
                     path=rel,
-                    source="pexels",
-                    prompt_or_query=query,
+                    source=_broll_source(url),
+                    prompt_or_query=", ".join(scene.b_roll_keywords[:2]),
                     on_screen_text=scene.on_screen_text,
                     sfx=scene.sfx,
                     duration_sec=round(duration, 3),

@@ -263,7 +263,7 @@ class FakeBrollClient:
     def __init__(self, urls: list[str] | None = None):
         # A pool of distinct clips so the visuals stage can hand each scene a fresh one.
         self._urls = urls if urls is not None else [
-            f"https://example.com/clip_{i}.mp4" for i in range(10)
+            f"https://videos.pexels.com/video-files/clip_{i}.mp4" for i in range(10)
         ]
         self.downloaded: list[str] = []
 

@@ -181,7 +181,7 @@ no matter the total:
 | Structural Freshness | 10% | — | deterministic |
 | Compliance | 5% | pass/fail | deterministic |
 
-- **PASS**: weighted total ≥ `PASS_THRESHOLD` (7.5) **and** all floors met.
+- **PASS**: weighted total ≥ `PASS_THRESHOLD` (8.0) **and** all floors met.
 - **REVISE**: a floor missed or total too low → the Judge's critique is fed into a rewrite.
 - **FAIL**: never passed within `MAX_REVISIONS` (usually a *data* problem, not writing).
 

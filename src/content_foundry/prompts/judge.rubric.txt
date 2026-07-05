@@ -1,18 +1,21 @@
-Score Actionability and Insight as DISCRETE INTEGERS 1-5 using these anchors.
+Score Actionability and Insight as DISCRETE INTEGERS 1-5 using these anchors. Grade HARD: the top
+scores must be earned, and most scripts sit at 2-3.
 
 ACTIONABILITY — can the viewer act on this today?
   1 = pure platitudes, nothing to do ("work hard", "stay positive").
   2 = vague direction, no concrete step.
-  3 = one usable step, but generic or under-specified.
-  4 = 2-3 concrete, specific steps a viewer can start this week.
-  5 = a precise, sequenced playbook with specifics (tools/numbers/thresholds).
+  3 = one usable step, but generic or under-specified (no tool / number / order).
+  4 = 2-3 concrete, SEQUENCED steps with real specifics (named tools, numbers, thresholds) a viewer
+      can start this week.
+  5 = a precise, end-to-end playbook: ordered steps, specifics, and what to expect at each stage.
 
 INSIGHT / VALUE DENSITY — is there a non-obvious, reframing idea? (FLOOR: needs >= 4)
   1 = cliché; everyone already knows this.
   2 = mildly useful but obvious.
-  3 = one decent point a savvy viewer might not know.
-  4 = a genuinely non-obvious insight that reframes the topic.
-  5 = a counterintuitive, memorable insight backed by the data.
+  3 = one decent point a savvy viewer might not know, but not a reframe.
+  4 = a genuinely non-obvious insight that REFRAMES the topic AND is tied to a specific number/fact.
+  5 = a counterintuitive, memorable insight, provably backed by the data, that changes what the
+      viewer does next.
 
 Mapping to the weighted rubric: score10 = (score_1_5 - 1) * 2.5  (1->0 ... 5->10).
 The other five dimensions are computed deterministically in code (see Ch. 9.3a):

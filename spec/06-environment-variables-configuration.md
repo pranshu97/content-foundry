@@ -35,7 +35,7 @@ SIGNAL_CACHE_TTL_MIN=720                   # reuse cached signals within 12h
 # ---------- Pipeline Behavior ----------
 MAX_REVISIONS=3                            # generator<->judge loop bound
 JUDGE_MODE=hybrid                          # hybrid | deterministic | llm  (cost control)
-PASS_THRESHOLD=7.5                         # min weighted rubric total to PASS
+PASS_THRESHOLD=8.0                         # min weighted rubric total to PASS
 INSIGHT_MIN=7.0                            # hard floor on Insight Score
 GROUNDING_MIN=8.0                          # hard floor on factual grounding
 FATIGUE_LOOKBACK=5                         # # of recent runs checked for template repetition
@@ -84,6 +84,8 @@ COLOR_WARMTH=0.0                              # warm colour grade: 0 = neutral, 
 SUBSCRIBE_NUDGE_ENABLED=false                 # small "Subscribe" badge at the video's midpoint
 SUBSCRIBE_NUDGE_SEC=4                         # seconds the badge stays on screen
 SUBSCRIBE_NUDGE_POSITION=bottom-center        # corners or *-center
+SUBSCRIBE_BELL_ENABLED=true                   # ring a bell as the badge fades in (needs SFX_ENABLED)
+SUBSCRIBE_BELL_SOUND=bell                     # SFX keyword for the chime (bell -> bell.mp3 in SFX_DIR)
 
 # ---------- Sound effects ----------
 SFX_ENABLED=false                             # true = author 'sfx' cues in the script + mix them in

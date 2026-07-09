@@ -11,35 +11,41 @@ GROUNDING (these are the ONLY facts you may cite. To cite one, put its number in
 separate "fact_ref" JSON field. NEVER write the word "fact_ref" or a bare index inside narration):
 {key_facts_json}
 
-HARD RULES:
+HARD RULES (the TWO most important are WIT and STICK THE LANDING — an automated reviewer now scores
+wittiness and the ending and REJECTS a dry script or a weak, abrupt close, so treat them as seriously
+as being factually correct):
+- WIT & PERSONALITY (#1 PRIORITY — a reviewer enforces a wittiness floor; a dry, humorless script is
+  REJECTED outright): write like the funniest smart friend the viewer has, who also happens to be a
+  real domain expert. Be genuinely, laugh-out-loud entertaining: punchy phrasing, surprising turns,
+  vivid and slightly absurd analogies, playful asides, and a real comedic beat in MOST scenes (several
+  genuine laughs across the video, not one token quip). Open with personality and keep the energy high
+  the whole way. The comedy rides ON TOP of real substance — it sharpens the point, never replaces it,
+  never mocks the viewer, and never bends a fact for a punchline (every number stays exact). Dry,
+  corporate, "LinkedIn-influencer" narration is an automatic REJECT.
+- STICK THE LANDING (#1 PRIORITY — a reviewer scores the ending and REJECTS an abrupt or flat close):
+  the FINAL scene must close like a great stand-up closer. In its narration: (1) pay off the core idea
+  with your single wittiest, most memorable line, (2) give ONE natural, non-desperate nudge to like
+  and subscribe tied to the value they just got (e.g. "if this saved you one awkward salary chat,
+  subscribe so the next one finds you"), and (3) sign off warmly with a "see you in the next one"
+  style send-off. It MUST contain BOTH a subscribe/follow nudge AND a sign-off — an ending missing
+  either is REJECTED. Keep it to a few punchy spoken sentences INSIDE the last scene's narration.
 - LENGTH (STRICT — an automated reviewer REJECTS anything shorter): write EXACTLY {scenes} full scenes.
   Each scene.narration MUST be at least {words_per_scene} spoken words — 4-6 complete sentences of real,
   finished narration (never a phrase, heading, or bullet). The whole script MUST total at least
   {min_words} spoken words (aim for ~{target_words}). Expand every beat with concrete detail, examples,
   and the data; NEVER output a single scene, an outline, or a summary.
-- Ground it in real insight: use the provided facts where they SUPPORT this video's topic — you need
-  not use them all, and not every scene needs a statistic. Any statistic you DO state MUST map to a
-  provided fact via fact_ref (never invent numbers).
+- GROUND IT IN REAL NUMBERS (this is a data channel — viewers came for hard figures): state at least
+  TWO specific numbers taken straight from the facts above (the actual figure, e.g. a salary like
+  "$133,000" or a count like "37 openings"), spoken naturally in the narration. For EACH number you
+  state, set THAT scene's "fact_ref" to the fact it came from, so the system can stamp the on-screen
+  source. On-screen source citations appear ONLY for scenes that state a number, so a script with no
+  figures shows no sources at all. Never invent a number; use only the facts above (you need not use
+  them all), and a video with zero figures is a fail.
 - SOURCES ARE ON-SCREEN ONLY (never spoken): the system automatically stamps each cited stat's
   source onto that scene's on_screen_text for you. So do NOT speak or write a source anywhere — no
   "Source: X", "according to X", "per X", "X reports", or "data from X". State the fact naturally;
   the on-screen citation is added for you and is enough.
 - The hook (first ~10s) must open a curiosity gap with a concrete, specific claim.
-- WIT & PERSONALITY (dial this way up — it is a core requirement, not a garnish): write like the
-  funniest smart friend the viewer has, who also happens to be a real domain expert. Be genuinely,
-  laugh-out-loud entertaining: punchy phrasing, surprising turns, vivid and slightly absurd analogies,
-  playful asides, and a real comedic beat in most scenes (aim for several genuine laughs across the
-  video, not one token quip). Open with personality and keep the energy high the whole way through.
-  The comedy always rides ON TOP of real substance — it sharpens the point, never replaces it, never
-  mocks the viewer, and never bends a fact for a punchline (every number stays exact). Dry, corporate,
-  "LinkedIn-influencer" narration is a failure.
-- STICK THE LANDING (end strong — never trail off): the FINAL scene must close the video like a great
-  stand-up closer. In its narration: (1) pay off the core idea with your single wittiest, most
-  memorable line, (2) give ONE natural, non-desperate nudge to like and subscribe tied to the value
-  they just got (e.g. "if this saved you one awkward salary chat, subscribe so the next one finds
-  you"), and (3) sign off warmly with a "see you in the next one" style send-off. Keep it to a few
-  punchy spoken sentences INSIDE the last scene's narration (that is what the voice actually says),
-  and obey every rule above (no em dashes, no spoken sources, companies in the third person).
 - NO EM DASHES (hard rule, never break): do not use an em dash (the "—" character) anywhere in the
   script — not in narration, titles, on_screen_text, or the description. Use the punctuation the
   sentence actually needs instead: a comma for a pause, a colon before a list, or a period between
@@ -61,6 +67,9 @@ HARD RULES:
   salary-negotiation scene, for example: "office handshake", then "signing job offer", then "manager
   employee meeting". Match each to the literal subject or action being SAID right then, not the broad
   topic (for "counter-offer" use "typing email", NOT "cash"; never put "cash" under "negotiation").
+  Pull each phrase straight from the concrete noun in that beat's sentence: if the line says a
+  recruiter skims a resume, the shot is "recruiter reading resume", not "office"; prefer a specific
+  person performing the action over a generic place or object.
   NEVER use abstract or metaphorical terms ("success", "growth", "power", "money"), stock sites map
   those to random, off-topic clips (babies, insects, sunsets). Keep them literal and on the video's
   real subject. Also provide on_screen_text per scene where it helps.

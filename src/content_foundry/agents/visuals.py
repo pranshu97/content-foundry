@@ -83,9 +83,10 @@ class _BrollPicker:
             tier = [u for u in pool if eligible(u)]
             if tier:
                 window = tier[: self._TOP_K]
-                # Bias toward the most relevant (higher-ranked) clip, but keep seeded variety so
-                # different runs still differ — weights decrease with rank.
-                weights = list(range(len(window), 0, -1))
+                # Bias hard toward the single most relevant clip (search rank 1), but keep a little
+                # seeded variety so different runs still differ — weights fall off with the SQUARE
+                # of rank, so rank 1 is picked far more often than rank 3-4.
+                weights = [r * r for r in range(len(window), 0, -1)]
                 chosen = self._rng.choices(window, weights=weights, k=1)[0]
                 self._used[chosen] = self._used.get(chosen, 0) + 1
                 self._prev = chosen

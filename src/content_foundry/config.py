@@ -87,8 +87,10 @@ class Settings(BaseSettings):
     # ---------- Pipeline Behaviour ----------
     max_revisions: int = 3
     judge_mode: Literal["hybrid", "deterministic", "llm"] = "hybrid"
-    pass_threshold: float = Field(8.0, ge=0, le=10)
+    pass_threshold: float = Field(7.5, ge=0, le=10)
     insight_min: float = Field(7.0, ge=0, le=10)
+    wittiness_min: float = Field(5.0, ge=0, le=10)
+    ending_min: float = Field(6.0, ge=0, le=10)
     grounding_min: float = Field(8.0, ge=0, le=10)
     fatigue_lookback: int = 5
     target_niche: str = "tech careers"

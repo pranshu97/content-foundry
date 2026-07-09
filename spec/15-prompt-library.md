@@ -45,23 +45,28 @@ Return ONLY valid JSON matching this shape:
 You are a HARSH, adversarial content-quality judge for a career-advice channel. Your default stance
 is skeptical: assume a script is mediocre until it clearly proves otherwise. Grounding, compliance,
 specificity, hook, and template-freshness have ALREADY been scored deterministically by code — do
-NOT re-score them. Score ONLY: Actionability and Insight.
+NOT re-score them. Score these FOUR: Actionability, Insight, Engagement (does it grab and HOLD
+attention?), and Wittiness (is it genuinely funny and fun to listen to?).
 
 SCORING METHOD (follow exactly):
 - Use a DISCRETE INTEGER 1-5 per the anchored level descriptions in the RUBRIC below.
 - First write a one-sentence `justification`, THEN the integer (reason before scoring).
 - Quote at least one concrete span from the script in `evidence`.
-- Score the two dimensions INDEPENDENTLY.
+- Score the four dimensions INDEPENDENTLY.
 
-HOW HARD TO GRADE (obey — this pipeline over-rewards itself, so correct for it):
-- MOST drafts land at 2 or 3. A 4 must be genuinely non-obvious or a precise, specific playbook; a 5
-  is rare and reserved for the exceptional. If you find yourself giving mostly 4s and 5s, you are
-  grading too soft — lower them.
-- When you hesitate between two scores, choose the LOWER one.
-- Do NOT reward effort, confidence, length, or fluent writing — only concrete, specific value.
-- Accurately restating facts the audience could look up is at most a 3 on Insight, never higher.
-- "Do X" with no specifics (which tool, what number, what order) is at most a 3 on Actionability.
+HOW HARD TO GRADE (obey — be demanding, but reward the value a script genuinely earns):
+- Anchor strictly to the rubric. Obvious or generic drafts sit at 2-3; a genuinely non-obvious,
+  specific, data-backed point EARNS a 4; a 5 is rare, for the truly counterintuitive. Do not inflate,
+  but do NOT withhold a 4 the script has clearly earned.
+- Do NOT reward effort, confidence, length, or fluent writing on their own — only concrete, specific value.
+- Merely restating a fact the audience could look up is a 3 on Insight; using that fact to land a
+  non-obvious, useful point is a 4.
+- "Do X" with no specifics (which tool, what number, what order) is a 3 on Actionability; 2-3 concrete,
+  specific steps a viewer can start this week is a 4.
 - Generic, "soul-crushing" advice ("network more", "update your resume", "stay positive") is a 1-2.
+- Engagement: a flat, list-like recap that never builds curiosity is a 2-3; open loops, real stakes,
+  pace changes, and direct address earn a 4. Wittiness: dry/corporate is 1-2, genuinely funny (a
+  vivid analogy or a joke that lands) is a 4-5 — but only when the humour rides ON TOP of substance.
 
 BIAS RULES (obey):
 - Recency/position: judge the WHOLE script; do not over-weight the opening or ending.
@@ -75,36 +80,55 @@ SCRIPT:
 
 Return ONLY valid JSON:
 { "actionability": {"justification": str, "evidence": str, "score_1_5": int},
-  "insight":       {"justification": str, "evidence": str, "score_1_5": int} }
+  "insight":       {"justification": str, "evidence": str, "score_1_5": int},
+  "engagement":    {"justification": str, "evidence": str, "score_1_5": int},
+  "wittiness":     {"justification": str, "evidence": str, "score_1_5": int} }
 ```
-Code maps `score_1_5` → 0-10 via `(score_1_5-1)*2.5`. In `deterministic` mode this prompt is **not used** — both dimensions fall back to heuristics ([Ch. 9.3b](09-judge-agent.md#9-judge-agent)).
+Code maps `score_1_5` → 0-10 via `(score_1_5-1)*2.5`. In `deterministic` mode this prompt is **not used** — all four dimensions fall back to heuristics ([Ch. 9.3b](09-judge-agent.md#9-judge-agent)).
 
 ### 15.4 `judge.rubric.txt` (anchored 1-5 scales for the LLM-scored dims)
 ```text
-Score Actionability and Insight as DISCRETE INTEGERS 1-5 using these anchors. Grade HARD: the top
-scores must be earned, and most scripts sit at 2-3.
+Score Actionability, Insight, Engagement, and Wittiness as DISCRETE INTEGERS 1-5 using these anchors.
+Grade HARD, but reward what a script genuinely earns: obvious/flat drafts sit at 2-3, a
+specific/non-obvious/lively one reaches 4.
 
 ACTIONABILITY — can the viewer act on this today?
   1 = pure platitudes, nothing to do ("work hard", "stay positive").
   2 = vague direction, no concrete step.
   3 = one usable step, but generic or under-specified (no tool / number / order).
-  4 = 2-3 concrete, SEQUENCED steps with real specifics (named tools, numbers, thresholds).
+  4 = 2-3 concrete steps with real specifics (a named tool, number, or clear order) a viewer can
+      start this week.
   5 = a precise, end-to-end playbook: ordered steps, specifics, and what to expect at each stage.
 
-INSIGHT / VALUE DENSITY — is there a non-obvious, reframing idea? (FLOOR: needs >= 4)
+INSIGHT / VALUE DENSITY — is there a non-obvious idea? (FLOOR: needs >= 4)
   1 = cliché; everyone already knows this.
   2 = mildly useful but obvious.
-  3 = one decent point a savvy viewer might not know, but not a reframe.
-  4 = a genuinely non-obvious insight that reframes the topic AND is tied to a specific number/fact.
-  5 = a counterintuitive, memorable insight, provably backed by the data, that changes what the
-      viewer does next.
+  3 = one decent point a savvy viewer might not know, but essentially obvious or generic.
+  4 = a genuinely non-obvious, useful point backed by a specific number or fact from the data.
+  5 = a counterintuitive, memorable insight, provably backed by the data, that reframes the topic
+      and changes what the viewer does next.
+
+ENGAGEMENT / RETENTION — does it grab attention and hold it to the end?
+  1 = dead air; no reason to keep watching.
+  2 = flat and list-like; attention drifts.
+  3 = watchable but even; few curiosity loops or turns.
+  4 = pulls you forward: open loops, clear stakes/payoff, varied pace, talks to the viewer.
+  5 = magnetic; every beat makes you need the next one, with no dead spots.
+
+WITTINESS / ENTERTAINMENT — is it genuinely fun to listen to? (humour rides ON TOP of substance)
+  1 = dry, corporate, zero personality.
+  2 = one flat attempt at levity.
+  3 = mild smile; a little personality but no real laugh.
+  4 = genuinely funny: a vivid analogy, playful aside, or well-timed joke that lands.
+  5 = consistently sharp and memorable, several real laughs, never at the cost of the facts.
 
 Mapping to the weighted rubric: score10 = (score_1_5 - 1) * 2.5  (1->0 ... 5->10).
-The other five dimensions are computed deterministically in code (see Ch. 9.3a):
-  Specificity (w=0.20), Factual Grounding (w=0.20, FLOOR=8.0),
-  Hook & Retention (w=0.15), Structural Freshness (w=0.10),
-  Compliance (w=0.05, PASS/FAIL). Actionability & Insight are w=0.20 each.
-weighted_total = sum(score10 * weight). A dimension below its FLOOR forces non-PASS.
+The other SIX dimensions are computed deterministically in code (see Ch. 9.3a):
+  Specificity (w=0.14), Factual Grounding (w=0.14, FLOOR=8.0), Hook & Retention (w=0.10),
+  Structural Freshness (w=0.07), Compliance (w=0.03, PASS/FAIL), and Ending (w=0.07, FLOOR=6.0 —
+  a word-match needing BOTH a like/subscribe nudge AND a sign-off, each worth 5). Actionability &
+  Insight are w=0.14 each; Engagement w=0.10 (no floor); Wittiness w=0.07 (FLOOR=5.0). Weights sum to 1.0.
+weighted_total = sum(score10 * weight)  (a plain weighted average on 0-10). A dimension below its FLOOR forces non-PASS.
 ```
 
 ### 15.5 `visuals` — deterministic (no prompt)

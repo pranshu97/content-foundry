@@ -14,15 +14,18 @@ Each dimension is scored **0–10**. The **weighted total** is the publish-quali
 
 | # | Dimension | Weight | Hard floor | Method | What a 10 looks like |
 |---|-----------|:------:|:----------:|--------|----------------------|
-| 1 | **Actionability** | 20% | — | LLM* / heuristic | Viewer can *do* something specific today; concrete steps, not vibes |
-| 2 | **Specificity / Non-Generic** | 20% | — | **Deterministic** | Could not have been written without the data; names numbers, roles, tradeoffs |
-| 3 | **Factual Grounding** | 20% | `GROUNDING_MIN` (8.0) | **Deterministic** | Every stat traces to a `DataBrief` fact; zero invented numbers |
-| 4 | **Insight Score (value density)** | 20% | `INSIGHT_MIN` (7.0) | LLM* / heuristic | Contains a genuinely non-obvious insight that reframes the topic |
-| 5 | **Hook & Retention** | 15% | — | **Deterministic** | First 10s create a curiosity gap; no slow throat-clearing |
-| 6 | **Structural Freshness** | 10% | — | **Deterministic** | Opening, arc, and phrasing differ from recent videos |
-| 7 | **Compliance (disclosure)** | 5% | pass/fail | **Deterministic** | `synthetic_disclosure=true` present and reflected in description |
+| 1 | **Actionability** | 14% | — | LLM* / heuristic | Viewer can *do* something specific today; concrete steps, not vibes |
+| 2 | **Specificity / Non-Generic** | 14% | — | **Deterministic** | Could not have been written without the data; names numbers, roles, tradeoffs |
+| 3 | **Factual Grounding** | 14% | `GROUNDING_MIN` (8.0) | **Deterministic** | Every stat traces to a `DataBrief` fact; zero invented numbers |
+| 4 | **Insight Score (value density)** | 14% | `INSIGHT_MIN` (7.0) | LLM* / heuristic | Contains a genuinely non-obvious insight that reframes the topic |
+| 5 | **Engagement / Retention** | 10% | — | LLM* / heuristic | Opens loops and holds attention start to finish; you can't look away |
+| 6 | **Wittiness / Entertainment** | 7% | `WITTINESS_MIN` (5.0) | LLM* / heuristic | Genuinely funny and lively; the wit rides on top of the substance |
+| 7 | **Hook & Retention** | 10% | — | **Deterministic** | First 10s create a curiosity gap; no slow throat-clearing |
+| 8 | **Structural Freshness** | 7% | — | **Deterministic** | Opening, arc, and phrasing differ from recent videos |
+| 9 | **Compliance (disclosure)** | 3% | pass/fail | **Deterministic** | `synthetic_disclosure=true` present and reflected in description |
+| 10 | **Ending / Sign-off** | 7% | `ENDING_MIN` (6.0) | **Deterministic** | Closes with **both** a like/subscribe nudge AND a warm sign-off (each worth 5; word-match) |
 
-*\* LLM-scored only when `JUDGE_MODE=hybrid|llm`; in `deterministic` mode a heuristic is used instead.*
+*\* LLM-scored (Actionability, Insight, Engagement, Wittiness) only when `JUDGE_MODE=hybrid|llm`; in `deterministic` mode a heuristic is used instead. Weights **sum to 1.0**, so `weighted_total` is a plain weighted average of the ten 0–10 dimension scores (it stays on 0–10 — that is why `PASS_THRESHOLD` and the floors are 0–10 values). **Floors that force a non-PASS:** Grounding, Insight, Wittiness (≥5/10, i.e. a 3/5), and Ending; Engagement is a weighted contributor with no floor. Insight and Wittiness are relaxable by gate relief; Grounding, Compliance, Ending, and fatigue are not. Keep any subjective floor ≤ 7.5 — on the coarse 1-5→0-10 scale a higher floor would need a perfect 5.*
 
 > **Insight Score = value density.** It is its own gate (floor 7.0). Generic, "soul-crushing" advice scores low here and is rejected outright, even if everything else is fine — this is the core anti-mediocrity mechanism.
 
@@ -43,7 +46,7 @@ Implemented in `judge/checks.py`, run **before** any LLM call:
 
 ### 9.3c Eval-prompt techniques (LLM-as-a-Judge)
 The optional LLM scoring pass (Actionability & Insight) follows evaluation best practices to stay calibrated and stable. These are baked into `judge.system.txt` / `judge.rubric.txt` ([Ch. 15](15-prompt-library.md#15-prompt-library)):
-- **Discrete integer scale 1–5** (not free 0–10 floats or 0–1), with **every level explicitly anchored** to a description of what a 1/2/3/4/5 means. Code normalizes to the internal 0–10 scale via `score10 = (score_1_5 − 1) × 2.5` (1→0, 3→5, 5→10), so the Insight floor `INSIGHT_MIN=7.0` requires a **4 or 5**.
+- **Discrete integer scale 1–5** (not free 0–10 floats or 0–1), with **every level explicitly anchored** to a description of what a 1/2/3/4/5 means. Code normalizes to the internal 0–10 scale via `score10 = (score_1_5 − 1) × 2.5` (1→0, 3→5, **4→7.5**, 5→10), so the Insight floor `INSIGHT_MIN=7.0` requires a genuine **4**. Because the scale is coarse, keep `INSIGHT_MIN ≤ 7.5`: a floor set in (7.5, 10] is only clearable by a *perfect 5*, which silently makes the gate unreachable.
 - **Reason-before-score (chain-of-thought):** the model writes a one-sentence justification **before** the integer, and must **quote ≥1 concrete span** from the script as evidence (combats hallucinated grading).
 - **Bias mitigations stated explicitly in the prompt:**
   - *Recency / position bias* — evaluate the script as a whole; do not over-weight the first or last lines.
@@ -61,13 +64,15 @@ Computed **deterministically in code** (no LLM): the Judge loads the last `FATIG
 compliance_failed         -> REVISE (or FAIL if attempts exhausted)
 grounding < GROUNDING_MIN -> REVISE (ungrounded claims are non-negotiable)
 insight  < INSIGHT_MIN    -> REVISE (too generic)
+wittiness < WITTINESS_MIN -> REVISE (too dry — a 3/5 minimum)
+ending   < ENDING_MIN     -> REVISE (abrupt close — needs a like/subscribe nudge or a sign-off)
 incomplete (too short)    -> REVISE (fewer than MIN_SCENES or below the word floor)
 template_fatigue          -> REVISE + force_shift
 weighted_total >= PASS_THRESHOLD AND all floors met AND not fatigued AND complete -> PASS
 otherwise, if attempt_number >= MAX_REVISIONS                        -> FAIL
 otherwise                                                            -> REVISE
 ```
-**Gate relief:** when `weighted_total >= GATE_RELIEF_SCORE`, the *insight* and *length* floors are relaxed by `GATE_RELIEF_RATIO` (grounding, compliance, and fatigue are never relaxed) — so a near-miss on one soft floor doesn't block an otherwise-excellent draft; the report `summary` notes when relief was applied.
+**Gate relief:** when `weighted_total >= GATE_RELIEF_SCORE`, the *insight*, *wittiness*, and *length* floors are relaxed by `GATE_RELIEF_RATIO` (grounding, compliance, ending, and fatigue are never relaxed) — so a near-miss on one soft floor doesn't block an otherwise-excellent draft; the report `summary` notes when relief was applied.
 
 On `REVISE`, the report includes **structured, actionable `revision_instructions`** the Generator consumes on the next attempt. On `FAIL`, the run halts and is surfaced to the operator (likely a data problem, not a writing problem).
 

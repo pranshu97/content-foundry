@@ -125,7 +125,7 @@ DEFAULT_SCRIPT_JSON = {
         },
         {
             "index": 2,
-            "narration": "So actually target adjacent roles; start by shipping a portfolio this week.",
+            "narration": "So actually target adjacent roles; start by shipping a portfolio this week. Basically, treat the hunt like a cheat code, not a lottery ticket. If this saved you some pain, subscribe for more data-backed moves, and I'll catch you in the next one.",
             "on_screen_text": "Build a portfolio",
             "b_roll_keywords": ["laptop code"],
             "fact_ref": 2,
@@ -143,6 +143,8 @@ DEFAULT_SCRIPT_JSON = {
 DEFAULT_JUDGE_JSON = {
     "actionability": {"justification": "Concrete steps.", "evidence": "ship a portfolio", "score_1_5": 4},
     "insight": {"justification": "Reframes entry path.", "evidence": "bottom rung is gone", "score_1_5": 4},
+    "engagement": {"justification": "Opens a strong loop.", "evidence": "bottom rung is gone", "score_1_5": 4},
+    "wittiness": {"justification": "Light, lively voice.", "evidence": "counterintuitive", "score_1_5": 4},
 }
 
 GENERIC_SCRIPT_JSON = {

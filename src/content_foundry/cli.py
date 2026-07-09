@@ -140,16 +140,24 @@ def _infer_next_stage(run_id: str) -> str:
 
 
 def _make_idea_chooser(reporter: _RunReporter):
-    """An interactive picker: show the brainstormed ideas and let the operator choose one."""
+    """An interactive picker: show the brainstormed ideas and let the operator pick one — or choose
+    0 to type their own idea instead."""
     def _choose(ideas: list[str]) -> str:
         reporter.close()  # stop the spinner before prompting
         console.print("\n[bold]Pick a video idea:[/]")
         for i, idea in enumerate(ideas, 1):
             console.print(f"  [cyan]{i}[/]. {idea}")
+        console.print("  [cyan]0[/]. [italic]Enter my own idea…[/]")
         try:
             n = typer.prompt("Your choice", type=int, default=1)
         except (typer.Abort, EOFError):
             return ideas[0]
+        if n == 0:  # operator types a bespoke idea instead of picking a proposal
+            try:
+                custom = typer.prompt("Your idea").strip()
+            except (typer.Abort, EOFError):
+                return ideas[0]
+            return custom or ideas[0]
         return ideas[n - 1] if 1 <= n <= len(ideas) else ideas[0]
 
     return _choose

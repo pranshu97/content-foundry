@@ -20,7 +20,7 @@ through seven autonomous agents. The system is built around four hard guarantees
 from a naive "prompt-to-video" script:
 
 1. **Grounding** — every statistic in the final script traces back to a concretely fetched data point; ungrounded numbers are mechanically stripped.
-2. **Quality gating** — an automated, deterministic-first Judge scores every script against a 7-dimension rubric and blocks weak output from ever reaching production.
+2. **Quality gating** — an automated, deterministic-first Judge scores every script against a 10-dimension rubric and blocks weak output from ever reaching production.
 3. **Resumability** — each of the seven stages persists a versioned artifact, so any run can be stopped, hand-edited, and resumed from an arbitrary stage without redoing prior work.
 4. **Compliance by default** — synthetic-content disclosure is enforced programmatically, and nothing can auto-publish publicly without it.
 
@@ -103,7 +103,7 @@ flowchart LR
 |---|-------|----------------|----------|------|
 | 1 | **fetch** | Pull job/salary/layoff/news signals; distill grounded facts | `data_brief.json` | No (deterministic) |
 | 2 | **generate** | Write the script from the brief | `script.json` | Yes (or local) |
-| 3 | **judge** | Score on 7 dimensions → PASS / REVISE / FAIL | `judge_report.json` | Optional (hybrid) |
+| 3 | **judge** | Score on 10 dimensions → PASS / REVISE / FAIL | `judge_report.json` | Optional (hybrid) |
 | 4 | **voiceover** | TTS narration + word-level timings | `voiceover.json`, `narration.mp3` | No |
 | 5 | **visuals** | Thumbnail, per-scene images/B-roll, captions | `visuals.json`, `assets/…` | Optional |
 | 6 | **render** | Assemble audio + visuals + captions to mp4 | `video.json`, `video.mp4` | No |
@@ -117,9 +117,9 @@ published video. Stage 3 is a hard gate: production never begins on a failing sc
 ## 3. Design Principles
 
 **Deterministic-first.** Anything that *can* be computed with plain code *is* — data distillation
-(stage 1), five of seven Judge dimensions, template-fatigue detection, SEO, and captioning all run
+(stage 1), six of ten Judge dimensions, template-fatigue detection, SEO, and captioning all run
 without tokens. LLM calls are reserved for the two genuinely subjective tasks (writing, and scoring
-the two subjective rubric dimensions), which minimizes cost and maximizes reproducibility.
+the four subjective rubric dimensions), which minimizes cost and maximizes reproducibility.
 
 **Artifact-per-stage.** Every stage's output is a self-contained, schema-versioned JSON document
 written to `output/runs/<run_id>/`. This single decision yields resumability, hand-editability,
@@ -248,7 +248,7 @@ be traced to the exact code, model, and configuration that produced it — inclu
 
 | Agent | Module | Summary |
 |-------|--------|---------|
-| **1 · Data Fetcher** | `data_fetcher.py` + `distill.py` | Pulls signals from enabled sources, ranks them, and **deterministically** distills `KeyFact`s and content angles. No LLM. Fails fast if fewer than `MIN_FACTS` grounded facts survive. |
+| **1 · Data Fetcher** | `data_fetcher.py` + `distill.py` | Pulls signals from enabled sources (the default web search **fans out into several topic + facet queries**, merged and de-duplicated for more distinct facts), ranks them, and **deterministically** distills up to `MAX_FACTS` `KeyFact`s and content angles. No LLM. Fails fast if fewer than `MIN_FACTS` grounded facts survive. |
 | **2 · Script Generator** | `script_generator.py` | The single always-on LLM call. Builds a template-driven prompt, parses/repairs JSON, strips ungrounded stats, guarantees minimum length, and stamps sources. |
 | **3 · Judge** | `judge.py` + `judge_checks.py` | Deterministic-first quality gate (see §8). |
 | **4 · Voiceover** | `voiceover.py` | TTS synthesis with word-level timing for caption alignment. |
@@ -281,20 +281,24 @@ beat sheets and default perspectives, and are rotated to defeat template fatigue
 
 ## 8. The Judge — Quality Gate
 
-The Judge scores seven dimensions on a 0–10 scale. **Five are computed by plain Python; at most one
-cheap LLM call** scores the two subjective dimensions, and even that is skippable via `JUDGE_MODE`.
+The Judge scores ten dimensions on a 0–10 scale. **Six are computed by plain Python; at most one
+cheap LLM call** scores the four subjective dimensions (Actionability, Insight, Engagement,
+Wittiness), and even that is skippable via `JUDGE_MODE`.
 
 | Dimension | Weight | Hard floor | Scored by |
 |-----------|:------:|:----------:|-----------|
-| Actionability | 0.20 | — | LLM (hybrid) |
-| Specificity | 0.20 | — | deterministic |
-| Grounding | 0.20 | **8.0** | deterministic |
-| Insight | 0.20 | **7.0** | LLM (hybrid) |
-| Hook & Retention | 0.15 | — | deterministic |
-| Structural Freshness | 0.10 | — | deterministic |
-| Compliance | 0.05 | pass/fail | deterministic |
+| Actionability | 0.14 | — | LLM (hybrid) |
+| Specificity | 0.14 | — | deterministic |
+| Grounding | 0.14 | **8.0** | deterministic |
+| Insight | 0.14 | **7.0** | LLM (hybrid) |
+| Engagement | 0.10 | — | LLM (hybrid) |
+| Wittiness | 0.07 | **5.0** | LLM (hybrid) |
+| Ending / Sign-off | 0.07 | **6.0** | deterministic |
+| Hook & Retention | 0.10 | — | deterministic |
+| Structural Freshness | 0.07 | — | deterministic |
+| Compliance | 0.03 | pass/fail | deterministic |
 
-The weighted total normalizes the 1.10 weight sum back onto a 0–10 scale:
+The weights sum to 1.0, so the weighted total is a plain weighted average on 0–10:
 
 $$\text{weighted\_total} = \frac{\sum_i w_i \, s_i}{\sum_i w_i}$$
 
@@ -470,7 +474,7 @@ scene stating a stat → its source is stamped even when the model omits it.
 
 A selection of decisions and hardening that shaped the current system:
 
-- **Deterministic-first judging.** Moving five of seven rubric dimensions into plain code made the
+- **Deterministic-first judging.** Moving six of ten rubric dimensions into plain code made the
   quality gate reproducible and nearly free, and enabled the token-saving short-circuit on scripts
   that are doomed to `REVISE`.
 

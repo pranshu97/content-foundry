@@ -37,7 +37,7 @@ flowchart LR
 |---|-----------|--------------|--------|-------------|
 | 1 | **fetch** | Pulls job/salary/layoff/news signals, distills grounded facts (no LLM) | `data_brief.json` | data-source keys (mostly free) |
 | 2 | **generate** | Writes the script from the brief (the one always-on LLM call); also authors optional `sfx` cues | `script.json` | LLM (or **free** local) |
-| 3 | **judge** | Scores the script on 7 dimensions; PASS / REVISE / FAIL | `judge_report.json` | LLM (hybrid) or **free** deterministic |
+| 3 | **judge** | Scores the script on 10 dimensions; PASS / REVISE / FAIL | `judge_report.json` | LLM (hybrid) or **free** deterministic |
 | 4 | **voiceover** | Text-to-speech narration + word timings | `voiceover.json`, `assets/narration.mp3` | TTS (or **free** Edge/Piper) |
 | 5 | **visuals** | Thumbnail + per-scene images/B-roll + captions | `visuals.json`, `assets/thumbnail.png`, `assets/scenes/`, `assets/captions.srt` | image API (or **free** cards/Pexels) |
 | 6 | **render** | Assembles audio + visuals + captions into an mp4 (ffmpeg); mixes any `sfx` cues in | `video.json`, `assets/video.mp4` | free (local) |
@@ -67,7 +67,7 @@ LOCAL_LLM_MODEL=qwen2.5:7b-instruct
 TTS_PROVIDER=edge
 TTS_VOICE_ID=en-US-AriaNeural
 IMAGE_PROVIDER=none
-ENABLED_SOURCES=layoffs,bls          # keyless; or add free Adzuna keys
+ENABLED_SOURCES=search               # keyless, works on ANY niche (DuckDuckGo). Career feeds: adzuna,layoffs,bls
 LAYOFFS_FEED_URL=https://layoffs.fyi/feed/
 NOTIFY_ENABLED=false
 ```
@@ -85,7 +85,7 @@ The `--dry-run` still produces a real `assets/video.mp4` — it just skips the Y
 
 ```
 ▶ content-foundry  niche tech careers  ·  fetch → publish
-  ✓ Data brief  — 8 facts · adzuna, layoffs, bls
+  ✓ Data brief  — 8 facts · search
   ⚖ attempt 1 → PASS  score 8.10/10 · insight 8.0
   ✓ Voiceover (TTS)
   ✓ Visuals & thumbnail
@@ -162,26 +162,30 @@ Global flags go **before** the command: `content-foundry --profile cheap --dry-r
 
 Key `run` options: `--niche`, `--topic`, `--idea`, `--template`, `--from-stage`, `--to-stage`, `--run-id`,
 `--input`, `--force`, `--dry-run`. `--idea "resume optimization"` **focuses** the brainstormer on your
-concept — it proposes a few specific angles and (in a terminal) asks you to pick one before writing.
+concept — it proposes a few specific angles and (in a terminal) asks you to pick one, or choose `0` to
+type your own idea instead, before writing.
 
 ---
 
 ## 7. Understanding the Judge
 
-The Judge scores 7 dimensions (0–10). Some have **hard floors** — miss a floor and it's a REVISE
+The Judge scores 10 dimensions (0–10). Some have **hard floors** — miss a floor and it's a REVISE
 no matter the total:
 
 | Dimension | Weight | Floor | How scored |
 |---|---|---|---|
-| Actionability | 20% | — | LLM (hybrid) |
-| Specificity | 20% | — | deterministic |
-| Factual Grounding | 20% | **`GROUNDING_MIN` (8.0)** | deterministic |
-| Insight | 20% | **`INSIGHT_MIN` (7.0)** | LLM (hybrid) |
-| Hook & Retention | 15% | — | deterministic |
-| Structural Freshness | 10% | — | deterministic |
-| Compliance | 5% | pass/fail | deterministic |
+| Actionability | 14% | — | LLM (hybrid) |
+| Specificity | 14% | — | deterministic |
+| Factual Grounding | 14% | **`GROUNDING_MIN` (8.0)** | deterministic |
+| Insight | 14% | **`INSIGHT_MIN` (7.0)** | LLM (hybrid) |
+| Engagement | 10% | — | LLM (hybrid) |
+| Wittiness | 7% | **`WITTINESS_MIN` (5.0)** | LLM (hybrid) |
+| Ending / Sign-off | 7% | **`ENDING_MIN` (6.0)** | deterministic |
+| Hook & Retention | 10% | — | deterministic |
+| Structural Freshness | 7% | — | deterministic |
+| Compliance | 3% | pass/fail | deterministic |
 
-- **PASS**: weighted total ≥ `PASS_THRESHOLD` (8.0) **and** all floors met.
+- **PASS**: weighted total ≥ `PASS_THRESHOLD` (7.5) **and** all floors met.
 - **REVISE**: a floor missed or total too low → the Judge's critique is fed into a rewrite.
 - **FAIL**: never passed within `MAX_REVISIONS` (usually a *data* problem, not writing).
 
@@ -243,8 +247,8 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 |---|---|
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
 | **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls\|**search**), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
-| **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS` |
-| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `BRAINSTORM_IDEA_COUNT`, `REQUIRE_SCRIPT_APPROVAL`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
+| **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS`, `SEARCH_QUERY_COUNT`, `SEARCH_FACETS` (multi-query fan-out) |
+| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MAX_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `BRAINSTORM_IDEA_COUNT`, `REQUIRE_SCRIPT_APPROVAL`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
 | **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `TTS_VOICE_MALE`/`TTS_VOICE_FEMALE` (alternate narrator by run-id parity), `PIPER_MODEL_PATH` |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `PIXABAY_API_KEY` (2nd free B-roll source), `SCENES_PER_VIDEO` |
 | **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `VIDEO_SPEED`, `AVATAR_OVERLAY_ENABLED` |

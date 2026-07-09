@@ -9,11 +9,13 @@ into a grounded, citation-ready fact with the result's URL and snippet.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple, Protocol, runtime_checkable
 
 import httpx
 
 from ..errors import DataSourceError
+from ..logging import get_logger
 from ..models import NormalizedSignal, utcnow
 from .base import DEFAULT_TIMEOUT
 
@@ -166,45 +168,93 @@ def _flatten_related(topics: list) -> list[dict]:
 
 
 class SearchSource:
-    """A :class:`DataSource` that turns web-search hits into normalized signals."""
+    """A :class:`DataSource` that turns web-search hits into normalized signals.
+
+    Rather than issuing a single query, it *fans out*: the base topic query plus one
+    facet-augmented variant per configured facet (e.g. ``"<topic> salary"``,
+    ``"<topic> statistics"``). Results from every query are merged and de-duplicated by URL, so a
+    run gathers many more *distinct*, number-rich facts instead of collapsing to a couple of
+    near-duplicate headlines. Individual queries are resilient — one failing angle is logged and
+    skipped; only a total wipe-out (every query errors) surfaces as a :class:`DataSourceError`.
+    """
 
     name = "search"
 
-    def __init__(self, provider: SearchProvider, query: str, *, max_results: int = 8) -> None:
+    def __init__(
+        self,
+        provider: SearchProvider,
+        query: str,
+        *,
+        facets: Sequence[str] = (),
+        max_results: int = 8,
+    ) -> None:
         self._provider = provider
         self._query = (query or "").strip()
+        self._facets = [f.strip() for f in facets if f and f.strip()]
         self._max = max_results
+        self._log = get_logger(component="search_source")
+
+    def _queries(self) -> list[str]:
+        """The base topic query followed by ``"<topic> <facet>"`` variants (deduped, in order)."""
+        variants = [self._query, *(f"{self._query} {facet}" for facet in self._facets)]
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for variant in variants:
+            cleaned = variant.strip()
+            key = cleaned.lower()
+            if cleaned and key not in seen:
+                seen.add(key)
+                ordered.append(cleaned)
+        return ordered
 
     def fetch(self) -> list[NormalizedSignal]:
         if not self._query:
             return []
-        try:
-            results = self._provider.search(self._query, self._max)
-        except DataSourceError:
-            raise
-        except Exception as exc:
-            raise DataSourceError(f"Search ({self._provider.name}) failed: {exc}") from exc
 
+        queries = self._queries()
         now = utcnow()
         signals: list[NormalizedSignal] = []
-        for r in results:
-            if not r.title:
-                continue
-            signals.append(
-                NormalizedSignal(
-                    source=self.name,
-                    kind="news",  # a title + snippet + url — distilled via the "news" template
-                    title=r.title.strip(),
-                    value=None,
-                    unit=None,
-                    observed_at=now,
-                    url=r.url,
-                    raw={
-                        "snippet": (r.snippet or r.title).strip(),
-                        "provider": self._provider.name,
-                        "query": self._query,
-                    },
+        seen_keys: set[str] = set()
+        failures = 0
+        for query in queries:
+            try:
+                results = self._provider.search(query, self._max)
+            except Exception as exc:  # a single angle failing must not sink the whole fetch
+                failures += 1
+                self._log.warning(
+                    "search_query_failed",
+                    provider=self._provider.name,
+                    query=query,
+                    error=str(exc),
                 )
+                continue
+            for r in results:
+                if not r.title:
+                    continue
+                key = (r.url or r.title).strip().lower()
+                if key in seen_keys:  # same result surfaced by another angle — keep it once
+                    continue
+                seen_keys.add(key)
+                signals.append(
+                    NormalizedSignal(
+                        source=self.name,
+                        kind="news",  # a title + snippet + url — distilled via the "news" template
+                        title=r.title.strip(),
+                        value=None,
+                        unit=None,
+                        observed_at=now,
+                        url=r.url,
+                        raw={
+                            "snippet": (r.snippet or r.title).strip(),
+                            "provider": self._provider.name,
+                            "query": query,
+                        },
+                    )
+                )
+
+        if not signals and failures == len(queries):  # every angle errored — the source is down
+            raise DataSourceError(
+                f"Search ({self._provider.name}) failed for all {failures} queries."
             )
         return signals
 

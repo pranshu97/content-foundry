@@ -49,7 +49,7 @@ class DataFetcher:
             raise NoDataError("All data sources failed or returned nothing.")
 
         ranked = self._rank(self._dedup(all_signals), niche=niche, topic_seed=topic_seed)
-        key_facts = distill.build_key_facts(ranked)
+        key_facts = distill.build_key_facts(ranked, limit=self._settings.max_facts)
         if len(key_facts) < self._settings.min_facts:
             raise InsufficientDataError(
                 f"Only {len(key_facts)} grounded facts (< MIN_FACTS={self._settings.min_facts})."

@@ -63,7 +63,7 @@ Each artifact carries a `schema_version`, the `run_id`, the producing `stage`, a
 
 ### 2.6 Design principles
 - **Determinism where possible:** Fixed seeds/temperature config, content-hash provenance, so a run is reproducible and auditable.
-- **LLM only where it adds value (cost discipline):** The expensive LLM is reserved for the one task it is uniquely good at — **creative script writing (Agent 2)**. Data distillation (Agent 1), most of the Judge's rubric, and visual-prompt building are **deterministic code**: free, faster, and hallucination-proof. The Judge's two subjective dimensions use a single optional LLM call (`JUDGE_MODE`), skipped entirely when a deterministic gate already fails.
+- **LLM only where it adds value (cost discipline):** The expensive LLM is reserved for the one task it is uniquely good at — **creative script writing (Agent 2)**. Data distillation (Agent 1), most of the Judge's rubric, and visual-prompt building are **deterministic code**: free, faster, and hallucination-proof. The Judge's four subjective dimensions use a single optional LLM call (`JUDGE_MODE`), skipped entirely when a deterministic gate already fails.
 - **Fail loud, fail isolated:** A failing data source degrades gracefully (partial brief) rather than crashing the run; an LLM failure retries then surfaces a clear error.
 - **Separation of concerns:** Network ⊥ generation ⊥ evaluation ⊥ orchestration. Each is independently testable with mocks.
 - **Everything is an artifact:** If it matters, it is a persisted, schema-validated JSON file you can read, diff, and edit by hand.

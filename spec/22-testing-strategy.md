@@ -28,7 +28,7 @@ Deterministic, **no real network/API calls**. All vendors are mocked behind thei
 7. **Schema versioning:** loading a stale `schema_version` raises `SchemaValidationError`.
 8. **Cache TTL:** signals within TTL are reused; expired ones refetched.
 9. **Deterministic distill (no LLM):** Agent 1 builds the `DataBrief` from fixture signals with the `FakeLLMProvider` asserting **zero calls**; every `KeyFact.value` equals a source signal field.
-10. **`JUDGE_MODE=deterministic` makes zero LLM calls:** assert `FakeLLMProvider` call count == 0 across a full judge pass; heuristics fill Actionability & Insight.
+10. **`JUDGE_MODE=deterministic` makes zero LLM calls:** assert `FakeLLMProvider` call count == 0 across a full judge pass; heuristics fill the four subjective dimensions.
 11. **Visuals prompts are deterministic:** given a fixed `SceneCue`, the built image prompt is a pure function of inputs (no LLM call).
 
 ### 22.5 HTTP & tooling

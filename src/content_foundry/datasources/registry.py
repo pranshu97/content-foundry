@@ -42,9 +42,14 @@ def build_sources(
         from .search import SearchSource, build_search_provider
 
         focus = " ".join(p for p in (query, topic_seed) if p).strip()
+        # Fan the search across a few angles anchored on the topic (base + up to N-1 facets).
+        facets = settings.search_facets_list[: max(0, settings.search_query_count - 1)]
         sources.append(
             SearchSource(
-                build_search_provider(settings), focus, max_results=settings.search_max_results
+                build_search_provider(settings),
+                focus,
+                facets=facets,
+                max_results=settings.search_max_results,
             )
         )
 

@@ -115,6 +115,34 @@ def hook_similarity(hook: str, recent_hooks: Sequence[str]) -> float:
     return max((_jaccard(target, _shingles(h)) for h in recent_hooks), default=0.0)
 
 
+def duplicate_scene_pairs(script: Script, *, threshold: float = 0.5) -> list[tuple[int, int, float]]:
+    """Pairs of scenes whose narration is near-duplicate (3-gram Jaccard >= threshold). Recycling the
+    same sentences/facts across scenes reads as lazy padding and drives viewer churn, so it is caught
+    deterministically. Returns (scene_a, scene_b, similarity), 1-based for human-readable feedback."""
+    shings = [_shingles(sc.narration) for sc in script.scenes]
+    out: list[tuple[int, int, float]] = []
+    for a in range(len(shings)):
+        for b in range(a + 1, len(shings)):
+            sim = _jaccard(shings[a], shings[b])
+            if sim >= threshold:
+                out.append((a + 1, b + 1, round(sim, 2)))
+    return out
+
+
+def redundancy_report(script: Script, *, threshold: float = 0.5) -> tuple[bool, str]:
+    """(is_ok, detail): flag scripts that repeat whole scenes near-verbatim, with a specific note
+    naming the offending scene pairs so the rewrite fixes exactly them."""
+    dupes = duplicate_scene_pairs(script, threshold=threshold)
+    if not dupes:
+        return True, "every scene is distinct."
+    listed = ", ".join(f"scenes {a} & {b} (~{int(sim * 100)}% identical)" for a, b, sim in dupes[:8])
+    return False, (
+        "REPEATED SCENES (lazy padding that drives viewers away): "
+        f"{listed}. Rewrite each flagged scene to make a genuinely DIFFERENT point in fresh words; "
+        "state each fact or statistic at most ONCE in the whole script, and never reuse a sentence."
+    )
+
+
 @dataclass
 class FreshnessResult:
     score: float

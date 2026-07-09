@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 import respx
 
 from content_foundry.config import get_settings, reset_settings_cache
@@ -17,6 +18,7 @@ from content_foundry.datasources.search import (
     _parse_tavily,
     build_search_provider,
 )
+from content_foundry.errors import DataSourceError
 
 
 class _FakeProvider:
@@ -29,6 +31,20 @@ class _FakeProvider:
     def search(self, query, max_results):
         self.queries.append((query, max_results))
         return self._results[:max_results]
+
+
+class _PerQueryProvider:
+    """Returns query-specific results so fan-out / merge / dedupe can be verified."""
+
+    name = "perquery"
+
+    def __init__(self, mapping):
+        self._mapping = mapping
+        self.queries: list[str] = []
+
+    def search(self, query, max_results):
+        self.queries.append(query)
+        return list(self._mapping.get(query, []))[:max_results]
 
 
 def test_search_source_shapes_signals():
@@ -50,6 +66,74 @@ def test_search_source_shapes_signals():
 
 def test_search_source_empty_query_returns_nothing():
     assert SearchSource(_FakeProvider([SearchResult("x", "u", "s")]), "   ").fetch() == []
+
+
+def test_search_source_fans_queries_merges_and_dedupes():
+    # Each facet is appended to the topic to form a distinct query; overlapping URLs are kept once.
+    provider = _PerQueryProvider({
+        "faang jobs": [
+            SearchResult("Overview", "https://x/1", "base"),
+            SearchResult("Shared", "https://x/dup", "in base too"),
+        ],
+        "faang jobs salary": [
+            SearchResult("Shared", "https://x/dup", "duplicate url -> merged once"),
+            SearchResult("Pay data", "https://x/2", "$150k median"),
+        ],
+        "faang jobs statistics": [
+            SearchResult("Accept rate", "https://x/3", "1.5% of applicants"),
+        ],
+    })
+    sigs = SearchSource(
+        provider, "faang jobs", facets=["salary", "statistics"], max_results=5
+    ).fetch()
+    assert provider.queries == ["faang jobs", "faang jobs salary", "faang jobs statistics"]
+    # Deduped by URL, order preserved across the fanned queries:
+    assert [s.title for s in sigs] == ["Overview", "Shared", "Pay data", "Accept rate"]
+    # Each signal records the specific angle that surfaced it:
+    assert sigs[-1].raw["query"] == "faang jobs statistics"
+
+
+def test_search_source_dedupes_blank_and_repeated_facets():
+    provider = _PerQueryProvider({
+        "topic": [SearchResult("Base", "https://x/1", "s")],
+        "topic salary": [SearchResult("Sal", "https://x/2", "s")],
+    })
+    # Blank facets are dropped; a repeated facet collapses to a single query variant.
+    sigs = SearchSource(provider, "topic", facets=["", "  ", "salary", "salary"]).fetch()
+    assert provider.queries == ["topic", "topic salary"]  # base + one "topic salary"
+    assert [s.title for s in sigs] == ["Base", "Sal"]
+
+
+def test_search_source_survives_a_failing_query():
+    class _FlakyProvider:
+        name = "flaky"
+
+        def __init__(self):
+            self.queries: list[str] = []
+
+        def search(self, query, max_results):
+            self.queries.append(query)
+            if query.endswith("salary"):
+                raise RuntimeError("rate limited")
+            return [SearchResult(f"R for {query}", f"https://x/{len(self.queries)}", "s")]
+
+    sigs = SearchSource(
+        _FlakyProvider(), "topic", facets=["salary", "stats"], max_results=3
+    ).fetch()
+    # The failing "topic salary" angle is skipped; the other two still contribute.
+    assert [s.title for s in sigs] == ["R for topic", "R for topic stats"]
+
+
+def test_search_source_raises_only_when_every_query_fails():
+    class _DeadProvider:
+        name = "dead"
+
+        def search(self, query, max_results):
+            raise RuntimeError("down")
+
+    with pytest.raises(DataSourceError):
+        SearchSource(_DeadProvider(), "topic", facets=["salary"]).fetch()
+
 
 
 def test_tavily_parse_skips_titleless():
@@ -122,6 +206,12 @@ def test_keyed_provider_without_key_falls_back_to_duckduckgo(monkeypatch):
 def test_registry_builds_decoupled_search_source(monkeypatch):
     monkeypatch.setenv("ENABLED_SOURCES", "search")  # search-only, fully decoupled
     reset_settings_cache()
-    sources = build_sources(get_settings(), niche="ml careers", topic_seed="interviews")
+    settings = get_settings()
+    sources = build_sources(settings, niche="ml careers", topic_seed="interviews")
     assert [s.name for s in sources] == ["search"]
     assert sources[0]._query == "ml careers interviews"  # topic = niche + seed (no network)
+    # Multi-query fan-out is wired from config: base query + up to SEARCH_QUERY_COUNT-1 facets.
+    expected_facets = settings.search_facets_list[: settings.search_query_count - 1]
+    assert sources[0]._facets == expected_facets
+    assert len(sources[0]._queries()) == 1 + len(expected_facets)
+

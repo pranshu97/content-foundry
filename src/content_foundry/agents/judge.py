@@ -24,6 +24,7 @@ from .judge_checks import (
     heuristic_wittiness,
     hook_score,
     hook_why,
+    redundancy_report,
     specificity_score,
     specificity_why,
 )
@@ -73,12 +74,16 @@ class Judge:
             script.template_id, script.hook, recent_template_ids, recent_hooks
         )
         end, end_detail = ending_report(script)
+        redundancy_ok, redundancy_note = redundancy_report(script, threshold=s.max_scene_similarity)
 
         # An egregiously short draft (a single scene) is rejected without spending an LLM call,
         # exactly like a grounding/compliance violation. Full completeness (scene/word floors) is
         # evaluated after the weighted total, so a high-scoring draft can earn a little slack.
         hard_gate_failed = (
-            (not comp_ok) or (grounding.score < s.grounding_min) or (len(script.scenes) < 2)
+            (not comp_ok)
+            or (grounding.score < s.grounding_min)
+            or (len(script.scenes) < 2)
+            or (not redundancy_ok)
         )
 
         # ---- subjective dims: LLM (hybrid/llm) or heuristic (deterministic / fallback) ----
@@ -172,6 +177,7 @@ class Judge:
             insight_ok=insight_ok,
             wittiness_ok=wittiness_ok,
             ending_ok=ending_ok,
+            redundancy_ok=redundancy_ok,
             fatigue=fresh.fatigue,
             completeness_ok=completeness_ok,
             attempt_number=attempt_number,
@@ -192,7 +198,10 @@ class Judge:
         revision_instructions = (
             None
             if verdict == Verdict.PASS
-            else self._revision_instructions(dimensions, fresh, forced_template_id, length_note)
+            else self._revision_instructions(
+                dimensions, fresh, forced_template_id, length_note,
+                None if redundancy_ok else redundancy_note,
+            )
         )
 
         return JudgeReport(
@@ -333,6 +342,7 @@ class Judge:
         insight_ok: bool,
         wittiness_ok: bool,
         ending_ok: bool,
+        redundancy_ok: bool,
         fatigue: bool,
         completeness_ok: bool,
         attempt_number: int,
@@ -344,6 +354,7 @@ class Judge:
             or not insight_ok
             or not wittiness_ok
             or not ending_ok
+            or not redundancy_ok
             or fatigue
             or not completeness_ok
         )
@@ -354,11 +365,15 @@ class Judge:
         return Verdict.REVISE
 
     @staticmethod
-    def _revision_instructions(dimensions, fresh, forced_template_id, length_note=None) -> str:
+    def _revision_instructions(
+        dimensions, fresh, forced_template_id, length_note=None, redundancy_note=None
+    ) -> str:
         """A per-dimension critique the Generator can act on — reuses the judge's own reasoning
         (justification + the evidence it flagged) for every dimension that fell short, so the
         rewrite targets the *actual* problems instead of generic advice."""
         lines: list[str] = []
+        if redundancy_note:
+            lines.append(f"- {redundancy_note}")
         if length_note:
             lines.append(f"- {length_note}")
         if fresh.fatigue and forced_template_id:

@@ -34,6 +34,12 @@ as being factually correct):
   finished narration (never a phrase, heading, or bullet). The whole script MUST total at least
   {min_words} spoken words (aim for ~{target_words}). Expand every beat with concrete detail, examples,
   and the data; NEVER output a single scene, an outline, or a summary.
+- NEVER REPEAT YOURSELF (an automated reviewer REJECTS a script with duplicate scenes): every scene
+  must make a genuinely DIFFERENT point in fresh words. Do NOT reuse a sentence, paragraph, or
+  example in more than one scene, and state each fact or statistic AT MOST ONCE across the whole
+  video. Filling {scenes} scenes does NOT require {scenes} facts — most scenes are distinct advice,
+  steps, examples, mistakes, or angles on the topic, not a restated number. Hearing the same line or
+  figure again and again is the fastest way to lose the viewer.
 - GROUND IT IN REAL NUMBERS (this is a data channel — viewers came for hard figures): state at least
   TWO specific numbers taken straight from the facts above (the actual figure, e.g. a salary like
   "$133,000" or a count like "37 openings"), spoken naturally in the narration. For EACH number you
@@ -62,8 +68,10 @@ as being factually correct):
   endorsed by any of them. (Viewer-inclusive "we all know the feeling" is fine; a company "we" is not.)
 - B-ROLL SHOTS (ordered, one per beat): "b_roll_keywords" is an ORDERED list of 2-4 SHORT search
   phrases, one per beat of THIS scene's narration in the order spoken, so the footage changes as the
-  point develops. Write each the way you'd type it into a stock-footage site: 2-4 plain, literal
-  words naming what the camera shows at that exact moment, with no articles or filler. For a
+  point develops. Write each the way you'd type it into a stock-footage site: 3-4 plain, literal
+  words (a concrete subject plus its action or setting) — not a single vague word (too generic to
+  match) and not a whole sentence (too narrow) — naming exactly what the camera shows at that moment,
+  with no articles or filler. For a
   salary-negotiation scene, for example: "office handshake", then "signing job offer", then "manager
   employee meeting". Match each to the literal subject or action being SAID right then, not the broad
   topic (for "counter-offer" use "typing email", NOT "cash"; never put "cash" under "negotiation").

@@ -102,6 +102,28 @@ def test_ending_dimension_is_tracked(settings, data_brief, good_script, fakes):
     assert ending.score == 10.0  # good_script closes with a subscribe nudge + a sign-off
 
 
+def test_duplicate_scenes_revise(settings, data_brief, make_script, fakes):
+    # Two near-identical scenes (lazy padding) must REVISE without an LLM call, naming the pair.
+    line = ("The average FAANG salary is 133,000 dollars, so staying calm in the interview "
+            "matters more than raw coding speed for most people.")
+    payload = {
+        "title_options": ["t"], "hook": "FAANG pays 133,000 on average this year.",
+        "scenes": [
+            {"index": 0, "narration": line, "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0},
+            {"index": 1, "narration": line, "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0},
+            {"index": 2, "narration": "Ship three portfolio projects and rehearse answers out loud with a friend this week.",
+             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 1},
+        ],
+        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "grounded_fact_refs": [0, 1],
+    }
+    llm = fakes.LLM()
+    report = Judge(settings, llm).run("R", make_script(payload), data_brief, attempt_number=1)
+    assert report.verdict == Verdict.REVISE
+    assert llm.call_count == 0  # duplicate scenes are a deterministic hard gate — no tokens spent
+    assert "scenes 1 & 2" in (report.revision_instructions or "")
+
+
 def test_abrupt_ending_revises_on_floor(settings, data_brief, make_script, fakes):
     # Grounded, complete, and (per _TOP) funny + insightful — but it just STOPS: no CTA, no sign-off.
     payload = {

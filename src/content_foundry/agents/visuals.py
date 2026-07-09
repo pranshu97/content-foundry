@@ -47,13 +47,13 @@ _QUERY_STOPWORDS = frozenset({
 })
 
 
-def _search_terms(beat: str, *, max_words: int = 5) -> str:
-    """Reduce a beat description to a short, stock-searchable query (drop articles/filler, cap
-    length). Falls back to the original text if nothing meaningful remains."""
-    words = [
-        w for w in re.split(r"[^a-z0-9]+", (beat or "").lower())
-        if w and w not in _QUERY_STOPWORDS
-    ]
+def _search_terms(beat: str, *, min_words: int = 2, max_words: int = 4) -> str:
+    """Reduce a beat description to a short, stock-searchable query — balanced: drop articles/filler
+    and cap at ``max_words`` (over-long queries return nothing), but if stripping leaves it too thin
+    (a lone generic word) keep the raw wording so the query stays specific enough to match."""
+    raw = [w for w in re.split(r"[^a-z0-9]+", (beat or "").lower()) if w]
+    kept = [w for w in raw if w not in _QUERY_STOPWORDS]
+    words = kept if len(kept) >= min_words else raw
     return " ".join(words[:max_words]) or (beat or "").strip()
 
 

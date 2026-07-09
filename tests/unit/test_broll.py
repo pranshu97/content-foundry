@@ -101,14 +101,15 @@ def test_picker_favors_more_relevant_clips():
 
 
 def test_search_terms_shortens_beat_to_keywords():
-    # Long LLM phrases are trimmed to a short stock-searchable query (articles/filler dropped).
+    # Long LLM phrases are trimmed to a short, balanced stock query (articles/filler dropped, <=4 words).
     assert _search_terms("two professionals shaking hands across an office desk") == (
-        "professionals shaking hands office desk"
+        "professionals shaking hands office"
     )
     assert _search_terms("a manager and employee talking at a laptop") == (
         "manager employee talking laptop"
     )
     assert _search_terms("office handshake") == "office handshake"  # already short -> unchanged
+    assert _search_terms("on the desk") == "on the desk"  # over-stripping to 1 word -> keep context
     assert _search_terms("") == ""
 
 

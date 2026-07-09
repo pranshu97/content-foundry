@@ -12,6 +12,7 @@ from content_foundry.agents.judge_checks import (
     heuristic_insight,
     heuristic_wittiness,
     hook_score,
+    redundancy_report,
     specificity_score,
 )
 
@@ -51,6 +52,23 @@ def test_ending_rewards_cta_and_signoff(good_script, generic_script):
     # good_script closes with a subscribe nudge AND a sign-off; the generic one just stops.
     assert heuristic_ending(good_script) == 10.0
     assert heuristic_ending(generic_script) < heuristic_ending(good_script)
+
+
+def test_redundancy_flags_near_duplicate_scenes(good_script, make_script):
+    assert redundancy_report(good_script)[0]  # distinct scenes pass
+    dup = make_script({
+        "title_options": ["t"], "hook": "FAANG pays well this year.",
+        "scenes": [
+            {"index": 0, "narration": "Staying calm in the interview matters more than raw coding speed for most candidates.",
+             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": None},
+            {"index": 1, "narration": "Staying calm in the interview matters more than raw coding speed for most candidates.",
+             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": None},
+        ],
+        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "grounded_fact_refs": [],
+    })
+    ok, detail = redundancy_report(dup)
+    assert not ok and "scenes 1 & 2" in detail
 
 
 def test_fatigue_on_back_to_back_template(good_script):

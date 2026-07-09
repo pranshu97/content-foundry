@@ -51,7 +51,7 @@ Cost levers (cheapest first):
 - **Run the LLM locally** — `PRIMARY_PROVIDER=local` (Ollama / LM Studio / vLLM) makes generation free.
 - **Free voice** — `TTS_PROVIDER=edge` (Microsoft neural, free, no key) or `piper` (fully offline). Paid: elevenlabs / openai. Voices auto-alternate male/female by run number.
 - **Free visuals** — `IMAGE_PROVIDER=none` renders polished title cards; add free Pexels + Pixabay keys for real, moment-matched B-roll (a clip per narration beat).
-- **Free research** — add `search` to `ENABLED_SOURCES` for free DuckDuckGo web research on any topic (no key), so you're not limited to the labor-market feeds.
+- **Free research (default)** — `ENABLED_SOURCES=search` runs free DuckDuckGo web research on your run's topic (no key), so it works on **any** niche out of the box; the labor-market feeds (adzuna/layoffs/bls) are opt-in add-ons.
 - **Free polish** — bundled sound effects (`SFX_ENABLED`), scene crossfades, a warm grade, and a Subscribe nudge are all local/ffmpeg (no paid services).
 - **`--profile cheap`** — deterministic judge + Pillow cards (no image API) + a single revision.
 - **Hard budget cap** — `ENFORCE_BUDGET_CAP=true` aborts a run once estimated month-to-date spend

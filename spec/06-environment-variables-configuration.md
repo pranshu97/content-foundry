@@ -22,22 +22,27 @@ LLM_MAX_TOKENS=4096
 ADZUNA_APP_ID=xxxx                         # required if adzuna enabled
 ADZUNA_APP_KEY=xxxx
 NEWSAPI_KEY=xxxx                           # optional
-ENABLED_SOURCES=adzuna,layoffs,news        # comma list: adzuna|layoffs|news|bls|search
+ENABLED_SOURCES=search                     # domain-agnostic default (any niche); career add-ons: adzuna,layoffs,news,bls
 LAYOFFS_FEED_URL=https://example.com/layoffs.rss
-# Web search (domain-agnostic; queries the run's topic). Add "search" to ENABLED_SOURCES. Free via
+# Web search is the DEFAULT source (domain-agnostic; queries the run's topic). Free via
 # DuckDuckGo (no key); SEARCH_PROVIDER=tavily|brave use a free API key for a real index.
 SEARCH_PROVIDER=duckduckgo                 # duckduckgo (no key) | tavily | brave
 TAVILY_API_KEY=                            # required if SEARCH_PROVIDER=tavily
 BRAVE_API_KEY=                             # required if SEARCH_PROVIDER=brave
-SEARCH_MAX_RESULTS=8                       # web results fetched per run
+SEARCH_MAX_RESULTS=8                       # web results fetched per query
+SEARCH_QUERY_COUNT=4                        # multi-query fan-out: total searches/run (base topic query + facets)
+SEARCH_FACETS=statistics,salary,trends 2026,common mistakes,requirements,tips  # angle suffixes appended to the topic
 SIGNAL_CACHE_TTL_MIN=720                   # reuse cached signals within 12h
 
 # ---------- Pipeline Behavior ----------
 MAX_REVISIONS=3                            # generator<->judge loop bound
 JUDGE_MODE=hybrid                          # hybrid | deterministic | llm  (cost control)
-PASS_THRESHOLD=8.0                         # min weighted rubric total to PASS
-INSIGHT_MIN=7.0                            # hard floor on Insight Score
+PASS_THRESHOLD=7.5                         # min weighted rubric total to PASS (weights sum to 1.0)
+INSIGHT_MIN=7.0                            # hard floor on Insight (a genuine 4/5; keep <= 7.5)
+WITTINESS_MIN=5.0                          # hard floor on Wittiness (a 3/5); a dry script revises
+ENDING_MIN=6.0                             # hard floor on Ending: needs BOTH a subscribe nudge AND a sign-off
 GROUNDING_MIN=8.0                          # hard floor on factual grounding
+MAX_SCENE_SIMILARITY=0.5                   # two scenes more alike than this (0-1) = duplicate padding -> REVISE
 FATIGUE_LOOKBACK=5                         # # of recent runs checked for template repetition
 TARGET_NICHE=tech careers                  # default content domain
 BRAINSTORM_ENABLED=true                     # Agent 0 proposes a fresh idea each run (fixes topic collapse)
@@ -45,6 +50,7 @@ BRAINSTORM_IDEA_COUNT=5                      # ideas proposed per run (interacti
 REQUIRE_SCRIPT_APPROVAL=false               # true = pause after a PASS for sign-off, then resume
 SCRIPT_TARGET_WORDS=900                    # ~6-7 min video
 MIN_FACTS=3                                # min grounded facts Agent 1 must produce (else the run fails)
+MAX_FACTS=12                               # max grounded facts kept in the brief (more angles = less repetition)
 MIN_SCENES=3                               # completeness gate: reject scripts with fewer scenes
 MIN_SCRIPT_WORD_RATIO=0.5                  # completeness gate: reject drafts < this x SCRIPT_TARGET_WORDS
 GATE_RELIEF_SCORE=9.0                      # drafts scoring >= this get slack on insight+length floors (>10 disables)
@@ -132,7 +138,7 @@ SCHEDULE_CRON=0 9 * * MON                  # weekly Monday 09:00 (used by schedu
 - **Enums** for `PRIMARY_PROVIDER`, `FALLBACK_PROVIDER`, `LOG_FORMAT`.
 - **`ENABLED_SOURCES`** parsed into `list[SourceName]`; validator rejects unknown names.
 - **Cross-field validators:** if `adzuna` is enabled, `ADZUNA_APP_ID`/`KEY` must be present; if `FALLBACK_PROVIDER != none`, its key must exist.
-- **Threshold bounds:** `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN` constrained to `0–10`.
+- **Threshold bounds:** `PASS_THRESHOLD`, `INSIGHT_MIN`, `WITTINESS_MIN`, `ENDING_MIN`, `GROUNDING_MIN` constrained to `0–10`.
 - A module-level `settings = Settings()` singleton; everything imports from it. A `config_hash` property (sha256 of the resolved, secret-redacted config) is written into every artifact's provenance for reproducibility.
 - **Media/publishing validators:** if `TTS_PROVIDER=elevenlabs`, `ELEVENLABS_API_KEY` is required; if `IMAGE_PROVIDER=stability`, `STABILITY_API_KEY` is required; if `RENDER_BACKEND=avatar`, `AVATAR_PROVIDER` must be ≠`none` with its key set; if `PUBLISH_MODE=auto` and `YOUTUBE_PRIVACY_STATUS=public`, then `REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC` **must** be `false` — otherwise startup fails (disclosure is non-negotiable).
 - **Notification validator:** if `NOTIFY_ENABLED=true` and `NOTIFIER=telegram`, both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are required.

@@ -73,16 +73,24 @@ class Settings(BaseSettings):
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
     newsapi_key: str = ""
-    enabled_sources: str = "adzuna,layoffs,news"
+    enabled_sources: str = "search"
     layoffs_feed_url: str = ""
     signal_cache_ttl_min: int = 720
-    # Web search — a domain-agnostic source that queries the run's topic directly (add "search" to
-    # ENABLED_SOURCES). Free via DuckDuckGo (no key); set SEARCH_PROVIDER=tavily|brave + its key for a
-    # real index. Decoupled from the job/layoff/news feeds, so any niche works.
+    # Web search is the DEFAULT source — domain-agnostic, it queries the run's topic directly so any
+    # niche works out of the box. Free via DuckDuckGo (no key); set SEARCH_PROVIDER=tavily|brave + its
+    # key for a real index. The job/layoff/news feeds are career-specific opt-ins (add them to
+    # ENABLED_SOURCES only for job-market videos).
     search_provider: Literal["duckduckgo", "tavily", "brave"] = "duckduckgo"
     tavily_api_key: str = ""
     brave_api_key: str = ""
     search_max_results: int = Field(8, ge=1, le=25)
+    # Multi-query fan-out: instead of a single web search, run the base topic query PLUS several
+    # facet-augmented variants (e.g. "<topic> salary", "<topic> statistics") and merge + dedupe the
+    # hits. This surfaces far more distinct, number-rich results, so the brief does not collapse to a
+    # couple of near-duplicate headlines. SEARCH_QUERY_COUNT caps the TOTAL queries (base + facets);
+    # SEARCH_FACETS is the ordered pool of angle suffixes to draw from.
+    search_query_count: int = Field(4, ge=1, le=10)
+    search_facets: str = "statistics,salary,trends 2026,common mistakes,requirements,tips"
 
     # ---------- Pipeline Behaviour ----------
     max_revisions: int = 3
@@ -92,6 +100,9 @@ class Settings(BaseSettings):
     wittiness_min: float = Field(5.0, ge=0, le=10)
     ending_min: float = Field(6.0, ge=0, le=10)
     grounding_min: float = Field(8.0, ge=0, le=10)
+    # Two scenes whose narration is more similar than this (3-gram Jaccard) are treated as duplicate
+    # padding and force a REVISE — stops the model recycling the same lines/facts across scenes.
+    max_scene_similarity: float = Field(0.5, ge=0, le=1)
     fatigue_lookback: int = 5
     target_niche: str = "tech careers"
     # Brainstormer (Agent 0): an LLM proposes a fresh, specific video idea each run to avoid topic
@@ -100,6 +111,10 @@ class Settings(BaseSettings):
     brainstorm_idea_count: int = Field(5, ge=1, le=10)
     script_target_words: int = 900
     min_facts: int = 3
+    # Upper bound on grounded facts distilled into the brief. A richer, multi-query search yields many
+    # distinct signals; keeping more of them (not just 8) gives the script more distinct angles to draw
+    # on, so it never has to pad by recycling the same one or two numbers across scenes.
+    max_facts: int = Field(12, ge=1, le=50)
     # Completeness gate (Ch. 9.3a): reject stub scripts the quality rubric would otherwise pass. A
     # grounded single-scene draft scores well on every dimension but is far too short for a video.
     min_scenes: int = Field(3, ge=1)
@@ -246,6 +261,11 @@ class Settings(BaseSettings):
                 f"Valid: {sorted(VALID_SOURCES)}"
             )
         return items
+
+    @property
+    def search_facets_list(self) -> list[str]:
+        """Facet suffixes for multi-query search fan-out (comma-separated ``SEARCH_FACETS``)."""
+        return [f.strip() for f in self.search_facets.split(",") if f.strip()]
 
     @property
     def notify_events_list(self) -> list[str]:

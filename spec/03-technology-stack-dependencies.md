@@ -53,7 +53,7 @@ All external data access goes through a `DataSource` protocol (`fetch() -> list[
 - **Layoffs:** `layoffs.fyi`-style RSS / public dataset, or a configurable RSS endpoint.
 - **Industry reports / news:** NewsAPI (or RSS fallback) filtered to labor-market keywords.
 - **Government baseline (optional):** U.S. BLS public data series for occupation outlook.
-- **Web search (domain-agnostic):** a general web-search source that queries the run's topic (niche + idea) directly, so **any** niche works, not just the labor-market feeds. Free via DuckDuckGo (no key); optional Tavily/Brave keys for a stronger index. Enable by adding `search` to `ENABLED_SOURCES`.
+- **Web search (domain-agnostic — the default source):** a general web-search source that queries the run's topic (niche + idea) directly, so **any** niche works, not just the labor-market feeds. Free via DuckDuckGo (no key); optional Tavily/Brave keys for a stronger index. It is the default in `ENABLED_SOURCES`; the adzuna/layoffs/news/bls feeds are career-specific opt-ins.
 
 > Any source can be disabled; the pipeline tolerates missing sources and notes coverage gaps in the `DataBrief`. Valid sources: `adzuna | layoffs | news | bls | search`.
 

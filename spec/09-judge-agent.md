@@ -1,9 +1,9 @@
 ## 9. Judge Agent
 
 ### 9.1 Purpose
-The quality gate. The Judge scores every script against a fixed rubric, enforces hard floors on **factual grounding** and the **Insight Score**, detects **template fatigue**, and returns one of three verdicts. Only a `PASS` unlocks the production stages (4–7).
+The quality gate. The Judge scores every script against a fixed rubric, enforces hard floors on **factual grounding**, **Insight**, **Wittiness**, and the **Ending**, detects **template fatigue**, and returns one of three verdicts. Only a `PASS` unlocks the production stages (4–7).
 
-**Cost-saving design:** the Judge is **deterministic-first**. Five of the seven rubric dimensions are computed by plain Python (no tokens). At most **one** cheap LLM call scores only the two genuinely subjective dimensions — and even that is optional (`JUDGE_MODE`). When the deterministic gates already decide the verdict (e.g., a grounding violation), the LLM call is **skipped entirely**.
+**Cost-saving design:** the Judge is **deterministic-first**. Six of the ten rubric dimensions are computed by plain Python (no tokens). At most **one** cheap LLM call scores only the four genuinely subjective dimensions — and even that is optional (`JUDGE_MODE`). When the deterministic gates already decide the verdict (e.g., a grounding violation), the LLM call is **skipped entirely**.
 
 ### 9.2 Inputs / outputs
 - **Input:** `Script` + `DataBrief` (to verify grounding) + **recent script summaries** (last `FATIGUE_LOOKBACK` runs, for fatigue detection) + current `attempt_number`.
@@ -37,15 +37,16 @@ Implemented in `judge/checks.py`, run **before** any LLM call:
 - **Specificity:** ratio of "concrete" tokens (digits, `$`, `%`, capitalized role/tech terms) to total; mapped to 0–10.
 - **Hook:** check the first scene contains a number/specific claim and is under N words; mapped to 0–10.
 - **Completeness (hard gate):** reject a draft too short to be a real video — `len(scenes) < MIN_SCENES` **or** `word_count < MIN_SCRIPT_WORD_RATIO × SCRIPT_TARGET_WORDS`. A single-scene stub short-circuits to `REVISE` with no LLM call. The rubric scores *quality*, not *quantity*, so without this gate a grounded but tiny stub scores well (a short hook even scores *higher*).
+- **Redundancy / duplicate scenes (hard gate):** near-verbatim repeated scenes are lazy padding that drives viewers away, so any scene pair whose narration 3-gram Jaccard ≥ `MAX_SCENE_SIMILARITY` (0.5) short-circuits to `REVISE` with a note **naming the offending scene pairs** — stopping a model that recycles the same lines/facts across scenes.
 - **Generic-phrase penalty:** a blocklist (e.g. "network more", "update your resume", "work hard") deducts points and feeds the heuristic insight fallback.
 
 ### 9.3b `JUDGE_MODE`
-- **`hybrid` (default):** deterministic checks + **one** LLM call scoring only Actionability & Insight (skipped if a hard gate already failed). ~80% cheaper than full-LLM.
-- **`deterministic`:** zero LLM calls; Actionability & Insight come from the heuristics above. Free; recommended for high-volume/iteration.
-- **`llm`:** original behavior — all seven dimensions scored by the LLM (highest fidelity, highest cost).
+- **`hybrid` (default):** deterministic checks + **one** LLM call scoring the four subjective dimensions — Actionability, Insight, Engagement, Wittiness (skipped if a hard gate already failed). ~80% cheaper than full-LLM.
+- **`deterministic`:** zero LLM calls; the four subjective dimensions come from the heuristics above. Free; recommended for high-volume/iteration.
+- **`llm`:** always makes the subjective-scoring LLM call, even when a deterministic hard gate has already failed (maximum fidelity on the subjective dims, highest cost). The six deterministic dimensions are still code either way.
 
 ### 9.3c Eval-prompt techniques (LLM-as-a-Judge)
-The optional LLM scoring pass (Actionability & Insight) follows evaluation best practices to stay calibrated and stable. These are baked into `judge.system.txt` / `judge.rubric.txt` ([Ch. 15](15-prompt-library.md#15-prompt-library)):
+The optional LLM scoring pass (the four subjective dimensions) follows evaluation best practices to stay calibrated and stable. These are baked into `judge.system.txt` / `judge.rubric.txt` ([Ch. 15](15-prompt-library.md#15-prompt-library)):
 - **Discrete integer scale 1–5** (not free 0–10 floats or 0–1), with **every level explicitly anchored** to a description of what a 1/2/3/4/5 means. Code normalizes to the internal 0–10 scale via `score10 = (score_1_5 − 1) × 2.5` (1→0, 3→5, **4→7.5**, 5→10), so the Insight floor `INSIGHT_MIN=7.0` requires a genuine **4**. Because the scale is coarse, keep `INSIGHT_MIN ≤ 7.5`: a floor set in (7.5, 10] is only clearable by a *perfect 5*, which silently makes the gate unreachable.
 - **Reason-before-score (chain-of-thought):** the model writes a one-sentence justification **before** the integer, and must **quote ≥1 concrete span** from the script as evidence (combats hallucinated grading).
 - **Bias mitigations stated explicitly in the prompt:**
@@ -53,7 +54,7 @@ The optional LLM scoring pass (Actionability & Insight) follows evaluation best 
   - *Leniency / central-tendency bias* — grade **hard**: most drafts sit at 2–3, a **4** must be genuinely non-obvious, **5** is rare; when torn between two scores, pick the **lower**. Effort, confidence, length, and fluent writing earn nothing.
   - *Verbosity bias* — length ≠ quality; long is not insightful.
   - *Self-preference bias* — grade against the rubric, not against "how an LLM would phrase it."
-- **Independent dimensions:** Actionability and Insight are scored separately; one must not anchor the other.
+- **Independent dimensions:** the subjective dimensions are scored separately; one must not anchor another.
 - **Determinism:** temperature 0 ⇒ identical input yields identical score.
 
 ### 9.4 Template-fatigue detection
@@ -65,7 +66,8 @@ compliance_failed         -> REVISE (or FAIL if attempts exhausted)
 grounding < GROUNDING_MIN -> REVISE (ungrounded claims are non-negotiable)
 insight  < INSIGHT_MIN    -> REVISE (too generic)
 wittiness < WITTINESS_MIN -> REVISE (too dry — a 3/5 minimum)
-ending   < ENDING_MIN     -> REVISE (abrupt close — needs a like/subscribe nudge or a sign-off)
+ending   < ENDING_MIN     -> REVISE (abrupt close — needs BOTH a like/subscribe nudge AND a sign-off)
+duplicate scenes          -> REVISE (near-verbatim repeats above MAX_SCENE_SIMILARITY; names the pairs)
 incomplete (too short)    -> REVISE (fewer than MIN_SCENES or below the word floor)
 template_fatigue          -> REVISE + force_shift
 weighted_total >= PASS_THRESHOLD AND all floors met AND not fatigued AND complete -> PASS

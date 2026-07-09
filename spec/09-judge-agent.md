@@ -76,7 +76,7 @@ otherwise                                                            -> REVISE
 ```
 **Gate relief:** when `weighted_total >= GATE_RELIEF_SCORE`, the *insight*, *wittiness*, and *length* floors are relaxed by `GATE_RELIEF_RATIO` (grounding, compliance, ending, and fatigue are never relaxed) — so a near-miss on one soft floor doesn't block an otherwise-excellent draft; the report `summary` notes when relief was applied.
 
-On `REVISE`, the report includes **structured, actionable `revision_instructions`** the Generator consumes on the next attempt. On `FAIL`, the run halts and is surfaced to the operator (likely a data problem, not a writing problem).
+On `REVISE`, the report includes **structured, actionable `revision_instructions`** the Generator consumes on the next attempt: it leads with a **`KEEP INTACT`** list of the dimensions that already pass (so an edit does not regress them), then a per-shortfall critique that reuses the Judge's own reasoning + the evidence it flagged + a concrete fix. Paired with handing the Generator its previous draft to edit, this keeps the loop *converging* instead of trading one failing dimension for another. On `FAIL`, the run halts and is surfaced to the operator (likely a data problem, not a writing problem).
 
 ### 9.6 `JudgeReport` schema (Pydantic)
 ```python

@@ -372,6 +372,12 @@ class Judge:
         (justification + the evidence it flagged) for every dimension that fell short, so the
         rewrite targets the *actual* problems instead of generic advice."""
         lines: list[str] = []
+        strengths = [d.dimension for d in dimensions if d.passed and d.score >= 7.0]
+        if strengths:
+            lines.append(
+                "- KEEP INTACT (already strong — edit around these, do NOT let them regress): "
+                f"{', '.join(strengths)}."
+            )
         if redundancy_note:
             lines.append(f"- {redundancy_note}")
         if length_note:

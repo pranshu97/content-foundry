@@ -2,8 +2,22 @@
 
 from __future__ import annotations
 
-from ..models import DataBrief, JudgeReport, PublishResult, Script, VisualPackage
+from ..models import DataBrief, IdeaSelection, JudgeReport, PublishResult, Script, VisualPackage
 from ..safeguards.disclosure import disclosure_checklist
+
+
+def _idea_lines(ideas: IdeaSelection | None) -> list[str]:
+    """Render the brainstormed idea the run picked plus the alternatives it set aside."""
+    if not ideas or not ideas.chosen:
+        return []
+    out = ["## Idea", f"**Picked:** {ideas.chosen}"]
+    if ideas.seed:
+        out.append(f"**Your focus (--idea):** {ideas.seed}")
+    alternatives = [g for i, g in enumerate(ideas.generated) if i != ideas.chosen_index]
+    if alternatives:
+        out += ["", "_Also considered:_", *[f"- {a}" for a in alternatives]]
+    out.append("")
+    return out
 
 
 def build_package_md(
@@ -14,6 +28,7 @@ def build_package_md(
     publish_result: PublishResult | None = None,
     brief: DataBrief | None = None,
     visuals: VisualPackage | None = None,
+    ideas: IdeaSelection | None = None,
 ) -> str:
     title = (
         publish_result.chosen_title
@@ -41,6 +56,7 @@ def build_package_md(
         f"**YouTube:** {yt}",
         "",
         disclosure_checklist(disclosure_set),
+        *_idea_lines(ideas),
         "## Title options",
         *title_lines,
         "",

@@ -41,6 +41,11 @@ class RunPaths:
     def package(self) -> Path:
         return self.root / "package.md"
 
+    @property
+    def ideas(self) -> Path:
+        """Sidecar recording the brainstormed ideas + the exact pick (not a pipeline stage)."""
+        return self.root / "ideas.json"
+
 
 def run_paths(run_id: str, output_dir: str) -> RunPaths:
     root = Path(output_dir) / run_id

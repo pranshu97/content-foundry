@@ -20,11 +20,13 @@ from ..agents import (
     Visuals,
     Voiceover,
 )
+from ..agents.judge_checks import redundancy_report
 from ..config import get_settings
 from ..errors import BudgetExhaustedError, ContentFoundryError, SchemaValidationError
 from ..logging import configure_logging, get_logger
 from ..models import (
     DataBrief,
+    IdeaSelection,
     JudgeReport,
     PublishResult,
     RunResult,
@@ -269,6 +271,8 @@ class Orchestrator:
             bits.append(
                 f"too short ({script.word_count}/{floor} words, {len(script.scenes)} scenes)"
             )
+        if not redundancy_report(script, threshold=s.max_scene_similarity)[0]:
+            bits.append("duplicate scenes")
         for d in report.scores:
             if not d.passed and d.minimum is not None:
                 bits.append(f"{d.dimension} {d.score:.1f}<{d.minimum:.0f}")
@@ -276,22 +280,40 @@ class Orchestrator:
             bits.append("template fatigue")
         return "; ".join(bits) or f"score {report.weighted_total:.2f} < {self.s.pass_threshold}"
 
-    def _resolve_idea(self, brief, seed, recent_hooks) -> str:
+    def _resolve_idea(self, run_id, paths, brief, seed, recent_hooks) -> str:
         """The user's --idea (``seed``) FOCUSES the brainstormer rather than being used verbatim, so
         the script is a concrete, relevant video instead of generic niche filler. The Brainstormer
         proposes several ideas; an interactive chooser (CLI) picks one, else the first is used.
-        Brainstorm off => the seed is used raw."""
+        Brainstorm off => the seed is used raw. Either way the ideas + the exact pick are recorded
+        to ``ideas.json`` for provenance."""
         seed = (seed or "").strip()
         if not self.s.brainstorm_enabled:
+            self._record_idea(run_id, paths, seed=seed, generated=[], chosen=seed, source="seed")
             return seed
         ideas = Brainstormer(self.s, self._llm_provider()).propose(
             brief, recent_ideas=recent_hooks, count=self.s.brainstorm_idea_count, focus=seed
         )
         if not ideas:
+            self._record_idea(run_id, paths, seed=seed, generated=[], chosen=seed, source="seed")
             return seed
         chosen = (self._idea_chooser(ideas) if self._idea_chooser else ideas[0]) or ideas[0]
+        source = "brainstorm" if chosen in ideas else "custom"
+        self._record_idea(run_id, paths, seed=seed, generated=ideas, chosen=chosen, source=source)
         self._emit("done", label="Idea", detail=chosen[:80])
         return chosen
+
+    def _record_idea(self, run_id, paths, *, seed, generated, chosen, source) -> None:
+        """Persist the brainstormed ideas + the exact pick to ``ideas.json`` for later inspection."""
+        selection = IdeaSelection(
+            run_id=run_id,
+            seed=seed,
+            brainstorm_enabled=self.s.brainstorm_enabled,
+            source=source,
+            generated=list(generated),
+            chosen=chosen,
+            chosen_index=(generated.index(chosen) if chosen in generated else -1),
+        )
+        save_model(selection, paths.ideas)
 
     def _gen_judge_loop(
         self, run_id, paths, produced, hashes, *, template_id, idea=None
@@ -300,12 +322,13 @@ class Orchestrator:
         recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
         recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback)
         template = get_template(template_id) if template_id else select_template(recent_ids)
-        idea = self._resolve_idea(brief, idea, recent_hooks)
+        idea = self._resolve_idea(run_id, paths, brief, idea, recent_hooks)
 
         feedback: str | None = None
         perspective = ""
         forced = False
         verdict: Verdict | None = None
+        previous_script: Script | None = None
         # Resume-safe: continue the DB attempt numbering past any attempts from a prior run so the
         # UNIQUE(run_id, attempt_number) key never collides — while the judge still counts THIS
         # session's attempts from 1, so a resume gets a fresh MAX_REVISIONS budget.
@@ -320,7 +343,7 @@ class Orchestrator:
             script = ScriptGenerator(self.s, self._llm_provider()).run(
                 run_id, brief, template,
                 perspective_modifier=perspective, judge_feedback=feedback,
-                attempt_number=attempt_number, idea=idea,
+                attempt_number=attempt_number, idea=idea, previous_script=previous_script,
             )
             self.repo.add_attempt(attempt_id, run_id, db_offset + attempt_number, template.id, forced)
             self._persist(
@@ -374,10 +397,14 @@ class Orchestrator:
                 break
 
             feedback = report.revision_instructions
+            # Iterate on THIS draft next attempt (edit it) rather than regenerating from scratch —
+            # that is what stops the loop from losing a good ending/wit it already had.
+            previous_script = script
             if report.force_shift and report.forced_template_id:
                 template = get_template(report.forced_template_id)
                 perspective = pick_perspective_modifier(random.Random(attempt_number))
                 forced = True
+                previous_script = None  # a forced structural shift wants a fresh draft, not an edit
             self.repo.update_run(run_id, state=RunState.REVISING.value)
 
         return verdict
@@ -386,7 +413,9 @@ class Orchestrator:
         brief = self._need(produced, "data_brief", paths)
         recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
         template = get_template(template_id) if template_id else select_template(recent_ids)
-        idea = self._resolve_idea(brief, idea, self.repo.recent_hooks(self.s.fatigue_lookback))
+        idea = self._resolve_idea(
+            run_id, paths, brief, idea, self.repo.recent_hooks(self.s.fatigue_lookback)
+        )
         attempt_id = str(ULID())
         script = ScriptGenerator(self.s, self._llm_provider()).run(
             run_id, brief, template, attempt_number=1, idea=idea
@@ -626,8 +655,18 @@ class Orchestrator:
             publish_result=produced.get("publish"),
             brief=produced.get("data_brief"),
             visuals=produced.get("visuals"),
+            ideas=self._load_ideas(paths),
         )
         paths.package.write_text(md, encoding="utf-8")
+
+    def _load_ideas(self, paths) -> IdeaSelection | None:
+        """Best-effort read of the ideas.json sidecar for the package summary (never fatal)."""
+        if not paths.ideas.exists():
+            return None
+        try:
+            return load_model(IdeaSelection, paths.ideas, expected_stage="ideas")
+        except SchemaValidationError:
+            return None
 
     def _build_result(self, run_id, stages, paths, produced) -> RunResult:
         run = self.repo.get_run(run_id)

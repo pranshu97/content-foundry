@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .data_brief import Citation, ContentAngle, DataBrief, KeyFact
+from .ideas import IdeaSelection
 from .judge_report import DimensionScore, JudgeReport, Verdict
 from .provenance import Provenance, utcnow
 from .publish import PublishResult
@@ -23,6 +24,7 @@ __all__ = [
     "KeyFact",
     "ContentAngle",
     "DataBrief",
+    "IdeaSelection",
     "SceneCue",
     "Script",
     "Verdict",

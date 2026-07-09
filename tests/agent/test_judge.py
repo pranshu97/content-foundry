@@ -94,6 +94,10 @@ def test_low_wittiness_revises_on_floor(settings, data_brief, good_script, fakes
     assert report.verdict == Verdict.REVISE
     wit = next(d for d in report.scores if d.dimension == "wittiness")
     assert wit.score < settings.wittiness_min
+    # The feedback now tells the Generator what to PRESERVE, not just what to fix — so a revision
+    # edit does not regress a passing dimension (the whack-a-mole that sank run 0010).
+    assert "KEEP INTACT" in report.revision_instructions
+    assert "WITTINESS" in report.revision_instructions  # while still critiquing the weak dim
 
 
 def test_ending_dimension_is_tracked(settings, data_brief, good_script, fakes):

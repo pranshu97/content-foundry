@@ -112,6 +112,7 @@ Every run gets its own folder:
 ```
 output/runs/<run_id>/
 ├── data_brief.json        # stage 1 — the grounded facts
+├── ideas.json             # the brainstormed ideas + the exact one this run picked
 ├── script.json            # stage 2 — the script (edit this to hand-tune)
 ├── judge_report.json      # stage 3 — scores + the critique
 ├── voiceover.json         # stage 4

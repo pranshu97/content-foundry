@@ -44,7 +44,7 @@ Each artifact carries a `schema_version`, the `run_id`, the producing `stage`, a
 - A **Run** = one end-to-end effort to produce a published video, identified by a short sequential `run_id` (4 digits, e.g. `0001`, `0002` — the next number after the highest existing run folder). `attempt_id`/`artifact_id` remain ULIDs internally.
 - A run moves through states: `CREATED → FETCHED → GENERATED → JUDGED → APPROVED → VOICED → VISUALIZED → RENDERED → PUBLISHED`, with `REVISING` (Generator⇄Judge loop) and `FAILED` as branches.
 - The Judge verdict `PASS` is a **hard gate**: the production stages (4–7) run only after approval.
-- The **revision loop** (Generator ⇄ Judge) is bounded by `MAX_REVISIONS` (default 3). Each revision is a new attempt linked to the same run, preserving full history.
+- The **revision loop** (Generator ⇄ Judge) is bounded by `MAX_REVISIONS` (default 3). Each revision is a new attempt linked to the same run, preserving full history — and **edits the previous draft** (the Generator is given its last script + the Judge's targeted feedback) rather than regenerating from scratch, so fixes accumulate instead of oscillating.
 - All artifacts and media for a run live under `output/runs/<run_id>/` (JSON artifacts at the top level, media under `assets/`).
 
 ### 2.5 Component responsibilities

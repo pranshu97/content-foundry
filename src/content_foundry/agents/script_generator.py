@@ -323,10 +323,24 @@ _SOURCE_LABELS = {
 }
 
 
+def _domain_from_url(url: str | None) -> str:
+    """The bare site domain from a URL: 'https://online.msoe.edu/blog/x?y=1' -> 'online.msoe.edu'."""
+    if not url:
+        return ""
+    from urllib.parse import urlparse
+
+    host = urlparse(url).netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
 def _source_label(citation) -> str:
-    """A short, human-readable source for the on-screen citation."""
+    """A short, human-readable source for the on-screen citation. Facts without a fixed label (e.g.
+    web-search results) show the site's domain from the URL — 'Source: msoe.edu' beats a generic
+    'Source: Search' — falling back to the capitalised source name only when there is no URL."""
     key = (citation.source or "").lower()
-    return _SOURCE_LABELS.get(key, (citation.source or "source").title())
+    if key in _SOURCE_LABELS:
+        return _SOURCE_LABELS[key]
+    return _domain_from_url(getattr(citation, "url", None)) or (citation.source or "source").title()
 
 
 def _has_source(caption: str, label: str) -> bool:

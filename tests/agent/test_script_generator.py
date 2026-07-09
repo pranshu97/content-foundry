@@ -81,6 +81,22 @@ def test_every_stat_scene_cites_its_source(settings, data_brief, fakes):
     assert plain.on_screen_text == "No numbers here"
 
 
+def test_search_source_citation_shows_website_domain():
+    # A web-search fact has no fixed label; the on-screen source should be the site domain, not "Search".
+    from datetime import UTC, datetime
+
+    from content_foundry.agents.script_generator import _source_label
+    from content_foundry.models.data_brief import Citation
+
+    now = datetime.now(UTC)
+    web = Citation(source="search", url="https://online.msoe.edu/engineering/blog/ml-careers",
+                   observed_at=now, snippet="x")
+    assert _source_label(web) == "online.msoe.edu"
+    assert _source_label(Citation(source="search", url="https://www.techcrunch.com/ai",
+                                  observed_at=now, snippet="x")) == "techcrunch.com"  # www. stripped
+    assert _source_label(Citation(source="adzuna", observed_at=now, snippet="x")) == "Adzuna"
+
+
 def test_fact_ref_list_is_coerced(settings, data_brief, fakes):
     # Local models sometimes cite several facts as a list ([0, 2]); SceneCue needs a single int.
     payload = {

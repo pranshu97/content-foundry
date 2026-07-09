@@ -15,22 +15,31 @@ from ..safeguards.grounding import check_grounding
 from ..templates import select_template
 from .judge_checks import (
     compliance_check,
+    ending_report,
     freshness_and_fatigue,
+    freshness_why,
     heuristic_actionability,
+    heuristic_engagement,
     heuristic_insight,
+    heuristic_wittiness,
     hook_score,
+    hook_why,
     specificity_score,
+    specificity_why,
 )
 
-# Spec weights (Ch. 9.3) sum to 1.10; weighted_total is normalised by the total weight -> 0-10.
+# Dimension weights (Ch. 9.3) sum to 1.0, so weighted_total is a plain weighted average on 0-10.
 WEIGHTS = {
-    "actionability": 0.20,
-    "specificity": 0.20,
-    "grounding": 0.20,
-    "insight": 0.20,
-    "hook": 0.15,
-    "freshness": 0.10,
-    "compliance": 0.05,
+    "actionability": 0.14,
+    "specificity": 0.14,
+    "grounding": 0.14,
+    "insight": 0.14,
+    "engagement": 0.10,
+    "wittiness": 0.07,
+    "ending": 0.07,
+    "hook": 0.10,
+    "freshness": 0.07,
+    "compliance": 0.03,
 }
 _TOTAL_WEIGHT = sum(WEIGHTS.values())
 
@@ -63,6 +72,7 @@ class Judge:
         fresh = freshness_and_fatigue(
             script.template_id, script.hook, recent_template_ids, recent_hooks
         )
+        end, end_detail = ending_report(script)
 
         # An egregiously short draft (a single scene) is rejected without spending an LLM call,
         # exactly like a grounding/compliance violation. Full completeness (scene/word floors) is
@@ -72,9 +82,24 @@ class Judge:
         )
 
         # ---- subjective dims: LLM (hybrid/llm) or heuristic (deterministic / fallback) ----
-        act, ins, score_1_5, evidence, justif, used_model = self._subjective_scores(
+        subj, score_1_5, evidence, justif, used_model = self._subjective_scores(
             script, hard_gate_failed
         )
+        act, ins = subj["actionability"], subj["insight"]
+        eng, wit = subj["engagement"], subj["wittiness"]
+        # Build per-dimension justification strings for all code-scored dims so the revision note
+        # tells the generator WHY each dimension fell short, not just the raw number.
+        code_justif = {
+            "specificity": specificity_why(script),
+            "grounding": f"grounding scored {round(grounding.score, 1)}/10 (floor {s.grounding_min}); "
+                         f"floor {'met' if grounding.score >= s.grounding_min else 'NOT met'}. "
+                         "Tie every stated number to a fact_ref from the DataBrief.",
+            "hook": hook_why(script),
+            "freshness": freshness_why(script.template_id, fresh, recent_template_ids),
+            "compliance": "synthetic_disclosure missing or not reflected in the description.",
+            "ending": end_detail,
+        }
+        justif = {**justif, **code_justif}
 
         # ---- forced shift target on fatigue (deterministic) ----
         forced_template_id = None
@@ -89,11 +114,19 @@ class Judge:
             "specificity": spec,
             "grounding": grounding.score,
             "insight": ins,
+            "engagement": eng,
+            "wittiness": wit,
+            "ending": end,
             "hook": hk,
             "freshness": fresh.score,
             "compliance": comp_score,
         }
-        floors = {"grounding": s.grounding_min, "insight": s.insight_min}
+        floors = {
+            "grounding": s.grounding_min,
+            "insight": s.insight_min,
+            "wittiness": s.wittiness_min,
+            "ending": s.ending_min,
+        }
         dimensions = [
             self._dimension(
                 name,
@@ -123,9 +156,13 @@ class Judge:
             len(script.scenes) >= min_scenes_eff and script.word_count >= word_floor
         )
         insight_ok = ins >= s.insight_min * factor
+        wittiness_ok = wit >= s.wittiness_min * factor
+        ending_ok = end >= s.ending_min
         strict_complete = len(script.scenes) >= s.min_scenes and script.word_count >= strict_floor
         gates_relaxed = relief > 0.0 and (
-            (completeness_ok and not strict_complete) or (insight_ok and ins < s.insight_min)
+            (completeness_ok and not strict_complete)
+            or (insight_ok and ins < s.insight_min)
+            or (wittiness_ok and wit < s.wittiness_min)
         )
 
         verdict = self._verdict(
@@ -133,6 +170,8 @@ class Judge:
             compliance_ok=comp_ok,
             grounding_score=grounding.score,
             insight_ok=insight_ok,
+            wittiness_ok=wittiness_ok,
+            ending_ok=ending_ok,
             fatigue=fresh.fatigue,
             completeness_ok=completeness_ok,
             attempt_number=attempt_number,
@@ -176,36 +215,43 @@ class Judge:
         )
 
     # ------------------------------------------------------------- subjective
+    _SUBJECTIVE = ("actionability", "insight", "engagement", "wittiness")
+
     def _subjective_scores(self, script: Script, hard_gate_failed: bool):
+        """Return (scores, score_1_5, evidence, justification, used_model) for the four subjective
+        dimensions — LLM-scored in hybrid/llm mode, heuristic in deterministic mode or on any LLM
+        failure. Engagement and wittiness carry NO hard floor; they only shape the weighted total."""
         mode = self._settings.judge_mode
         want_llm = mode in ("hybrid", "llm") and (mode == "llm" or not hard_gate_failed)
 
         if want_llm and self._llm is not None:
             try:
-                a, i = self._llm_scores(script)
-                act = (int(a["score_1_5"]) - 1) * 2.5
-                ins = (int(i["score_1_5"]) - 1) * 2.5
-                return (
-                    round(act, 2),
-                    round(ins, 2),
-                    {"actionability": int(a["score_1_5"]), "insight": int(i["score_1_5"])},
-                    {"actionability": a.get("evidence"), "insight": i.get("evidence")},
-                    {
-                        "actionability": a.get("justification", "LLM-scored"),
-                        "insight": i.get("justification", "LLM-scored"),
-                    },
-                    self._judge_model(),
-                )
-            except (LLMError, KeyError, ValueError, json.JSONDecodeError) as exc:
+                data = self._llm_scores(script)
+                scores, s15, evidence, justif = {}, {}, {}, {}
+                for name in self._SUBJECTIVE:
+                    d = data.get(name) or {}
+                    # score_1_5 -> 0-10 is COARSE: {1:0, 2:2.5, 3:5, 4:7.5, 5:10}. A floor above 7.5
+                    # is only clearable by a perfect 5, so keep any dim floor <= 7.5 (a genuine 4 = 7.5).
+                    n = max(1, min(5, int(d.get("score_1_5", 3))))
+                    scores[name] = round((n - 1) * 2.5, 2)
+                    s15[name] = n
+                    evidence[name] = d.get("evidence")
+                    justif[name] = d.get("justification", "LLM-scored")
+                return scores, s15, evidence, justif, self._judge_model()
+            except (LLMError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 self._log.warning("judge_llm_fallback", error=str(exc))
 
         # deterministic / fallback heuristics
         return (
-            heuristic_actionability(script),
-            heuristic_insight(script),
+            {
+                "actionability": heuristic_actionability(script),
+                "insight": heuristic_insight(script),
+                "engagement": heuristic_engagement(script),
+                "wittiness": heuristic_wittiness(script),
+            },
             {},
             {},
-            {"actionability": "heuristic", "insight": "heuristic"},
+            dict.fromkeys(self._SUBJECTIVE, "heuristic"),
             None,
         )
 
@@ -213,7 +259,7 @@ class Judge:
         """Discrete 1-5 scoring is mechanical — route it to the light tier (Ch. — future plan 2)."""
         return select_model(self._settings, TaskTier.LIGHT, fallback=self._settings.judge_model)
 
-    def _llm_scores(self, script: Script) -> tuple[dict, dict]:
+    def _llm_scores(self, script: Script) -> dict[str, dict]:
         system = render_prompt(
             load_prompt("judge.system"),
             rubric_text=load_prompt("judge.rubric"),
@@ -226,7 +272,10 @@ class Judge:
             model=self._judge_model(),
         )
         data = json.loads(extract_json(resp.text))
-        return data["actionability"], data["insight"]
+        return {
+            name: (data.get(name) if isinstance(data.get(name), dict) else {})
+            for name in self._SUBJECTIVE
+        }
 
     # ------------------------------------------------------------- assembly
     def _dimension(
@@ -267,6 +316,9 @@ class Judge:
             "specificity": "Name concrete numbers, roles, and tools from the data.",
             "grounding": "Tie every number to a DataBrief fact_ref; remove invented stats.",
             "insight": "Add a non-obvious, data-backed reframing; cut clichés.",
+            "engagement": "Hook harder and hold it: open a curiosity loop, raise the stakes, vary the pace, talk TO the viewer.",
+            "wittiness": "Add personality: a vivid analogy, a playful aside, or a well-timed joke (never bend a fact for it).",
+            "ending": "End the last scene with BOTH a like/subscribe nudge AND a warm sign-off (e.g. 'subscribe for more data-backed moves', then 'see you in the next one'), on top of a witty payoff line.",
             "hook": "Open with a specific number or claim in the first ~10 seconds.",
             "freshness": f"Switch structure to {forced_template_id or 'a different template'}; vary the hook.",
             "compliance": "Set synthetic_disclosure and add a synthetic-content note to the description.",
@@ -279,6 +331,8 @@ class Judge:
         compliance_ok: bool,
         grounding_score: float,
         insight_ok: bool,
+        wittiness_ok: bool,
+        ending_ok: bool,
         fatigue: bool,
         completeness_ok: bool,
         attempt_number: int,
@@ -288,6 +342,8 @@ class Judge:
             (not compliance_ok)
             or grounding_score < s.grounding_min
             or not insight_ok
+            or not wittiness_ok
+            or not ending_ok
             or fatigue
             or not completeness_ok
         )

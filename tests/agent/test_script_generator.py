@@ -17,6 +17,58 @@ def test_generate_good_script(settings, data_brief, fakes):
     assert "synthetic" in script.description.lower()
 
 
+def test_revision_embeds_previous_draft_for_surgical_edit(settings, data_brief, fakes):
+    # A revision must hand the model its OWN previous draft to EDIT — not regenerate from scratch,
+    # which is what made the loop lose a good ending/wit between attempts.
+    llm = fakes.LLM()
+    prev = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
+    ScriptGenerator(settings, llm).run(
+        "R", data_brief, get_template("contrarian"),
+        judge_feedback="- WITTINESS 2.5/10: too dry.", previous_script=prev,
+    )
+    system = llm.calls[-1]["system"]
+    assert "PREVIOUS DRAFT" in system and "EDIT that exact draft" in system
+    assert "bottom rung is gone" in system  # a distinctive line from the prior draft, verbatim
+    assert "WITTINESS 2.5/10" in system  # the fix-list is included
+
+
+def test_revision_without_previous_draft_falls_back(settings, data_brief, fakes):
+    llm = fakes.LLM()
+    ScriptGenerator(settings, llm).run(
+        "R", data_brief, get_template("contrarian"),
+        judge_feedback="- ENDING 0.0/10: add a close.",
+    )
+    system = llm.calls[-1]["system"]
+    assert "REVISION" in system and "ENDING 0.0/10" in system
+    assert "PREVIOUS DRAFT" not in system  # nothing to edit -> old single-shot behavior
+
+
+def test_duplicate_scenes_are_dropped_deterministically(settings, data_brief, fakes):
+    # A padded draft that recycles a scene must have the copy REMOVED in code (a hard guarantee),
+    # not merely flagged for the model to fix — that detection alone let dupes recur (run 0010).
+    dup = "Everyone says just grind leetcode, but entry postings actually thinned out this past year."
+    payload = {
+        "title_options": ["t"],
+        "hook": "A specific hook about breaking into big tech right now.",
+        "scenes": [
+            {"index": 0, "narration": dup, "fact_ref": 0},
+            {"index": 1, "narration": "Median pay for these roles still sits high, which surprises most applicants today.", "fact_ref": 1},
+            {"index": 2, "narration": "Target adjacent teams first and ship one small portfolio project this week to stand out.", "fact_ref": None},
+            {"index": 3, "narration": "Recruiters skim fast, so lead with measurable outcomes and the exact tools you used.", "fact_ref": None},
+            {"index": 4, "narration": dup, "fact_ref": 0},  # near-identical to scene 0 -> dropped
+        ],
+        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "grounded_fact_refs": [0, 1],
+    }
+    llm = fakes.LLM(script_json=payload)
+    script = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
+    narrations = [s.narration for s in script.scenes]
+    assert narrations.count(dup) == 1  # the recycled scene was removed in code
+    assert [s.index for s in script.scenes] == list(range(len(script.scenes)))  # re-indexed
+
+
+
+
 def test_reformat_retry_on_bad_json(settings, data_brief, fakes):
     llm = fakes.LLM(bad_then_good=True)
     script = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))

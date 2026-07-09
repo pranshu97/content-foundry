@@ -10,12 +10,14 @@ STAGES = ["fetch", "generate", "judge", "voiceover", "visuals", "render", "publi
 | Stage | Agent | Reads | Writes |
 |-------|-------|-------|--------|
 | `fetch` | Data Fetcher | (sources) | `data_brief.json` |
-| `generate` | Script Generator | `data_brief.json` | `script.json` |
+| `generate` | Script Generator | `data_brief.json` | `script.json` (+ `ideas.json`) |
 | `judge` | Judge | `script.json` + `data_brief.json` | `judge_report.json` |
 | `voiceover` | Voiceover | `script.json` | `voiceover.json` + audio |
 | `visuals` | Visuals | `script.json` + `voiceover.json` | `visuals.json` + images |
 | `render` | Renderer | `voiceover.json` + `visuals.json` | `video.json` + mp4 |
 | `publish` | Publisher | `video.json` + `script.json` + `visuals.json` | `publish_result.json` |
+
+> At the start of `generate`, before the first draft, the Brainstormer (Agent 0) proposes `BRAINSTORM_IDEA_COUNT` ideas focused by the operator's `--idea`; the pick (an interactive chooser on a TTY, else the first) **and the full generated list** are recorded to `ideas.json` (`IdeaSelection`) for provenance, and surfaced in `package.md`.
 
 ### 14.3 Resumability model (the core feature)
 The orchestrator entry point:

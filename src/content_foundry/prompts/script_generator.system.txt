@@ -34,8 +34,10 @@ as being factually correct):
   finished narration (never a phrase, heading, or bullet). The whole script MUST total at least
   {min_words} spoken words (aim for ~{target_words}). Expand every beat with concrete detail, examples,
   and the data; NEVER output a single scene, an outline, or a summary.
-- NEVER REPEAT YOURSELF (an automated reviewer REJECTS a script with duplicate scenes): every scene
-  must make a genuinely DIFFERENT point in fresh words. Do NOT reuse a sentence, paragraph, or
+- NEVER REPEAT YOURSELF (an automated reviewer REJECTS duplicate scenes, AND the system AUTO-DELETES
+  any scene that repeats an earlier one — so padding with copies only makes your video shorter, never
+  longer): every scene must make a genuinely DIFFERENT point in fresh words. Do NOT reuse a sentence,
+  paragraph, or
   example in more than one scene, and state each fact or statistic AT MOST ONCE across the whole
   video. Filling {scenes} scenes does NOT require {scenes} facts — most scenes are distinct advice,
   steps, examples, mistakes, or angles on the topic, not a restated number. Hearing the same line or

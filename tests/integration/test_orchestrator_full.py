@@ -92,9 +92,12 @@ def test_require_script_approval_pauses_then_resumes(monkeypatch, sample_signals
 
 def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
     from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.models import IdeaSelection
+    from content_foundry.pipeline.artifacts import ensure_run_dirs, load_model, run_paths
 
     monkeypatch.setenv("BRAINSTORM_ENABLED", "true")
     reset_settings_cache()
+    settings = get_settings()
     seen: dict[str, list[str]] = {}
 
     def chooser(ideas: list[str]) -> str:
@@ -102,11 +105,18 @@ def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
         return ideas[-1]  # deliberately pick the last
 
     orch = Orchestrator(
-        get_settings(), notifier=NullNotifier(),
+        settings, notifier=NullNotifier(),
         llm_provider=fakes.LLM(script_json=["Idea A", "Idea B", "Idea C"]),
         idea_chooser=chooser,
     )
+    paths = run_paths("9999", settings.output_dir)
+    ensure_run_dirs(paths)
     # --idea 'resume optimization' focuses the brainstormer; the chooser picks among the proposals.
-    idea = orch._resolve_idea(data_brief, "resume optimization", [])
+    idea = orch._resolve_idea("9999", paths, data_brief, "resume optimization", [])
     assert seen["ideas"] == ["Idea A", "Idea B", "Idea C"]
     assert idea == "Idea C"
+    # The generated ideas AND the exact pick are persisted to ideas.json for provenance.
+    sel = load_model(IdeaSelection, paths.ideas, expected_stage="ideas")
+    assert sel.generated == ["Idea A", "Idea B", "Idea C"]
+    assert sel.chosen == "Idea C" and sel.chosen_index == 2
+    assert sel.seed == "resume optimization" and sel.source == "brainstorm"

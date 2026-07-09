@@ -15,6 +15,7 @@ from ..providers.tiering import TaskTier, select_model
 from ..safeguards.disclosure import ensure_description_discloses
 from ..safeguards.grounding import STAT_RE, ungrounded_scene_indices
 from ..templates import Template
+from .judge_checks import dedupe_scene_indices
 
 SCRIPT_JSON_SHAPE = """{
   "title_options": ["...", "..."],
@@ -36,6 +37,32 @@ SCRIPT_JSON_SHAPE = """{
 }"""
 
 
+def _script_to_prompt_json(script: Script) -> dict:
+    """Serialize a draft back into the exact JSON shape the prompt asks for, so a revision can EDIT
+    its own previous draft in place instead of regenerating from scratch (which loses what worked)."""
+    return {
+        "title_options": script.title_options,
+        "hook": script.hook,
+        "scenes": [
+            {
+                "index": s.index,
+                "narration": s.narration,
+                "on_screen_text": s.on_screen_text or "",
+                "b_roll_keywords": s.b_roll_keywords,
+                "fact_ref": s.fact_ref,
+                "sfx": s.sfx,
+            }
+            for s in script.scenes
+        ],
+        "cta": script.cta,
+        "description": script.description,
+        "tags": script.tags,
+        "thumbnail_concept": script.thumbnail_concept,
+        "grounded_fact_refs": script.grounded_fact_refs,
+        "synthetic_disclosure": script.synthetic_disclosure,
+    }
+
+
 class ScriptGenerator:
     def __init__(self, settings, llm_provider: LLMProvider):
         self._settings = settings
@@ -52,11 +79,15 @@ class ScriptGenerator:
         judge_feedback: str | None = None,
         attempt_number: int = 1,
         idea: str = "",
+        previous_script: Script | None = None,
     ) -> Script:
-        system = self._build_prompt(brief, template, perspective_modifier, judge_feedback, idea)
+        system = self._build_prompt(
+            brief, template, perspective_modifier, judge_feedback, idea, previous_script
+        )
         text = self._complete(system)
         parsed = self._parse_json(system, text)
         script = self._coerce_script(parsed, run_id=run_id, template_id=template.id)
+        script = self._dedupe_scenes(script)
         script = self._repair_grounding(script, brief)
         script = self._ensure_min_length(system, script, brief, run_id, template.id)
         script = self._stamp_sources(script, brief)
@@ -71,6 +102,7 @@ class ScriptGenerator:
         perspective_modifier: str,
         judge_feedback: str | None,
         idea: str = "",
+        previous_script: Script | None = None,
     ) -> str:
         beats = "\n".join(f"{i + 1}) {b}" for i, b in enumerate(template.beats))
         facts = [
@@ -84,13 +116,7 @@ class ScriptGenerator:
             for i, kf in enumerate(brief.key_facts)
         ]
         perspective = perspective_modifier or f"PERSPECTIVE: {template.default_perspective}"
-        revision = (
-            "REVISION — a reviewer scored your previous draft and it did NOT pass. Keep what already\n"
-            "worked and rewrite to fix EVERY point below (each line is a dimension, its score, the\n"
-            f"reviewer's reasoning, and the fix):\n{judge_feedback}"
-            if judge_feedback
-            else ""
-        )
+        revision = self._revision_clause(judge_feedback, previous_script)
         time_context = (
             build_time_context(self._settings.effective_content_year)
             if self._settings.time_box_enabled
@@ -122,6 +148,32 @@ class ScriptGenerator:
             revision_clause=revision,
             time_context=time_context,
             script_schema=SCRIPT_JSON_SHAPE,
+        )
+
+    def _revision_clause(self, judge_feedback: str | None, previous_script: Script | None) -> str:
+        """Build the revision block. When the previous draft is available it is embedded so the model
+        EDITS it in place (surgical fixes that keep what already scored well) instead of regenerating
+        from scratch — the root cause of the loop dropping a good ending or wit between attempts."""
+        if not judge_feedback:
+            return ""
+        if previous_script is not None and previous_script.scenes:
+            draft = json.dumps(
+                _script_to_prompt_json(previous_script), ensure_ascii=False, indent=2
+            )
+            return (
+                "REVISION — do NOT start from scratch. A reviewer scored your PREVIOUS DRAFT (below)\n"
+                "and it did not pass. EDIT that exact draft: change ONLY what the fix-list requires,\n"
+                "and keep everything else — the hook, every already-good scene, and ESPECIALLY the\n"
+                "final scene's like/subscribe nudge + sign-off — WORD FOR WORD. Return the COMPLETE\n"
+                "edited script (every scene, in order).\n\n"
+                f"PREVIOUS DRAFT:\n{draft}\n\n"
+                "FIX-LIST — address every point below without regressing anything already good:\n"
+                f"{judge_feedback}"
+            )
+        return (
+            "REVISION — a reviewer scored your previous draft and it did NOT pass. Keep what already\n"
+            "worked and fix EVERY point below without regressing anything good (each line: a\n"
+            f"dimension, its score, the reviewer's reasoning, and the fix):\n{judge_feedback}"
         )
 
     # ------------------------------------------------------------------ llm I/O
@@ -237,8 +289,10 @@ class ScriptGenerator:
                 ),
             )
             longer = self._repair_grounding(
-                self._coerce_script(
-                    json.loads(extract_json(resp.text)), run_id=run_id, template_id=template_id
+                self._dedupe_scenes(
+                    self._coerce_script(
+                        json.loads(extract_json(resp.text)), run_id=run_id, template_id=template_id
+                    )
                 ),
                 brief,
             )
@@ -262,6 +316,24 @@ class ScriptGenerator:
                 if s.fact_ref is not None and 0 <= s.fact_ref < len(brief.key_facts)
             }
         )
+        script.word_count = _word_count(script)
+        return script
+
+    def _dedupe_scenes(self, script: Script) -> Script:
+        """HARD GUARANTEE (Ch. 8.5): drop any scene whose narration near-duplicates an EARLIER scene
+        (the same 3-gram Jaccard the reviewer uses), so a model that padded by recycling scenes is
+        trimmed to its distinct ones BEFORE grading — a code guarantee, not a plea in the prompt. The
+        length gate then EXPANDS if trimming left the draft short, forcing new content over repeats."""
+        keep = dedupe_scene_indices(script, threshold=self._settings.max_scene_similarity)
+        if len(keep) == len(script.scenes):
+            return script
+        kept_scenes = [script.scenes[i] for i in keep]
+        for new_index, scene in enumerate(kept_scenes):
+            scene.index = new_index
+        self._log.warning(
+            "deduped_scenes", dropped=len(script.scenes) - len(keep), kept=len(kept_scenes)
+        )
+        script.scenes = kept_scenes
         script.word_count = _word_count(script)
         return script
 

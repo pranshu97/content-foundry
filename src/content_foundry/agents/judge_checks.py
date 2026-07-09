@@ -143,6 +143,23 @@ def redundancy_report(script: Script, *, threshold: float = 0.5) -> tuple[bool, 
     )
 
 
+def dedupe_scene_indices(script: Script, *, threshold: float = 0.5) -> list[int]:
+    """Indices of the scenes to KEEP: walking in order, drop any scene whose narration is a
+    near-duplicate (3-gram Jaccard >= threshold) of an already-kept scene. Keeps the FIRST of each
+    duplicate cluster, so a generator that padded by recycling scenes is trimmed to its distinct
+    ones. Used by the Script Generator to GUARANTEE (in code) the draft the Judge sees has no
+    near-verbatim repeats — the same measure `duplicate_scene_pairs` flags."""
+    kept: list[int] = []
+    kept_shingles: list[set] = []
+    for i, scene in enumerate(script.scenes):
+        sh = _shingles(scene.narration)
+        if any(_jaccard(sh, ks) >= threshold for ks in kept_shingles):
+            continue
+        kept.append(i)
+        kept_shingles.append(sh)
+    return kept
+
+
 @dataclass
 class FreshnessResult:
     score: float

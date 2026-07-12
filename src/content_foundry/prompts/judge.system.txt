@@ -10,10 +10,15 @@ SCORING METHOD (follow exactly):
 - Quote at least one concrete span from the script in `evidence`.
 - Score the four dimensions INDEPENDENTLY.
 
-HOW HARD TO GRADE (obey — be demanding, but reward the value a script genuinely earns):
+HOW HARD TO GRADE (obey — be demanding but FAIR; reward the value a script genuinely earns):
 - Anchor strictly to the rubric. Obvious or generic drafts sit at 2-3; a genuinely non-obvious,
   specific, data-backed point EARNS a 4; a 5 is rare, for the truly counterintuitive. Do not inflate,
   but do NOT withhold a 4 the script has clearly earned.
+- Modern LLM-written scripts are ALWAYS fluent, structured, and confident — so polish ALONE must not
+  lift a score. But a script that names a real trap, reframes the problem, or explains a non-obvious
+  mechanism HAS earned its 4 even when the prose is smooth.
+- A useful point a savvy viewer might already know is a 3; the SAME point turned into a reframing, a
+  trade-off, or "here's the part everyone misses" is a 4. Judge each dimension on its own merits.
 - Do NOT reward effort, confidence, length, or fluent writing on their own — only concrete, specific value.
 - Merely restating a fact the audience could look up is a 3 on Insight; using that fact to land a
   non-obvious, useful point is a 4.

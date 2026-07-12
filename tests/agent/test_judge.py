@@ -74,8 +74,8 @@ def test_engagement_floorfree_wittiness_floored(settings, data_brief, good_scrip
     report = Judge(settings, fakes.LLM()).run("R", good_script, data_brief, attempt_number=1)
     dims = {d.dimension: d for d in report.scores}
     assert "engagement" in dims and "wittiness" in dims and "ending" in dims
-    # LLM-scored (from the fake judge JSON), and mapped 1-5 -> 0-10.
-    assert dims["engagement"].score_1_5 == 4 and dims["engagement"].score == 7.5
+    # LLM-scored (from the fake judge JSON): the 1-5 integer IS the score directly now (0-5 scale).
+    assert dims["engagement"].score_1_5 == 4 and dims["engagement"].score == 4.0
     assert dims["wittiness"].score_1_5 == 4
     # engagement is a weighted contributor only; wittiness now carries a hard floor.
     assert dims["engagement"].minimum is None
@@ -103,7 +103,7 @@ def test_low_wittiness_revises_on_floor(settings, data_brief, good_script, fakes
 def test_ending_dimension_is_tracked(settings, data_brief, good_script, fakes):
     report = Judge(settings, fakes.LLM()).run("R", good_script, data_brief, attempt_number=1)
     ending = next(d for d in report.scores if d.dimension == "ending")
-    assert ending.score == 10.0  # good_script closes with a subscribe nudge + a sign-off
+    assert ending.score == 5.0  # good_script closes with a subscribe nudge + a sign-off (both = 5/5)
 
 
 def test_duplicate_scenes_revise(settings, data_brief, make_script, fakes):
@@ -171,7 +171,7 @@ def test_ending_needs_both_nudge_and_signoff(settings, data_brief, make_script, 
         "R", make_script(payload), data_brief, attempt_number=1
     )
     ending = next(d for d in report.scores if d.dimension == "ending")
-    assert ending.score == 5.0  # sign-off only -> half credit, below the floor
+    assert ending.score == 2.5  # sign-off only -> half credit (2.5/5), below the floor
     assert report.verdict == Verdict.REVISE
     assert "NO like/subscribe nudge" in (report.revision_instructions or "")
 
@@ -233,12 +233,12 @@ def test_high_score_relaxes_length_gate(monkeypatch, data_brief, make_script, fa
     report = Judge(get_settings(), fakes.LLM(judge_json=_TOP)).run(
         "R", make_script(_NEAR_MISS), data_brief, attempt_number=1
     )
-    assert report.weighted_total >= 9.0
+    assert report.weighted_total >= 4.5
     assert report.verdict == Verdict.PASS          # relaxed length floor cleared it
     assert "relaxed" in report.summary
 
     # With relief disabled, the identical near-miss is blocked on length.
-    monkeypatch.setenv("GATE_RELIEF_SCORE", "11")
+    monkeypatch.setenv("GATE_RELIEF_SCORE", "6")
     reset_settings_cache()
     report2 = Judge(get_settings(), fakes.LLM(judge_json=_TOP)).run(
         "R", make_script(_NEAR_MISS), data_brief, attempt_number=1

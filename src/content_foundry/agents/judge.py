@@ -29,7 +29,7 @@ from .judge_checks import (
     specificity_why,
 )
 
-# Dimension weights (Ch. 9.3) sum to 1.0, so weighted_total is a plain weighted average on 0-10.
+# Dimension weights (Ch. 9.3) sum to 1.0, so weighted_total is a plain weighted average on 0-5.
 WEIGHTS = {
     "actionability": 0.14,
     "specificity": 0.14,
@@ -66,7 +66,11 @@ class Judge:
         s = self._settings
 
         # ---- deterministic checks (no tokens) ----
+        # Every score in this judge is on a 0-5 scale (matching the LLM's native 1-5). The
+        # deterministic checks below compute on 0-10, so they are HALVED (``/ 2``) as they enter the
+        # rubric; the LLM dims are used as their raw 1-5 integer.
         grounding = check_grounding(script, brief)
+        g5 = round(grounding.score / 2, 2)  # grounding on the 0-5 rubric scale
         comp_score, comp_ok = compliance_check(script)
         spec = specificity_score(script)
         hk = hook_score(script)
@@ -74,6 +78,7 @@ class Judge:
             script.template_id, script.hook, recent_template_ids, recent_hooks
         )
         end, end_detail = ending_report(script)
+        end5 = round(end / 2, 2)  # ending on the 0-5 rubric scale
         redundancy_ok, redundancy_note = redundancy_report(script, threshold=s.max_scene_similarity)
 
         # An egregiously short draft (a single scene) is rejected without spending an LLM call,
@@ -81,7 +86,7 @@ class Judge:
         # evaluated after the weighted total, so a high-scoring draft can earn a little slack.
         hard_gate_failed = (
             (not comp_ok)
-            or (grounding.score < s.grounding_min)
+            or (g5 < s.grounding_min)
             or (len(script.scenes) < 2)
             or (not redundancy_ok)
         )
@@ -96,8 +101,8 @@ class Judge:
         # tells the generator WHY each dimension fell short, not just the raw number.
         code_justif = {
             "specificity": specificity_why(script),
-            "grounding": f"grounding scored {round(grounding.score, 1)}/10 (floor {s.grounding_min}); "
-                         f"floor {'met' if grounding.score >= s.grounding_min else 'NOT met'}. "
+            "grounding": f"grounding scored {g5}/5 (floor {s.grounding_min}); "
+                         f"floor {'met' if g5 >= s.grounding_min else 'NOT met'}. "
                          "Tie every stated number to a fact_ref from the DataBrief.",
             "hook": hook_why(script),
             "freshness": freshness_why(script.template_id, fresh, recent_template_ids),
@@ -116,15 +121,15 @@ class Judge:
         # ---- assemble dimension scores ----
         raw = {
             "actionability": act,
-            "specificity": spec,
-            "grounding": grounding.score,
+            "specificity": round(spec / 2, 2),
+            "grounding": g5,
             "insight": ins,
             "engagement": eng,
             "wittiness": wit,
-            "ending": end,
-            "hook": hk,
-            "freshness": fresh.score,
-            "compliance": comp_score,
+            "ending": end5,
+            "hook": round(hk / 2, 2),
+            "freshness": round(fresh.score / 2, 2),
+            "compliance": round(comp_score / 2, 2),
         }
         floors = {
             "grounding": s.grounding_min,
@@ -162,7 +167,7 @@ class Judge:
         )
         insight_ok = ins >= s.insight_min * factor
         wittiness_ok = wit >= s.wittiness_min * factor
-        ending_ok = end >= s.ending_min
+        ending_ok = end5 >= s.ending_min
         strict_complete = len(script.scenes) >= s.min_scenes and script.word_count >= strict_floor
         gates_relaxed = relief > 0.0 and (
             (completeness_ok and not strict_complete)
@@ -173,7 +178,7 @@ class Judge:
         verdict = self._verdict(
             weighted_total=weighted_total,
             compliance_ok=comp_ok,
-            grounding_score=grounding.score,
+            grounding_score=g5,
             insight_ok=insight_ok,
             wittiness_ok=wittiness_ok,
             ending_ok=ending_ok,
@@ -211,7 +216,7 @@ class Judge:
             scores=dimensions,
             weighted_total=weighted_total,
             insight_score=ins,
-            grounding_score=grounding.score,
+            grounding_score=g5,
             template_fatigue=fresh.fatigue,
             force_shift=fresh.fatigue,
             forced_template_id=forced_template_id,
@@ -239,10 +244,10 @@ class Judge:
                 scores, s15, evidence, justif = {}, {}, {}, {}
                 for name in self._SUBJECTIVE:
                     d = data.get(name) or {}
-                    # score_1_5 -> 0-10 is COARSE: {1:0, 2:2.5, 3:5, 4:7.5, 5:10}. A floor above 7.5
-                    # is only clearable by a perfect 5, so keep any dim floor <= 7.5 (a genuine 4 = 7.5).
+                    # The LLM's 1-5 integer IS the score on our 0-5 scale (no conversion). Floors are
+                    # 1-5 too, so e.g. insight_min=3.5 means "a genuine 4 clears it, a 3 does not".
                     n = max(1, min(5, int(d.get("score_1_5", 3))))
-                    scores[name] = round((n - 1) * 2.5, 2)
+                    scores[name] = float(n)
                     s15[name] = n
                     evidence[name] = d.get("evidence")
                     justif[name] = d.get("justification", "LLM-scored")
@@ -253,10 +258,11 @@ class Judge:
         # deterministic / fallback heuristics
         return (
             {
-                "actionability": heuristic_actionability(script),
-                "insight": heuristic_insight(script),
-                "engagement": heuristic_engagement(script),
-                "wittiness": heuristic_wittiness(script),
+                # heuristics compute on 0-10; halve to the 0-5 rubric scale.
+                "actionability": round(heuristic_actionability(script) / 2, 2),
+                "insight": round(heuristic_insight(script) / 2, 2),
+                "engagement": round(heuristic_engagement(script) / 2, 2),
+                "wittiness": round(heuristic_wittiness(script) / 2, 2),
             },
             {},
             {},
@@ -305,7 +311,7 @@ class Judge:
             passed = score >= floor
         else:
             passed = True
-        fix = None if (passed and score >= 7.0) else self._fix_for(name, forced_template_id)
+        fix = None if (passed and score >= 3.5) else self._fix_for(name, forced_template_id)
         return DimensionScore(
             dimension=name,
             score_1_5=score_1_5,
@@ -314,7 +320,7 @@ class Judge:
             minimum=floor,
             passed=passed,
             evidence=evidence,
-            justification=justification or f"{name} scored {round(score, 2)}/10.",
+            justification=justification or f"{name} scored {round(score, 2)}/5.",
             fix_suggestion=fix,
         )
 
@@ -326,7 +332,7 @@ class Judge:
             "grounding": "Tie every number to a DataBrief fact_ref; remove invented stats.",
             "insight": "Add a non-obvious, data-backed reframing; cut clichés.",
             "engagement": "Hook harder and hold it: open a curiosity loop, raise the stakes, vary the pace, talk TO the viewer.",
-            "wittiness": "Add personality: a vivid analogy, a playful aside, or a well-timed joke (never bend a fact for it).",
+            "wittiness": "Dial up the VOICE, don't bolt on filler jokes: rewrite 2-3 flat lines with a comedic device — a vivid analogy, a silly exaggerated example (e.g. 'less processing power than a 2005 toaster'), a rule-of-three with a sharp third turn, a callback to an earlier line, or naming the obvious elephant in the room. A genuinely funny voice all the way through beats one forced quip; keep every number exact.",
             "ending": "End the last scene with BOTH a like/subscribe nudge AND a warm sign-off (e.g. 'subscribe for more data-backed moves', then 'see you in the next one'), on top of a witty payoff line.",
             "hook": "Open with a specific number or claim in the first ~10 seconds.",
             "freshness": f"Switch structure to {forced_template_id or 'a different template'}; vary the hook.",
@@ -372,7 +378,7 @@ class Judge:
         (justification + the evidence it flagged) for every dimension that fell short, so the
         rewrite targets the *actual* problems instead of generic advice."""
         lines: list[str] = []
-        strengths = [d.dimension for d in dimensions if d.passed and d.score >= 7.0]
+        strengths = [d.dimension for d in dimensions if d.passed and d.score >= 3.5]
         if strengths:
             lines.append(
                 "- KEEP INTACT (already strong — edit around these, do NOT let them regress): "
@@ -388,13 +394,13 @@ class Judge:
                 "noticeably different hook."
             )
         for d in dimensions:
-            if d.passed and d.score >= 7.0:  # only critique what needs work
+            if d.passed and d.score >= 3.5:  # only critique what needs work
                 continue
             flag = " (BELOW REQUIRED FLOOR)" if d.minimum is not None and d.score < d.minimum else ""
             why = (d.justification or "").strip()
             quote = f' Reviewer flagged: "{d.evidence.strip()}".' if d.evidence else ""
             fix = f" → {d.fix_suggestion}" if d.fix_suggestion else ""
-            lines.append(f"- {d.dimension.upper()} {d.score:.1f}/10{flag}: {why}{quote}{fix}")
+            lines.append(f"- {d.dimension.upper()} {d.score:.1f}/5{flag}: {why}{quote}{fix}")
         return "\n".join(lines)
 
     @staticmethod
@@ -403,6 +409,6 @@ class Judge:
     ) -> str:
         if verdict == Verdict.PASS:
             relaxed = " · gates relaxed for a high-scoring draft" if gates_relaxed else ""
-            return f"Approved for production (weighted {weighted_total}/10{relaxed})."
+            return f"Approved for production (weighted {weighted_total}/5{relaxed})."
         tail = " Template fatigue forced a structural shift." if fatigue else ""
-        return f"Verdict {verdict.value} at {weighted_total}/10.{tail}"
+        return f"Verdict {verdict.value} at {weighted_total}/5.{tail}"

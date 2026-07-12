@@ -52,7 +52,7 @@ def test_budget_cap_can_be_disabled(monkeypatch, repo, sample_signals, fakes):
 
 
 def test_fail_fast_aborts_revision_loop(monkeypatch, repo, sample_signals, fakes, generic_payload):
-    settings = _settings(monkeypatch, FAIL_FAST_SCORE="9.9", MAX_REVISIONS="3")
+    settings = _settings(monkeypatch, FAIL_FAST_SCORE="4.95", MAX_REVISIONS="3")
     llm = fakes.LLM(script_json=generic_payload, judge_json=_LOW_JUDGE)
     orch = Orchestrator(
         settings, repository=repo, notifier=NullNotifier(), llm_provider=llm,

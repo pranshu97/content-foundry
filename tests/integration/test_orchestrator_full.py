@@ -90,6 +90,52 @@ def test_require_script_approval_pauses_then_resumes(monkeypatch, sample_signals
     assert resumed.final_state == RunState.PUBLISHED
 
 
+def test_augment_brief_prepends_research_facts(data_brief, fakes):
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.models import ResearchBrief, ResearchPoint
+
+    reset_settings_cache()
+    orch = Orchestrator(get_settings(), notifier=NullNotifier(), llm_provider=fakes.LLM())
+    research = ResearchBrief(run_id="R", idea="x", points=[
+        ResearchPoint(point="Referrals help 10-15x", evidence="10-15x", source_url="https://x/1")])
+    merged = orch._augment_brief(data_brief, research)
+    # research facts are PREPENDED (rank first) so the script grounds the idea, not the raw feed
+    assert merged.key_facts[0].statement == "Referrals help 10-15x"
+    assert len(merged.key_facts) == len(data_brief.key_facts) + 1
+    assert orch._augment_brief(data_brief, None) is data_brief  # no research -> unchanged
+
+
+def test_resume_reuses_saved_idea_and_research(monkeypatch, data_brief, fakes):
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.models import IdeaSelection, ResearchBrief, ResearchPoint
+    from content_foundry.pipeline.artifacts import ensure_run_dirs, run_paths, save_model
+
+    monkeypatch.setenv("RESEARCH_ENABLED", "true")
+    reset_settings_cache()
+    settings = get_settings()
+    orch = Orchestrator(settings, notifier=NullNotifier(), llm_provider=fakes.LLM())
+    paths = run_paths("7777", settings.output_dir)
+    ensure_run_dirs(paths)
+    # A prior run already chose an idea and researched it.
+    save_model(
+        IdeaSelection(run_id="7777", chosen="Interview prep in 30 days", source="custom"),
+        paths.ideas,
+    )
+    save_model(
+        ResearchBrief(run_id="7777", idea="Interview prep in 30 days",
+                      points=[ResearchPoint(point="Referrals 10-15x", source_url="https://x/1")]),
+        paths.research,
+    )
+    # Resuming generate reuses the saved pick (no re-brainstorm) and the saved research (no LLM call).
+    idea = orch._resolve_idea("7777", paths, data_brief, "a different seed", [])
+    assert idea == "Interview prep in 30 days"
+    research = orch._run_research("7777", paths, data_brief, idea)
+    assert research is not None and research.points[0].point == "Referrals 10-15x"
+    # force bypasses the saved pick (brainstorm is off in tests, so it falls back to the raw seed).
+    assert orch._resolve_idea("7777", paths, data_brief, "seed", [], force=True) == "seed"
+
+
+
 def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
     from content_foundry.config import get_settings, reset_settings_cache
     from content_foundry.models import IdeaSelection

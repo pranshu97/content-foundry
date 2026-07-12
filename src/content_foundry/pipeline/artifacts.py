@@ -46,6 +46,11 @@ class RunPaths:
         """Sidecar recording the brainstormed ideas + the exact pick (not a pipeline stage)."""
         return self.root / "ideas.json"
 
+    @property
+    def research(self) -> Path:
+        """Sidecar research report from Agent 1.5 (not a pipeline stage)."""
+        return self.root / "research.json"
+
 
 def run_paths(run_id: str, output_dir: str) -> RunPaths:
     root = Path(output_dir) / run_id

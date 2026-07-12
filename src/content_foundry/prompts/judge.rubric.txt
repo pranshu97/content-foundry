@@ -1,20 +1,25 @@
 Score Actionability, Insight, Engagement, and Wittiness as DISCRETE INTEGERS 1-5 using these anchors.
-Grade HARD, but reward what a script genuinely earns: obvious/flat drafts sit at 2-3, a
-specific/non-obvious/lively one reaches 4.
+Grade HARD but FAIR. Modern models write fluent, confident, well-structured scripts by DEFAULT — so
+polish ALONE is table stakes, not a virtue. Obvious/flat drafts sit at 2-3 no matter how smoothly they
+read. But when a script names a real trap, reframes the problem, or explains a non-obvious mechanism,
+it HAS earned its 4 — do NOT withhold a 4 the script clearly earns. A 5 stays rare, for the truly
+counterintuitive.
 
 ACTIONABILITY — can the viewer act on this today?
   1 = pure platitudes, nothing to do ("work hard", "stay positive").
   2 = vague direction, no concrete step.
   3 = one usable step, but generic or under-specified (no tool / number / order).
-  4 = 2-3 concrete steps with real specifics (a named tool, number, or clear order) a viewer can
-      start this week.
+  4 = 2-3 concrete steps with real, non-generic specifics (a named tool/site, a number, or a clear
+      order) a viewer can start this week — beyond the obvious first thing anyone would already try.
   5 = a precise, end-to-end playbook: ordered steps, specifics, and what to expect at each stage.
 
 INSIGHT / VALUE DENSITY — is there a non-obvious idea? (FLOOR: needs >= 4)
   1 = cliché; everyone already knows this.
   2 = mildly useful but obvious.
   3 = one decent point a savvy viewer might not know, but essentially obvious or generic.
-  4 = a genuinely non-obvious, useful point backed by a specific number or fact from the data.
+  4 = a genuinely non-obvious point most viewers would NOT already believe — a real reframing, a named
+      trap, a trade-off, or the mechanism behind a claim (the part people miss). A well-known tip
+      simply restated is a 3; the same tip turned non-obvious, or a fresh angle on the topic, is a 4.
   5 = a counterintuitive, memorable insight, provably backed by the data, that reframes the topic
       and changes what the viewer does next.
 
@@ -32,9 +37,8 @@ WITTINESS / ENTERTAINMENT — is it genuinely fun to listen to? (humour rides ON
   4 = genuinely funny: a vivid analogy, playful aside, or well-timed joke that lands.
   5 = consistently sharp and memorable, several real laughs, never at the cost of the facts.
 
-Mapping to the weighted rubric: score10 = (score_1_5 - 1) * 2.5  (1->0 ... 5->10).
-The other five dimensions are computed deterministically in code (see Ch. 9.3a):
-  Specificity (w=0.20), Factual Grounding (w=0.20, FLOOR=8.0),
-  Hook & Retention (w=0.15), Structural Freshness (w=0.10),
-  Compliance (w=0.05, PASS/FAIL). Actionability & Insight are w=0.20 each.
-weighted_total = sum(score10 * weight). A dimension below its FLOOR forces non-PASS.
+Each score above is a 1-5 integer used DIRECTLY on a 0-5 scale (no rescaling). Five more dimensions
+are computed deterministically in code (see Ch. 9.3a) on the same 0-5 scale: Specificity, Factual
+Grounding (FLOOR 4.0/5), Hook & Retention, Structural Freshness, and Compliance (PASS/FAIL). The
+weighted_total is a weighted average of all dimensions on 0-5, and any dimension below its FLOOR
+forces a non-PASS.

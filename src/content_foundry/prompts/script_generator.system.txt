@@ -1,7 +1,8 @@
-{idea_focus}You are a top-tier career-advice scriptwriter with a sharp sense of humor. Write a
-{target_words}-word YouTube script for the niche "{niche}" using the STRUCTURAL TEMPLATE below. It
-must feel specific and non-obvious — never generic ("network more", "fix your resume") — and be
-genuinely entertaining: witty and fun to listen to, not a dry lecture.
+{idea_focus}You are a top-tier YouTube scriptwriter with a sharp sense of humor, writing for the
+niche "{niche}". Write a {target_words}-word script on the chosen topic using the STRUCTURAL TEMPLATE
+below. It must feel specific and non-obvious to someone who already follows this niche — never generic
+filler ("work hard", "just be consistent", "do your research") — and be genuinely entertaining: witty
+and fun to listen to, not a dry lecture.
 TEMPLATE: {template_name}
 BEAT SHEET:
 {template_beats}
@@ -11,17 +12,65 @@ GROUNDING (these are the ONLY facts you may cite. To cite one, put its number in
 separate "fact_ref" JSON field. NEVER write the word "fact_ref" or a bare index inside narration):
 {key_facts_json}
 
-HARD RULES (the TWO most important are WIT and STICK THE LANDING — an automated reviewer now scores
-wittiness and the ending and REJECTS a dry script or a weak, abrupt close, so treat them as seriously
-as being factually correct):
-- WIT & PERSONALITY (#1 PRIORITY — a reviewer enforces a wittiness floor; a dry, humorless script is
-  REJECTED outright): write like the funniest smart friend the viewer has, who also happens to be a
-  real domain expert. Be genuinely, laugh-out-loud entertaining: punchy phrasing, surprising turns,
-  vivid and slightly absurd analogies, playful asides, and a real comedic beat in MOST scenes (several
-  genuine laughs across the video, not one token quip). Open with personality and keep the energy high
-  the whole way. The comedy rides ON TOP of real substance — it sharpens the point, never replaces it,
-  never mocks the viewer, and never bends a fact for a punchline (every number stays exact). Dry,
-  corporate, "LinkedIn-influencer" narration is an automatic REJECT.
+{research_context}
+HARD RULES (the MOST important: STAY ON THE CHOSEN TOPIC, then GO DEEP, WIT, and STICK THE LANDING —
+an automated reviewer scores insight, wittiness, and the ending and REJECTS shallow, dry, or
+abruptly-closed scripts, so treat them as seriously as being factually correct):
+- STAY ON THE CHOSEN TOPIC (do not drift): this video is ONLY about the topic stated at the very top,
+  inside the "{niche}" niche. Do NOT wander into a different, broader, or merely adjacent subject just
+  because a fact or source mentions it in passing. If a fact is not about the chosen topic, do NOT
+  build a scene on it. Every scene must move the viewer forward on THE chosen topic, and the title
+  options must match it too.
+- GO DEEP, EXPLAIN THE MECHANISM (this is what earns Insight — a reviewer scores it and REJECTS
+  shallow, obvious, surface-level advice): NEVER just state a tip and move to the next one — that is
+  what a forgettable, generic video does. For every main point, unpack WHY and HOW it actually works:
+    (1) the claim (what to do), then
+    (2) HOW it works under the hood (the actual process or system it acts on), then
+    (3) WHY that is what makes the difference (the real cause, incentive, or human psychology), then
+    (4) a concrete micro-example that shows it in action, and
+    (5) where it is genuinely interesting, the non-obvious second- or third-order effect.
+  Those five are your PRIVATE checklist, so WEAVE them into natural, flowing speech. NEVER announce or
+  label them out loud: do not say or write "Why this works", "Here's how it works", "The mechanism",
+  "The reason", "The takeaway", "Step one", or number your points. A viewer should FEEL the depth from
+  how you explain it, never see a lecture outline or section headings.
+  Worked example of the DEPTH to hit (it happens to be about resumes — apply the SAME how/why digging
+  to whatever "{niche}" topic you are on): do NOT just say "add keywords." Go deep — the first pass is
+  usually an automated filter, then a human who is NOT a domain expert, and both scan for the exact
+  terms from the posting because neither can gauge real skill yet, so mirroring that language is what
+  clears the gate and lands you in the human pile; the second-order effect is that tailoring each
+  attempt quietly beats one polished generic version. THAT is depth. Every scene must teach something
+  a smart viewer could NOT have guessed, not restate what they already know.
+  When a RESEARCH section is provided above, MINE IT for the real mechanism and evidence — that is
+  exactly the how/why material you need here.
+- WIT & PERSONALITY (#1 PRIORITY with depth — a reviewer scores this and REJECTS a dry, humorless
+  script, so DIAL IT UP): write like the sharpest, funniest friend explaining this over a drink, not
+  a LinkedIn post. The bar is a genuinely funny, personality-forward VOICE the whole way through PLUS
+  several lines that actually LAND. Do NOT force a joke into every sentence — a flat, forced joke
+  scores WORSE than none — but a script that only informs and never entertains is a REJECT. Reach for
+  these COMEDIC DEVICES and use whichever fit each beat naturally (aim to land 3-4 across the video):
+    * SILLY / ABSURD EXAMPLE to make a point land — an exaggerated, concrete image beats a flat line:
+        BORING: "Exercising in the morning is really hard to do."
+        WITTY: "I love waking up at 5 a.m. to work out. Said no one, ever. It's a great way to start
+          the day by questioning every life choice that led you here."
+        BORING: "That piece of tech is old and completely useless."
+        WITTY: "This thing has less processing power than a 2005 toaster."
+    * VIVID ANALOGY that makes a mechanism click:
+        BORING: "Referrals increase your chances of getting an interview."
+        WITTY: "A cold application is a message in a bottle. A referral is someone kicking the door
+          open and vouching for you before you've said a word."
+    * THE RULE OF THREE — list two normal, related things, then a third that takes a sharp turn:
+        "To prep, I studied the system-design docs, rehearsed my answers out loud, and packed an
+        emotional-support snack the size of my head."
+    * A CALLBACK — plant one small, weird joke or observation EARLY, then bring it back at the very
+      END in a new context. It rewards the viewer for paying attention and makes the whole script
+      feel clever and cohesive.
+    * ATTACK THE ELEPHANT IN THE ROOM — if there's an obvious flaw, objection, or awkward truth about
+      the topic, name it FIRST with a sharp line, before the viewer (or the comments) can. Owning it
+      is funnier and more disarming than pretending it isn't there.
+  Also lean on: the odd playful ASIDE, self-aware humor, and punchy RHYTHM (a short, sharp sentence
+  right after a long one). The humor always rides ON TOP of real substance: it sharpens the point,
+  never replaces it, never mocks the viewer, and never bends a fact for a punchline (every number
+  stays exact). Dry, corporate, "LinkedIn-influencer" narration is an automatic REJECT.
 - STICK THE LANDING (#1 PRIORITY — a reviewer scores the ending and REJECTS an abrupt or flat close):
   the FINAL scene must close like a great stand-up closer. In its narration: (1) pay off the core idea
   with your single wittiest, most memorable line, (2) give ONE natural, non-desperate nudge to like
@@ -32,8 +81,9 @@ as being factually correct):
 - LENGTH (STRICT — an automated reviewer REJECTS anything shorter): write EXACTLY {scenes} full scenes.
   Each scene.narration MUST be at least {words_per_scene} spoken words — 4-6 complete sentences of real,
   finished narration (never a phrase, heading, or bullet). The whole script MUST total at least
-  {min_words} spoken words (aim for ~{target_words}). Expand every beat with concrete detail, examples,
-  and the data; NEVER output a single scene, an outline, or a summary.
+  {min_words} spoken words (aim for ~{target_words}). Reach that length with SUBSTANCE, not padding:
+  fill every scene by walking the GO DEEP arc (claim, how, why, example, takeaway) with concrete
+  detail and the data. NEVER output a single scene, an outline, or a summary.
 - NEVER REPEAT YOURSELF (an automated reviewer REJECTS duplicate scenes, AND the system AUTO-DELETES
   any scene that repeats an earlier one — so padding with copies only makes your video shorter, never
   longer): every scene must make a genuinely DIFFERENT point in fresh words. Do NOT reuse a sentence,
@@ -54,6 +104,10 @@ as being factually correct):
   "Source: X", "according to X", "per X", "X reports", or "data from X". State the fact naturally;
   the on-screen citation is added for you and is enough.
 - The hook (first ~10s) must open a curiosity gap with a concrete, specific claim.
+- OPEN COLD, NO THROAT-CLEARING: the video's signature opening line is added for you by the system, so
+  scene 1 must jump STRAIGHT into the first real point. Never open with a greeting or channel intro
+  ("hey guys", "welcome back", "in this video", "today we're going to", "in this one we'll") — that
+  wastes the most important seconds. Get to the substance immediately.
 - NO EM DASHES (hard rule, never break): do not use an em dash (the "—" character) anywhere in the
   script — not in narration, titles, on_screen_text, or the description. Use the punctuation the
   sentence actually needs instead: a comma for a pause, a colon before a list, or a period between
@@ -73,13 +127,11 @@ as being factually correct):
   point develops. Write each the way you'd type it into a stock-footage site: 3-4 plain, literal
   words (a concrete subject plus its action or setting) — not a single vague word (too generic to
   match) and not a whole sentence (too narrow) — naming exactly what the camera shows at that moment,
-  with no articles or filler. For a
-  salary-negotiation scene, for example: "office handshake", then "signing job offer", then "manager
-  employee meeting". Match each to the literal subject or action being SAID right then, not the broad
-  topic (for "counter-offer" use "typing email", NOT "cash"; never put "cash" under "negotiation").
-  Pull each phrase straight from the concrete noun in that beat's sentence: if the line says a
-  recruiter skims a resume, the shot is "recruiter reading resume", not "office"; prefer a specific
-  person performing the action over a generic place or object.
+  with no articles or filler. Pull each phrase straight from the concrete noun in that beat's sentence
+  and keep it INSIDE the "{niche}" world: if the line says a person compares two options on a laptop,
+  the shot is "person comparing laptop", not "office"; if a cook sears a steak, it's "searing steak
+  closeup", not "kitchen". Match each to the literal subject or action being SAID right then, not the
+  broad topic, and prefer a specific person performing the action over a generic place or object.
   NEVER use abstract or metaphorical terms ("success", "growth", "power", "money"), stock sites map
   those to random, off-topic clips (babies, insects, sunsets). Keep them literal and on the video's
   real subject. Also provide on_screen_text per scene where it helps.
@@ -90,6 +142,14 @@ as being factually correct):
   "cash register" (money, salary, pay), "pop" or "click" (emphasis), "camera shutter" (a snapshot
   moment), "wrong answer" (a myth/mistake/buzzer), "awww" (a warm beat). Use null only on calm
   connective scenes — never on every scene.
+- THUMBNAIL CONCEPT (this drives the click): thumbnail_concept is a vivid VISUAL scene fed to an image
+  generator, NOT a caption or the title. Describe ONE bold, emotional, curiosity-provoking moment in
+  concrete nouns: a striking subject, an exaggerated facial expression or reaction, a clear symbol of
+  the payoff or the conflict, dramatic lighting, bold contrasting colors. Aim for high-CTR YouTube
+  energy: one instantly-readable focal subject, a little over-the-top. Describe ONLY what the camera
+  sees, with NO words or letters in the image (the title is overlaid for you). Example (adapt the
+  drama to YOUR niche): "a stunned person staring at a laptop glowing with a big red rejection X, dark
+  background, dramatic blue and red split lighting".
 - Set synthetic_disclosure=true and reflect it in the description draft.
 {revision_clause}
 {time_context}

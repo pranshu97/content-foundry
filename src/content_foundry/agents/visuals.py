@@ -14,7 +14,9 @@ from ..production.captions import write_srt
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
 _MIN_SHOT_SEC = 2.0  # each B-roll beat runs at least this long, to avoid choppiness
-_MAX_SHOTS_PER_SCENE = 3
+# More, shorter beats per scene: slicing a long scene into ~6 clips (not 3 long ones) stops any single
+# clip lingering or looping on screen — the fix for visible back-to-back B-roll repetition.
+_MAX_SHOTS_PER_SCENE = 6
 
 
 def build_image_prompt(
@@ -28,6 +30,20 @@ def build_image_prompt(
     )
 
 
+def _thumbnail_prompt(concept: str) -> str:
+    """Turn the script's thumbnail concept into a punchy, high-CTR YouTube-thumbnail image prompt for a
+    text-to-image model: one bold subject, exaggerated emotion, dramatic lighting, saturated
+    contrasting colors, clean space for the overlaid title, and NO baked-in text (we add the title)."""
+    concept = (concept or "a shocked person reacting to a glowing screen").strip().rstrip(".")
+    return (
+        f"Ultra eye-catching YouTube thumbnail, 16:9, cinematic. Bold central focus: {concept}. "
+        "Exaggerated emotion and energy, dramatic rim lighting, punchy saturated contrasting colors, "
+        "high contrast, crisp depth of field, glossy professional photo-real render, subtle vignette. "
+        "Keep one side as a clean simple background for a big title overlay. "
+        "No text, no words, no letters, no watermark, no logos, no real or famous people."
+    )
+
+
 def _broll_source(url: str) -> str:
     """Label a clip by the stock library its URL came from (metadata only)."""
     u = (url or "").lower()
@@ -35,25 +51,48 @@ def _broll_source(url: str) -> str:
         return "pixabay"
     if "pexels" in u:
         return "pexels"
+    if "coverr" in u:
+        return "coverr"
     return "stock"
 
 
 # Stock-video engines match short keyword queries far better than long sentences, so trim each beat
 # to its salient words before searching (the full description is kept on the shot for provenance).
 _QUERY_STOPWORDS = frozenset({
+    # articles / conjunctions / prepositions
     "a", "an", "the", "of", "and", "or", "with", "at", "in", "on", "to", "for", "as", "by",
-    "across", "over", "into", "from", "two", "three", "some", "their", "his", "her", "that",
-    "this", "being", "is", "are",
+    "across", "over", "into", "from", "about", "after", "before", "while", "because", "if",
+    "but", "yet", "than", "then",
+    # pronouns / determiners
+    "this", "that", "these", "those", "their", "his", "her", "its", "your", "yours", "our",
+    "my", "mine", "we", "us", "you", "they", "them", "it", "he", "she", "him", "who", "whose",
+    "which",
+    # quantifiers / numbers
+    "two", "three", "four", "five", "some", "many", "much", "more", "most", "each", "every",
+    "any", "all", "both", "few", "one",
+    # be / auxiliary / modal
+    "is", "are", "am", "was", "were", "be", "being", "been", "do", "does", "did", "has",
+    "have", "had", "can", "will", "would", "should", "could", "may", "might", "must",
+    # question words / filler adverbs
+    "what", "when", "where", "why", "how", "so", "just", "very", "really", "too", "also",
+    "not", "no", "there", "here",
 })
 
 
 def _search_terms(beat: str, *, min_words: int = 2, max_words: int = 4) -> str:
-    """Reduce a beat description to a short, stock-searchable query — balanced: drop articles/filler
-    and cap at ``max_words`` (over-long queries return nothing), but if stripping leaves it too thin
-    (a lone generic word) keep the raw wording so the query stays specific enough to match."""
+    """Reduce a beat description to a short, PRECISE, stock-searchable query. Drop articles, pronouns,
+    auxiliaries, and filler so only the concrete subject/action words remain, then cap at
+    ``max_words`` (over-long queries return nothing). If stripping leaves too few words, keep a SHORT
+    raw beat whole for context, but for a LONG beat use the content words (never a run of leading
+    filler like "how to get a")."""
     raw = [w for w in re.split(r"[^a-z0-9]+", (beat or "").lower()) if w]
     kept = [w for w in raw if w not in _QUERY_STOPWORDS]
-    words = kept if len(kept) >= min_words else raw
+    if len(kept) >= min_words:
+        words = kept
+    elif len(raw) <= max_words:
+        words = raw  # short beat -> keep it whole so a lone content word still has context
+    else:
+        words = kept or raw  # long beat stripped thin -> the content word(s), not leading filler
     return " ".join(words[:max_words]) or (beat or "").strip()
 
 
@@ -62,7 +101,7 @@ class _BrollPicker:
     cross-video variety with a per-run seed, prefers unused clips, never repeats a clip in
     consecutive scenes, and caps reuse at ``max_uses`` per video."""
 
-    _TOP_K = 4  # choose among the few most-relevant eligible clips (variety without going off-topic)
+    _TOP_K = 8  # sample among the most-relevant eligible clips (a wider window = much more variety)
 
     def __init__(self, rng: random.Random, *, max_uses: int = 2) -> None:
         self._rng = rng
@@ -74,10 +113,13 @@ class _BrollPicker:
         pool = [u for u in dict.fromkeys(candidates) if u]  # de-dup, keep relevance order
         if not pool:
             return None
+        # Two tiers only: prefer a never-used clip, else an under-cap clip that ISN'T the one we just
+        # showed. We deliberately DROP the old "any under-cap clip" last resort — if the only
+        # candidates left are the previous clip, return None and let the beat fall back rather than
+        # repeat a clip back-to-back (the consecutive reuse the viewer flagged).
         tiers = (
             lambda u: self._used.get(u, 0) == 0,  # fresh (never == prev, since prev was used)
-            lambda u: self._used.get(u, 0) < self._max and u != self._prev,  # reuse, not back-to-back
-            lambda u: self._used.get(u, 0) < self._max,  # last resort
+            lambda u: self._used.get(u, 0) < self._max and u != self._prev,  # under cap, not back-to-back
         )
         for eligible in tiers:
             tier = [u for u in pool if eligible(u)]
@@ -201,7 +243,10 @@ class Visuals:
         rel = f"assets/scenes/scene_{scene.index}.png"
         target = run_root / rel
         if self._image is not None:
-            data = self._image.generate(prompt, size=self._settings.thumbnail_size)
+            # Scene backgrounds fill the video frame, so generate at the VIDEO resolution (not the
+            # smaller thumbnail size) — otherwise every scene image is upscaled from 720p and looks
+            # soft. The card fallback below already renders at the full video resolution.
+            data = self._image.generate(prompt, size=self._settings.video_resolution)
             target.write_bytes(data)
             source = getattr(self._image, "name", self._settings.image_provider)
         else:
@@ -223,26 +268,38 @@ class Visuals:
         size = self._settings.thumbnail_wh
         base: bytes | None = None
         if self._image is not None:
-            prompt = (
-                f"{self._settings.visual_style}; {concept}; bold thumbnail; "
-                "high contrast; no logos, no real people"
-            )
-            base = self._image.generate(prompt, size=self._settings.thumbnail_size)
-        _write_card(text, size, target, base_png=base)
+            try:
+                base = self._image.generate(
+                    _thumbnail_prompt(concept), size=self._settings.thumbnail_size
+                )
+            except Exception as exc:  # a thumbnail image failure must never crash the run
+                self._log.warning("thumbnail_image_failed", error=str(exc))
+        _write_card(text, size, target, base_png=base, punchy=True)
 
 
 # --------------------------------------------------------------------- Pillow
-def _write_card(text: str, size_wh: tuple[int, int], target: Path, base_png: bytes | None = None):
-    """Render a clean title card: gradient (or darkened image) + accent bar + big shadowed text."""
+def _write_card(
+    text: str, size_wh: tuple[int, int], target: Path, base_png: bytes | None = None,
+    *, punchy: bool = False,
+):
+    """Render a title card. ``punchy`` = a high-CTR YouTube-thumbnail overlay (bold UPPERCASE, a dark
+    bottom scrim, a drop shadow + heavy outline, and numbers/the key word highlighted); otherwise a
+    clean caption card (accent bar + centered shadowed text) used for scene fallbacks."""
     from PIL import Image, ImageDraw
 
     target.parent.mkdir(parents=True, exist_ok=True)
     width, height = size_wh
     if base_png:
         img = Image.open(BytesIO(base_png)).convert("RGB").resize(size_wh)
-        img = Image.blend(img, Image.new("RGB", size_wh, (8, 11, 20)), 0.5)  # darken for legibility
+        darken = 0.12 if punchy else 0.28  # keep a punchy thumb vivid; its scrim handles legibility
+        img = Image.blend(img, Image.new("RGB", size_wh, (8, 11, 20)), darken)
     else:
         img = _gradient_bg(size_wh)
+
+    if punchy:
+        _draw_punchy_title(img, text or "", size_wh)
+        img.save(target, format="PNG")
+        return
 
     draw = ImageDraw.Draw(img)
     margin = int(width * 0.08)
@@ -256,13 +313,92 @@ def _write_card(text: str, size_wh: tuple[int, int], target: Path, base_png: byt
     y0 = max(margin, (height - block_h) // 2)
     x_text = margin + bar_w + gap
 
+    stroke = max(3, int(height * 0.008))  # heavy black outline so the title pops on a vivid image
     draw.rectangle([margin, y0, margin + bar_w, y0 + block_h], fill=(56, 189, 248))  # accent bar
     y = y0
     for line in lines:
-        draw.text((x_text + 3, y + 3), line, font=font, fill=(0, 0, 0))  # shadow
-        draw.text((x_text, y), line, font=font, fill=(244, 246, 252))  # text
+        draw.text(
+            (x_text, y), line, font=font, fill=(255, 255, 255),
+            stroke_width=stroke, stroke_fill=(0, 0, 0),
+        )
         y += line_h
     img.save(target, format="PNG")
+
+
+_THUMB_ACCENT = (253, 224, 71)  # bright yellow — the number / power-word highlight
+
+
+def _draw_punchy_title(img, text: str, size_wh: tuple[int, int]) -> None:
+    """High-CTR thumbnail text: big bold UPPERCASE, bottom-anchored over a dark scrim, a drop shadow
+    + heavy outline, and the numbers (or the single strongest word) in a punchy accent color."""
+    from PIL import ImageDraw
+
+    width, height = size_wh
+    draw = ImageDraw.Draw(img, "RGBA")
+    title = " ".join((text or "").upper().split()) or "WATCH THIS"
+    margin = int(width * 0.06)
+    box_w = width - 2 * margin
+
+    # Auto-fit: shrink the bold face until the title fits in <= 3 lines within the box and ~60% height.
+    size = int(height * 0.11)
+    floor = int(height * 0.05)
+    font = _load_display_font(size)
+    lines = _wrap_to_width(draw, title, font, box_w, max_lines=4)
+    while size > floor:
+        font = _load_display_font(size)
+        lines = _wrap_to_width(draw, title, font, box_w, max_lines=4)
+        lh = _line_height(draw, font)
+        if (len(lines) <= 3 and lh * len(lines) <= int(height * 0.6)
+                and all(draw.textlength(ln, font=font) <= box_w for ln in lines)):
+            break
+        size -= 4
+    lines = _wrap_to_width(draw, title, font, box_w, max_lines=3)
+    lh = _line_height(draw, font)
+    block_h = lh * len(lines)
+    y = height - int(height * 0.07) - block_h  # sit the block near the bottom
+
+    # Dark bottom scrim so the text reads over any image.
+    scrim_top = max(0, y - int(height * 0.05))
+    for yy in range(scrim_top, height):
+        a = int(215 * (yy - scrim_top) / max(1, height - scrim_top))
+        draw.line([(0, yy), (width, yy)], fill=(0, 0, 0, a))
+
+    # Highlight words with a digit; if none, the single longest word (usually the key noun).
+    tokens = title.split()
+    has_num = any(any(c.isdigit() for c in w) for w in tokens)
+    longest = max(tokens, key=len) if tokens else ""
+
+    def _hot(word: str) -> bool:
+        return any(c.isdigit() for c in word) if has_num else word == longest
+
+    stroke = max(4, int(size * 0.10))
+    shadow = max(3, int(size * 0.06))
+    for line in lines:
+        x = margin
+        for word in line.split(" "):
+            token = word + " "
+            color = _THUMB_ACCENT if _hot(word) else (255, 255, 255)
+            draw.text((x + shadow, y + shadow), token, font=font, fill=(0, 0, 0, 190))  # drop shadow
+            draw.text(
+                (x, y), token, font=font, fill=color, stroke_width=stroke, stroke_fill=(0, 0, 0)
+            )
+            x += draw.textlength(token, font=font)
+        y += lh
+
+
+def _load_display_font(size: int):
+    """A heavy display face for thumbnails (Impact / Arial Black / a bold fallback)."""
+    from PIL import ImageFont
+
+    for path in (
+        "C:/Windows/Fonts/impact.ttf", "C:/Windows/Fonts/ariblk.ttf",
+        "C:/Windows/Fonts/arialbd.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return _load_font(size)
 
 
 def _gradient_bg(size_wh: tuple[int, int]):

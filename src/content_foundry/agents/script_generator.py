@@ -7,7 +7,7 @@ import re
 
 from ..errors import LLMError, SchemaValidationError
 from ..logging import get_logger
-from ..models import DataBrief, Provenance, SceneCue, Script
+from ..models import DataBrief, Provenance, ResearchBrief, SceneCue, Script
 from ..production.timebox import build_time_context
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
@@ -15,22 +15,22 @@ from ..providers.tiering import TaskTier, select_model
 from ..safeguards.disclosure import ensure_description_discloses
 from ..safeguards.grounding import STAT_RE, ungrounded_scene_indices
 from ..templates import Template
-from .judge_checks import dedupe_scene_indices
+from .judge_checks import dedupe_scene_indices, ending_parts_present
 
 SCRIPT_JSON_SHAPE = """{
   "title_options": ["...", "..."],
   "hook": "first ~10s, specific, opens a curiosity gap",
   "scenes": [
-    {"index": 0, "narration": "3-6 full spoken sentences", "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["developer typing code", "team standup meeting", "code on monitor"], "fact_ref": 0, "sfx": "whoosh"},
+    {"index": 0, "narration": "3-6 spoken sentences taking ONE point deep as natural speech: what to do, then the how and the why and a concrete, witty example woven together, with NO section labels or headings", "on_screen_text": "short on-screen caption",
+     "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh"},
     {"index": 1, "narration": "FINAL scene: 3-6 spoken sentences that pay off the idea with your wittiest line, then one natural like/subscribe nudge, then a warm 'see you in the next one' sign-off",
      "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["recruiter reading resume", "job interview handshake"], "fact_ref": 1, "sfx": "pop"}
+     "b_roll_keywords": ["subject reacting with emotion", "two people celebrating together"], "fact_ref": 1, "sfx": "pop"}
   ],
   "cta": "call to action",
   "description": "YouTube description draft (must mention synthetic content)",
   "tags": ["tag1", "tag2"],
-  "thumbnail_concept": "visual idea + overlay text",
+  "thumbnail_concept": "ONE bold, emotional, curiosity-driving SCENE for an image generator: concrete subject + exaggerated expression + dramatic lighting + bold contrasting colors; only what the camera sees, NO words in the image",
   "word_count": 0,
   "grounded_fact_refs": [0],
   "synthetic_disclosure": true
@@ -63,6 +63,10 @@ def _script_to_prompt_json(script: Script) -> dict:
     }
 
 
+_ENDING_FALLBACK_CTA = "If this helped, subscribe so the next one finds you."
+_ENDING_FALLBACK_SIGNOFF = "See you in the next one."
+
+
 class ScriptGenerator:
     def __init__(self, settings, llm_provider: LLMProvider):
         self._settings = settings
@@ -80,9 +84,10 @@ class ScriptGenerator:
         attempt_number: int = 1,
         idea: str = "",
         previous_script: Script | None = None,
+        research: ResearchBrief | None = None,
     ) -> Script:
         system = self._build_prompt(
-            brief, template, perspective_modifier, judge_feedback, idea, previous_script
+            brief, template, perspective_modifier, judge_feedback, idea, previous_script, research
         )
         text = self._complete(system)
         parsed = self._parse_json(system, text)
@@ -90,6 +95,8 @@ class ScriptGenerator:
         script = self._dedupe_scenes(script)
         script = self._repair_grounding(script, brief)
         script = self._ensure_min_length(system, script, brief, run_id, template.id)
+        script = self._prepend_intro(script)
+        script = self._ensure_ending(script)
         script = self._stamp_sources(script, brief)
         script = self._design_sound(script)
         return script
@@ -103,6 +110,7 @@ class ScriptGenerator:
         judge_feedback: str | None,
         idea: str = "",
         previous_script: Script | None = None,
+        research: ResearchBrief | None = None,
     ) -> str:
         beats = "\n".join(f"{i + 1}) {b}" for i, b in enumerate(template.beats))
         facts = [
@@ -147,6 +155,7 @@ class ScriptGenerator:
             key_facts_json=json.dumps(facts, ensure_ascii=False),
             revision_clause=revision,
             time_context=time_context,
+            research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
         )
 
@@ -161,13 +170,16 @@ class ScriptGenerator:
                 _script_to_prompt_json(previous_script), ensure_ascii=False, indent=2
             )
             return (
-                "REVISION — do NOT start from scratch. A reviewer scored your PREVIOUS DRAFT (below)\n"
-                "and it did not pass. EDIT that exact draft: change ONLY what the fix-list requires,\n"
-                "and keep everything else — the hook, every already-good scene, and ESPECIALLY the\n"
-                "final scene's like/subscribe nudge + sign-off — WORD FOR WORD. Return the COMPLETE\n"
-                "edited script (every scene, in order).\n\n"
+                "REVISION — do NOT start over. Below is YOUR PREVIOUS DRAFT; a reviewer scored it and\n"
+                "it did not pass. Work FROM this draft, not a blank page.\n\n"
                 f"PREVIOUS DRAFT:\n{draft}\n\n"
-                "FIX-LIST — address every point below without regressing anything already good:\n"
+                "Now improve THAT draft: keep every scene, the hook, and ESPECIALLY the final scene's\n"
+                "like/subscribe nudge + sign-off that already work, and change ONLY what the fix-list\n"
+                "calls out. If the fix-list says the script is too short or to EXPAND, KEEP all existing\n"
+                "scenes and ADD new distinct scenes plus more depth to each — never delete or shorten;\n"
+                "the revised script must come back LONGER, not shorter. Return the COMPLETE revised\n"
+                "script (all scenes, in order).\n\n"
+                "FIX-LIST — address every point, without regressing anything already good:\n"
                 f"{judge_feedback}"
             )
         return (
@@ -175,6 +187,27 @@ class ScriptGenerator:
             "worked and fix EVERY point below without regressing anything good (each line: a\n"
             f"dimension, its score, the reviewer's reasoning, and the fix):\n{judge_feedback}"
         )
+
+    @staticmethod
+    def _research_context(research: ResearchBrief | None) -> str:
+        """Render the Researcher's depth report into a prompt section the generator mines for the
+        HOW/WHY mechanism. It is background understanding, NOT a source of citable numbers — numbers
+        the script SAYS still come from the GROUNDING facts (with a fact_ref), so grounding holds."""
+        if not research or not research.points:
+            return ""
+        lines = [
+            "RESEARCH (source-backed depth on THIS topic — build the video AROUND these findings and use",
+            "them to EXPLAIN the mechanism, the HOW and WHY, in your own words. Their key numbers are also",
+            "in your GROUNDING facts above, so when you state one, cite it with that fact's fact_ref):",
+        ]
+        for i, point in enumerate(research.points, 1):
+            bit = f"{i}. {point.point}"
+            if point.explanation:
+                bit += f" | WHY/HOW: {point.explanation}"
+            if point.evidence:
+                bit += f" | e.g. {point.evidence}"
+            lines.append(bit)
+        return "\n".join(lines) + "\n"
 
     # ------------------------------------------------------------------ llm I/O
     def _complete(self, system: str) -> str:
@@ -337,6 +370,45 @@ class ScriptGenerator:
         script.word_count = _word_count(script)
         return script
 
+    def _prepend_intro(self, script: Script) -> Script:
+        """Fixed channel intro (Ch. 8): every video opens with the same signature line, prepended to
+        the first scene so it is the FIRST thing spoken. Guaranteed in code, topic-agnostic, and
+        idempotent (never doubled on a revision that embedded an already-introed draft). A no-op when
+        disabled or the tagline is blank."""
+        if not self._settings.intro_enabled or not script.scenes:
+            return script
+        tagline = _replace_em_dashes((self._settings.intro_tagline or "").strip())
+        if not tagline:
+            return script
+        first = script.scenes[0]
+        body = first.narration.lstrip()
+        if re.sub(r"\s+", " ", body.lower()).startswith(re.sub(r"\s+", " ", tagline.lower())):
+            return script  # this draft already opens with the signature line
+        first.narration = f"{tagline} {body}".strip()
+        script.word_count = _word_count(script)
+        return script
+
+    def _ensure_ending(self, script: Script) -> Script:
+        """HARD GUARANTEE (Ch. 8): the last scene must close with BOTH a like/subscribe nudge AND a
+        warm sign-off (the reviewer's ending floor). The prompt asks for it, but the model keeps
+        dropping it on revisions, so if either is missing we append it here — the same 'don't rely on
+        the model' pattern as source-stamping. A no-op when the model already closed properly."""
+        if not script.scenes:
+            return script
+        has_cta, has_signoff = ending_parts_present(script)
+        if has_cta and has_signoff:
+            return script
+        parts = []
+        if not has_cta:
+            parts.append(_ENDING_FALLBACK_CTA)
+        if not has_signoff:
+            parts.append(_ENDING_FALLBACK_SIGNOFF)
+        last = script.scenes[-1]
+        last.narration = (last.narration.rstrip() + " " + " ".join(parts)).strip()
+        script.word_count = _word_count(script)
+        self._log.info("ending_ensured", added_cta=not has_cta, added_signoff=not has_signoff)
+        return script
+
     def _stamp_sources(self, script: Script, brief: DataBrief) -> Script:
         """HARD RULE (Ch. 8.6): a statistic is never shown without its exact source. Every scene
         whose narration still cites a (grounded) stat gets its source surfaced in on_screen_text —
@@ -487,6 +559,21 @@ _META_BARE_RE = re.compile(
     r"\s*\b(?:fact_ref|factref|on_screen_text|b_roll_keywords)\b\s*[:#=]?\s*\d*", re.IGNORECASE
 )
 
+# Textbook-style section LABELS a model sometimes announces out loud ("Why this works:", "The
+# mechanism:", "Step 1:") when told to explain the how/why. They make narration sound like a read-out
+# outline, so we drop the label lead-in and keep the sentence after it. Bounded to a label at the
+# START of a sentence AND punctuated like a heading (a colon/period + a following word), so ordinary
+# prose ("that's exactly why this works so well") is never touched. The prompt asks for natural
+# phrasing; this backstops it.
+_LABEL_LEADIN_RE = re.compile(
+    r"(?im)(?:^|(?<=[.!?]\s))"
+    r"(?:here(?:'|\u2019)?s\s+)?"
+    r"(?:(?:why|how)\s+(?:this|it|that)\s+works"
+    r"|the\s+(?:mechanism|reason|trick|catch|takeaway|payoff|key|point)(?:\s+(?:here|is))?"
+    r"|step\s+(?:one|two|three|four|five|\d+))"
+    r"\s*[:.]\s+([A-Za-z])"
+)
+
 # Company voice is a legal risk: the model must never speak AS a named company ("At Expedia Group we
 # ..."). We rewrite first-person-plural that asserts affiliation with a proper-noun company to the
 # third person. Bounded to the "at/with/here at <Company> ... we/our" shape so ordinary advice
@@ -550,6 +637,7 @@ def _clean_narration(text: str) -> str:
         return text
     cleaned = _META_BRACKET_RE.sub("", text)
     cleaned = _META_BARE_RE.sub("", cleaned)
+    cleaned = _LABEL_LEADIN_RE.sub(lambda m: m.group(1).upper(), cleaned)
     cleaned = _neutralize_company_voice(cleaned)
     cleaned = _replace_em_dashes(cleaned)
     cleaned = re.sub(r"\s+([.,!?;:])", r"\1", cleaned)  # tidy any space left before punctuation

@@ -35,6 +35,7 @@ _BASE_ENV = {
     "TTS_PROVIDER": "elevenlabs",
     "ELEVENLABS_API_KEY": "test-eleven",
     "IMAGE_PROVIDER": "none",
+    "IMAGE_FALLBACK_PROVIDER": "none",
     "PEXELS_API_KEY": "",
     "RENDER_BACKEND": "ffmpeg",
     "PUBLISH_MODE": "draft",
@@ -48,8 +49,14 @@ _BASE_ENV = {
     "SCRIPT_TARGET_WORDS": "40",
     # Off by default in tests so the fake LLM's call sequence stays deterministic; enabled per-test.
     "BRAINSTORM_ENABLED": "false",
+    # Off by default so the Researcher's LLM/web calls don't perturb the fake call sequence.
+    "RESEARCH_ENABLED": "false",
+    # Off so the visuals stage's B-roll director doesn't add an LLM call to the fake call sequence.
+    "BROLL_DIRECTOR_ENABLED": "false",
     # Off by default so the fake (non-mp3) TTS output isn't fed to the pydub mixer; enabled per-test.
     "SFX_ENABLED": "false",
+    # Off so the deterministic canned scripts keep their exact narration; the fixed intro is tested on its own.
+    "INTRO_ENABLED": "false",
     "LOG_LEVEL": "ERROR",
     "LOG_FORMAT": "console",
 }

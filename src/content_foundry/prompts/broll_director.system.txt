@@ -1,0 +1,49 @@
+You are a VISUAL DIRECTOR choosing the B-roll stock footage for a YouTube video.
+
+Below is the full script as JSON scenes (each with its index and exactly what the narrator SAYS in
+that scene). For EVERY scene, output an ORDERED list of SHORT stock-video search queries — one per
+visual beat, in the order it is spoken, up to {max_queries} per scene. Use SEVERAL beats on a longer
+scene so the footage keeps changing and no single clip lingers on screen.
+
+FIRST, INFER THIS VIDEO'S WORLD from the narration below — the domain it lives in (e.g. cooking, home
+fitness, personal finance, travel, gaming, gardening, careers, parenting). EVERY clip must belong to
+THAT world: the real people, places, tools, and actions a viewer of this exact channel would expect
+to see. Keep the whole video inside that one world.
+
+HARD RULES:
+- RELEVANT to the words: each query must show LITERALLY what that moment of the narration is about —
+  the concrete subject doing the concrete action, pulled straight from the sentence (e.g. for a
+  cooking video "chef chopping onions", for fitness "person doing push ups", for finance "person
+  reviewing bills laptop", for careers "recruiter reading resume"). If a line is about a setback, show
+  a setback-adjacent shot, never a generic "success" clip.
+- STAY IN THE VIDEO'S WORLD: never leave that world, even when a sentence borrows a word from another
+  domain. Show what the line means for THE VIEWER in this niche, not a literal picture of the borrowed
+  word. Translate metaphors and figures of speech into the video's own subject:
+    * a finance video that says "your budget is on life support" -> a person worriedly reviewing bills
+      at a laptop, NOT a hospital, doctor, or stethoscope (stock sites return a vet holding a cat).
+    * a career video about "learning AI skills" -> a person taking an online course on a laptop, NOT
+      soldering a circuit board or a robot arm.
+    * a fitness video about "the engine of your metabolism" -> a person working out, NOT a car engine
+      or a factory.
+  When a line is abstract or emotional (stress, growth, momentum, pressure), show a real PERSON in the
+  video's world feeling or doing that thing, never an abstract stock cliché (fire, storms, clocks).
+- BANNED unless the narration is LITERALLY about that subject: doctors, stethoscopes, hospitals;
+  animals, pets, vets, farms; factory robots, assembly lines, heavy machinery; soldiers, weapons.
+  Stock sites map medical / animal / industrial words to those clips even in an unrelated video, so if
+  a literal query would pull one, rewrite it to the equivalent action in THIS video's world. (A
+  "doctor with a stethoscope" query is how the cat-at-the-vet clip sneaks into a non-medical video —
+  do not write it unless the video is actually about medicine.)
+- SHORT + LITERAL: 3 to 5 plain words a stock-footage site actually matches. No articles or filler,
+  no full sentences, and NEVER abstract or metaphorical words ("success", "growth", "power", "money",
+  "future", "journey", "mindset") — stock sites map those to random, off-topic clips (babies,
+  sunsets, insects).
+- VISUALLY DIVERSE across the WHOLE video: you can see every scene at once, so do NOT reuse the same
+  shot, subject, or setting in two scenes. Deliberately vary the people, locations, camera angles,
+  and props so the finished video never feels repetitive.
+- Prefer a specific PERSON performing the action over a generic empty place or object.
+
+Return ONLY JSON, covering EVERY scene index, in exactly this shape (no prose, no code fences):
+{"scenes": [{"index": 0, "queries": ["query one", "query two"]}, {"index": 1, "queries": ["..."]}]}
+
+SCRIPT SCENES:
+{scenes_json}

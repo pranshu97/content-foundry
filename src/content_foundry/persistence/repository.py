@@ -144,17 +144,30 @@ class Repository:
             s.add(TemplateUsageRow(run_id=run_id, template_id=template_id, hook=hook))
             s.commit()
 
-    def recent_template_usage(self, lookback: int) -> list[TemplateUsageRow]:
-        """Most-recent-first template usage rows from the last ``lookback`` records."""
+    def recent_template_usage(
+        self, lookback: int, *, exclude_run_id: str | None = None
+    ) -> list[TemplateUsageRow]:
+        """Most-recent-first template usage rows from the last ``lookback`` records. Pass
+        ``exclude_run_id`` to skip a run's OWN rows — template/hook fatigue is a CROSS-video signal,
+        so iterating or re-judging a single run must never fail structural-freshness against itself."""
         with self._sf() as s:
-            stmt = select(TemplateUsageRow).order_by(TemplateUsageRow.used_at.desc()).limit(lookback)
-            return list(s.scalars(stmt))
+            stmt = select(TemplateUsageRow).order_by(TemplateUsageRow.used_at.desc())
+            if exclude_run_id is not None:
+                stmt = stmt.where(TemplateUsageRow.run_id != exclude_run_id)
+            return list(s.scalars(stmt.limit(lookback)))
 
-    def recent_template_ids(self, lookback: int) -> list[str]:
-        return [r.template_id for r in self.recent_template_usage(lookback)]
+    def recent_template_ids(self, lookback: int, *, exclude_run_id: str | None = None) -> list[str]:
+        return [
+            r.template_id
+            for r in self.recent_template_usage(lookback, exclude_run_id=exclude_run_id)
+        ]
 
-    def recent_hooks(self, lookback: int) -> list[str]:
-        return [r.hook for r in self.recent_template_usage(lookback) if r.hook]
+    def recent_hooks(self, lookback: int, *, exclude_run_id: str | None = None) -> list[str]:
+        return [
+            r.hook
+            for r in self.recent_template_usage(lookback, exclude_run_id=exclude_run_id)
+            if r.hook
+        ]
 
     # --------------------------------------------------------- signal cache
     def get_cached_signals(self, source: str, ttl_min: int) -> list[dict] | None:

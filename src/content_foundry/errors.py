@@ -32,6 +32,11 @@ class LLMError(ContentFoundryError):
     """LLM provider failure after retries (and fallback, if any)."""
 
 
+class LLMRateLimitError(LLMError):
+    """The LLM provider hit a rate limit / quota (e.g. HTTP 429). A sticky fallback treats this as a
+    signal to switch the rest of the run to the secondary provider rather than retrying."""
+
+
 class BudgetExhaustedError(ContentFoundryError):
     """Estimated month-to-date spend reached the budget cap; the run is aborted before more spend."""
 

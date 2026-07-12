@@ -66,7 +66,10 @@ class DataBrief(BaseModel):
 - Produces a standalone `data_brief.json` the operator can read and edit by hand.
 - Stage 2 accepts any valid `DataBrief` JSON via `--input`, so Agent 1 can be skipped entirely (e.g., operator pastes their own research).
 
-### 7.7 Failure modes
+### 7.7 Agent 1.5 — Researcher (optional depth enrichment)
+After the idea is chosen (start of the `generate` stage), the **Researcher** turns the brief's thin snippets into real depth. It fetches the full text behind the brief's citation URLs (`RESEARCH_MAX_SOURCES` pages, best-effort — a blocked or paywalled page is skipped and its snippet used instead), then an LLM synthesizes up to `RESEARCH_MAX_POINTS` **mechanism** points — each a claim + HOW/WHY it works + a concrete detail + its source URL — into a `research.json` sidecar. The Script Generator folds this into its prompt as a `RESEARCH` block that fuels the GO DEEP rule. It is *qualitative* depth, **not** citable data: numbers the script *says* still come from the grounded `key_facts` (with a `fact_ref`), so grounding is untouched. Best-effort throughout — if the LLM or every fetch fails it degrades to a deterministic snippet report and the run continues. Toggle with `RESEARCH_ENABLED`.
+
+### 7.8 Failure modes
 | Failure | Handling |
 |---------|----------|
 | One source down/timeout | Log warning, skip, note in `gaps[]` |

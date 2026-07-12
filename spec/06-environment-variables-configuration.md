@@ -32,6 +32,12 @@ BRAVE_API_KEY=                             # required if SEARCH_PROVIDER=brave
 SEARCH_MAX_RESULTS=8                       # web results fetched per query
 SEARCH_QUERY_COUNT=4                        # multi-query fan-out: total searches/run (base topic query + facets)
 SEARCH_FACETS=statistics,salary,trends 2026,common mistakes,requirements,tips  # angle suffixes appended to the topic
+# Research (Agent 1.5): an LLM reads the pages behind the sources -> a depth report the script explains from.
+RESEARCH_ENABLED=true                      # false skips the research agent
+RESEARCH_MAX_SOURCES=4                      # pages fetched + read per run
+RESEARCH_MAX_POINTS=6                       # depth points synthesized
+RESEARCH_MAX_CHARS_PER_SOURCE=4000         # chars kept per fetched page
+RESEARCH_FETCH_TIMEOUT_SEC=10              # per-page fetch timeout (seconds)
 SIGNAL_CACHE_TTL_MIN=720                   # reuse cached signals within 12h
 
 # ---------- Pipeline Behavior ----------

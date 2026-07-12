@@ -271,5 +271,12 @@ def heuristic_ending(script: Script) -> float:
     return ending_report(script)[0]
 
 
+def ending_parts_present(script: Script) -> tuple[bool, bool]:
+    """(has_cta, has_signoff) for the closing narration (last 1-2 scenes) — the two things a strong
+    ending needs. Lets the Script Generator deterministically add whichever the model dropped."""
+    tail = " ".join(s.narration for s in script.scenes[-2:]) if script.scenes else ""
+    return bool(_ENDING_CTA_RE.search(tail)), bool(_ENDING_SIGNOFF_RE.search(tail))
+
+
 def _clamp(value: float, low: float = 0.0, high: float = 10.0) -> float:
     return round(max(low, min(high, value)), 2)

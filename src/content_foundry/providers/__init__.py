@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from .youtube import Publisher
 
 
+def _chain_llms(providers: list[LLMProvider], *, latch_all: bool = False) -> LLMProvider:
+    """Fold a best-first list of providers into a right-nested FallbackProvider chain: ``providers[0]``
+    is the primary and each later one takes over when the earlier fails. A single provider is returned
+    as-is (no wrapper)."""
+    chain = providers[-1]
+    for p in reversed(providers[:-1]):
+        chain = FallbackProvider(p, chain, latch_all=latch_all)
+    return chain
+
+
 def _make_single_llm(name: str, settings: Settings) -> LLMProvider:
     if name == "anthropic":
         from .anthropic_provider import AnthropicProvider
@@ -37,6 +47,22 @@ def _make_single_llm(name: str, settings: Settings) -> LLMProvider:
             base_url=settings.local_llm_base_url,
             model=settings.local_llm_model,
             api_key=settings.local_llm_api_key,
+        )
+    if name == "google":
+        from .google_provider import GoogleProvider
+
+        models = settings.google_models_list or ["gemini-2.5-flash"]
+        # Best-first Gemini chain: each model tried in turn, the next taking over on ANY error
+        # (quota/404/network), before the outer FALLBACK_PROVIDER (e.g. local) is ever reached.
+        return _chain_llms(
+            [
+                GoogleProvider(
+                    api_key=settings.google_api_key, model=m,
+                    top_p=settings.llm_top_p, thinking=settings.google_thinking,
+                )
+                for m in models
+            ],
+            latch_all=True,
         )
     raise ConfigError(f"Unknown LLM provider: {name}")
 
@@ -80,16 +106,36 @@ def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSP
     return OpenAITTS(settings.openai_api_key, voice)
 
 
-def build_image_provider(settings: Settings) -> ImageProvider | None:
-    if settings.image_provider == "none":
+def _make_single_image(name: str, settings: Settings) -> ImageProvider | None:
+    if name == "none":
         return None
-    if settings.image_provider == "openai":
+    if name == "openai":
         from .image import OpenAIImage
 
         return OpenAIImage(settings.openai_api_key)
+    if name == "google":
+        from .image import GoogleImage
+
+        return GoogleImage(settings.google_api_key, settings.google_image_model)
+    if name == "pollinations":
+        from .image import PollinationsImage
+
+        return PollinationsImage()
     from .image import StabilityImage
 
     return StabilityImage(settings.stability_api_key)
+
+
+def build_image_provider(settings: Settings) -> ImageProvider | None:
+    primary = _make_single_image(settings.image_provider, settings)
+    if primary is None:
+        return None
+    secondary = _make_single_image(settings.image_fallback_provider, settings)
+    if secondary is None:
+        return primary
+    from .image import FallbackImageProvider
+
+    return FallbackImageProvider(primary, secondary)
 
 
 def build_broll_client(settings: Settings) -> BrollClient:
@@ -102,6 +148,10 @@ def build_broll_client(settings: Settings) -> BrollClient:
         from .broll import PixabayBrollClient
 
         clients.append(PixabayBrollClient(settings.pixabay_api_key, settings.broll_pool_size))
+    if settings.coverr_api_key:
+        from .broll import CoverrBrollClient
+
+        clients.append(CoverrBrollClient(settings.coverr_api_key, settings.broll_pool_size))
     if not clients:
         from .broll import NullBrollClient
 

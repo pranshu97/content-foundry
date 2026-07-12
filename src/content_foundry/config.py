@@ -50,13 +50,17 @@ class Settings(BaseSettings):
     # ---------- LLM Providers ----------
     anthropic_api_key: str = ""
     openai_api_key: str = ""
-    primary_provider: Literal["anthropic", "openai", "local"] = "anthropic"
-    fallback_provider: Literal["anthropic", "openai", "local", "none"] = "openai"
+    google_api_key: str = ""  # Google AI Studio (Gemini): https://aistudio.google.com/apikey
+    primary_provider: Literal["anthropic", "openai", "google", "local"] = "anthropic"
+    fallback_provider: Literal["anthropic", "openai", "google", "local", "none"] = "openai"
     generator_model: str = "claude-sonnet-4-20250514"
     judge_model: str = "claude-sonnet-4-20250514"
     llm_temperature: float = 0.7
     judge_temperature: float = 0.0
     llm_max_tokens: int = 4096
+    # Nucleus-sampling cap sent to the cloud LLMs (currently Google). 0.95 keeps outputs coherent
+    # while still allowing variety — it is also Gemini's own default. Lower it for tighter output.
+    llm_top_p: float = Field(0.95, ge=0, le=1)
     # Tiered model routing (future plan 2): heavy for hard creative work, light for
     # mechanical / high-volume calls. Empty => fall back to generator/judge models.
     llm_tiering_enabled: bool = True
@@ -68,6 +72,17 @@ class Settings(BaseSettings):
     local_llm_base_url: str = "http://localhost:11434/v1"
     local_llm_model: str = "llama3.1"
     local_llm_api_key: str = "local"
+    # Google AI Studio (Gemini). GOOGLE_MODELS is a comma-separated, best-first list of Gemini models
+    # tried IN ORDER: on ANY error (quota/429, bad id/404, network) the chain moves to the NEXT model,
+    # so one model's daily free-tier quota running out doesn't sink the run (each model has its OWN
+    # quota pool). Only after the whole list is exhausted does it fall through to FALLBACK_PROVIDER
+    # (e.g. local). Per-call tiering model names are ignored (like local).
+    google_models: str = "gemini-2.5-flash,gemini-2.5-flash-lite"
+    # "Thinking" (extended reasoning) for Gemini 2.5+/3.x calls. On => a `thinkingConfig` (dynamic
+    # budget) is sent AND "[THINK]" is prepended to the system prompt, so the model reasons before it
+    # answers (higher quality, a few more tokens). Ignored for Gemma (no thinking mode). Needs a
+    # roomy LLM_MAX_TOKENS so thinking doesn't crowd out the answer.
+    google_thinking: bool = True
 
     # ---------- Data Sources ----------
     adzuna_app_id: str = ""
@@ -92,14 +107,27 @@ class Settings(BaseSettings):
     search_query_count: int = Field(4, ge=1, le=10)
     search_facets: str = "statistics,salary,trends 2026,common mistakes,requirements,tips"
 
+    # ---------- Research (Agent 1.5) ----------
+    # After the idea is chosen, an LLM reads the real pages behind the brief's sources and synthesizes
+    # a DEPTH report (mechanisms: how/why) so the script can EXPLAIN, not just list tips. Off => the
+    # generator works from the data brief alone. Grounded in fetched pages; failures degrade to snippets.
+    research_enabled: bool = True
+    research_max_sources: int = Field(4, ge=1, le=12)
+    research_max_points: int = Field(6, ge=1, le=20)
+    research_max_chars_per_source: int = Field(4000, ge=500, le=20000)
+    research_fetch_timeout_sec: float = Field(10.0, ge=1, le=60)
+
     # ---------- Pipeline Behaviour ----------
     max_revisions: int = 3
     judge_mode: Literal["hybrid", "deterministic", "llm"] = "hybrid"
-    pass_threshold: float = Field(7.5, ge=0, le=10)
-    insight_min: float = Field(7.0, ge=0, le=10)
-    wittiness_min: float = Field(5.0, ge=0, le=10)
-    ending_min: float = Field(6.0, ge=0, le=10)
-    grounding_min: float = Field(8.0, ge=0, le=10)
+    # All judge scores are on a 0-5 scale (matching the LLM's native 1-5 grading), so every floor
+    # below is 0-5 too and weighted_total is a 0-5 weighted average. The LLM dims are DISCRETE 1-5, so
+    # keep insight/wittiness floors <= 4.0 (a floor above 4 would need a perfect 5, i.e. unreachable).
+    pass_threshold: float = Field(3.75, ge=0, le=5)
+    insight_min: float = Field(3.5, ge=0, le=5)
+    wittiness_min: float = Field(2.5, ge=0, le=5)
+    ending_min: float = Field(3.0, ge=0, le=5)
+    grounding_min: float = Field(4.0, ge=0, le=5)
     # Two scenes whose narration is more similar than this (3-gram Jaccard) are treated as duplicate
     # padding and force a REVISE — stops the model recycling the same lines/facts across scenes.
     max_scene_similarity: float = Field(0.5, ge=0, le=1)
@@ -121,12 +149,12 @@ class Settings(BaseSettings):
     min_script_word_ratio: float = Field(0.5, ge=0, le=1)
     # A genuinely excellent draft (weighted_total >= gate_relief_score) earns `gate_relief_ratio`
     # slack on the insight & length floors ONLY — never on grounding, compliance, or fatigue.
-    # Set gate_relief_score > 10 to disable.
-    gate_relief_score: float = Field(9.0, ge=0, le=11)
+    # Set gate_relief_score > 5 to disable.
+    gate_relief_score: float = Field(4.5, ge=0, le=6)
     gate_relief_ratio: float = Field(0.20, ge=0, le=0.5)
     # 0 = disabled (default). When > 0, abort the revision loop once a script still scores below
-    # this weighted total on attempt >= 2 — it can't realistically reach PASS, so stop paying.
-    fail_fast_score: float = Field(0.0, ge=0, le=10)
+    # this weighted total (0-5) on attempt >= 2 — it can't realistically reach PASS, so stop paying.
+    fail_fast_score: float = Field(0.0, ge=0, le=5)
     # Human-in-the-loop: when true, a PASSed script pauses before production (voiceover onward) so you
     # can review script.json, then `content-foundry resume` to continue. Default off (fully automatic).
     require_script_approval: bool = False
@@ -146,13 +174,29 @@ class Settings(BaseSettings):
     piper_executable: str = "piper"
 
     # ---------- Visuals ----------
-    image_provider: Literal["openai", "stability", "none"] = "openai"
+    image_provider: Literal["openai", "stability", "google", "pollinations", "none"] = "openai"
+    # Optional fallback image provider, used only when the primary fails (paid-plan, quota, outage).
+    # e.g. IMAGE_PROVIDER=google + IMAGE_FALLBACK_PROVIDER=pollinations = Imagen with a FREE safety net.
+    image_fallback_provider: Literal[
+        "openai", "stability", "google", "pollinations", "none"
+    ] = "none"
+    # Google image model when IMAGE_PROVIDER=google (uses GOOGLE_API_KEY). Nano Banana
+    # (gemini-2.5-flash-image) is the durable default; imagen-4.0-ultra-generate-001 (and -std/-fast)
+    # also work but Imagen is deprecated (shuts down 2026-08-17).
+    google_image_model: str = "gemini-2.5-flash-image"
     stability_api_key: str = ""
     pexels_api_key: str = ""
     pixabay_api_key: str = ""  # optional 2nd free B-roll source (more variety across videos)
+    coverr_api_key: str = ""  # optional 3rd free B-roll source (coverr.co; request a key + attribution)
     # How many candidate clips to pull per B-roll query so each scene can get a distinct clip
     # (and no clip repeats more than twice across the video). Pexels allows up to 80 per page.
     broll_pool_size: int = Field(15, ge=1, le=80)
+    # LLM "visual director" (Agent 5.5): after the script is written, re-derive each scene's B-roll
+    # search queries from the WHOLE script so the footage is both relevant to the scene AND visually
+    # diverse across the video (no repeated shots). Uses the configured LLM (e.g. Gemini); best-effort,
+    # falls back to the generator's keywords on any failure.
+    broll_director_enabled: bool = True
+    broll_director_max_queries: int = Field(6, ge=1, le=8)
     visual_style: str = "clean infographic, high-contrast, bold text"
     scenes_per_video: int = 10
     thumbnail_size: str = "1280x720"
@@ -189,6 +233,12 @@ class Settings(BaseSettings):
     # any file in sfx_dir ("bell" -> bell.mp3), or disable it to show the badge silently.
     subscribe_bell_enabled: bool = True
     subscribe_bell_sound: str = "bell"
+
+    # A fixed, channel-signature opening line the narrator always says first. Prepended to the first
+    # scene in code so every video opens the same way on ANY topic — set it to your own catchphrase,
+    # or disable it to let each script open on its own first line.
+    intro_enabled: bool = True
+    intro_tagline: str = "No fluff, let's get straight into it."
 
     # ---------- Sound effects ----------
     # Script-authored SFX cues mixed into the narration at each scene's start. Local library first,
@@ -268,6 +318,11 @@ class Settings(BaseSettings):
         return [f.strip() for f in self.search_facets.split(",") if f.strip()]
 
     @property
+    def google_models_list(self) -> list[str]:
+        """Best-first Gemini model ids for the fallback chain (comma-separated ``GOOGLE_MODELS``)."""
+        return [m.strip() for m in self.google_models.split(",") if m.strip()]
+
+    @property
     def notify_events_list(self) -> list[str]:
         items = [e.strip() for e in self.notify_events.split(",") if e.strip()]
         bad = [e for e in items if e not in VALID_EVENTS]
@@ -317,11 +372,11 @@ class Settings(BaseSettings):
             )
 
         if self.fallback_provider not in ("none", "local"):
-            key = (
-                self.openai_api_key
-                if self.fallback_provider == "openai"
-                else self.anthropic_api_key
-            )
+            key = {
+                "openai": self.openai_api_key,
+                "anthropic": self.anthropic_api_key,
+                "google": self.google_api_key,
+            }.get(self.fallback_provider, "")
             if not key:
                 raise ValueError(
                     f"FALLBACK_PROVIDER={self.fallback_provider} requires its API key to be set"
@@ -333,8 +388,11 @@ class Settings(BaseSettings):
         if self.tts_provider == "piper" and not self.piper_model_path:
             raise ValueError("TTS_PROVIDER=piper requires PIPER_MODEL_PATH (path to a .onnx voice)")
 
-        if self.image_provider == "stability" and not self.stability_api_key:
-            raise ValueError("IMAGE_PROVIDER=stability requires STABILITY_API_KEY")
+        for _img in (self.image_provider, self.image_fallback_provider):
+            if _img == "stability" and not self.stability_api_key:
+                raise ValueError("IMAGE_PROVIDER=stability requires STABILITY_API_KEY")
+            if _img == "google" and not self.google_api_key:
+                raise ValueError("IMAGE_PROVIDER=google requires GOOGLE_API_KEY")
 
         if self.render_backend == "avatar":
             if self.avatar_provider == "none":

@@ -12,6 +12,24 @@ def test_brainstorm_proposes_llm_ideas(settings, data_brief, fakes):
     assert llm.call_count == 1
 
 
+def test_brainstorm_parses_object_wrapped_ideas(settings, data_brief, fakes):
+    # A model that returns {"ideas": [...]} instead of a bare array is still parsed.
+    llm = fakes.LLM(script_json={"ideas": ["Idea A", "Idea B"]})
+    assert Brainstormer(settings, llm).propose(data_brief, count=5) == ["Idea A", "Idea B"]
+
+
+def test_brainstorm_parses_array_with_surrounding_prose(settings, data_brief, fakes):
+    # A reasoning model may wrap the array in chatter; extract_json alone would miss it (no braces).
+    llm = fakes.LLM(script_json='Sure! Here are the ideas:\n["Idea A", "Idea B"]\nHope that helps.')
+    assert Brainstormer(settings, llm).propose(data_brief, count=5) == ["Idea A", "Idea B"]
+
+
+def test_brainstorm_parses_array_of_objects(settings, data_brief, fakes):
+    # An array of objects (which extract_json mangles) yields the title-like field of each.
+    llm = fakes.LLM(script_json=[{"title": "Idea A"}, {"title": "Idea B"}])
+    assert Brainstormer(settings, llm).propose(data_brief, count=5) == ["Idea A", "Idea B"]
+
+
 def test_brainstorm_focus_seeds_fallback(settings, data_brief, fakes):
     # DEFAULT fake returns a script dict (no idea array) -> deterministic fallback, seeded by focus.
     ideas = Brainstormer(settings, fakes.LLM()).propose(

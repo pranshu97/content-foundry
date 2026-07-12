@@ -5,7 +5,7 @@ from __future__ import annotations
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..errors import LLMError
-from .base import LLMResponse
+from .base import LLMResponse, run_interruptible
 
 
 class AnthropicProvider:
@@ -39,12 +39,14 @@ class AnthropicProvider:
     ) -> LLMResponse:
         target_model = model or self._model
         try:
-            msg = self._call(
-                model=target_model,
-                system=system or "",
-                prompt=prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
+            msg = run_interruptible(
+                lambda: self._call(
+                    model=target_model,
+                    system=system or "",
+                    prompt=prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
             )
         except Exception as exc:  # network / SDK error after retries
             raise LLMError(f"Anthropic call failed: {exc}") from exc

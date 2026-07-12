@@ -44,15 +44,14 @@ class Brainstormer:
                 "Return ONLY the JSON array now.",
                 system=system,
                 temperature=max(self._settings.llm_temperature, 0.8),
-                max_tokens=700,
+                # A generous cap: reasoning models (e.g. Gemini flash) spend part of the budget
+                # THINKING, and a tight cap (700) left no room for the JSON -> empty/unusable reply.
+                max_tokens=self._settings.llm_max_tokens,
                 model=select_model(
                     self._settings, TaskTier.HEAVY, fallback=self._settings.generator_model
                 ),
             )
-            data = json.loads(extract_json(resp.text))
-            if isinstance(data, dict):
-                data = data.get("ideas") or data.get("items") or []
-            ideas = _dedup(data) if isinstance(data, list) else []
+            ideas = _parse_ideas(resp.text)
             if ideas:
                 self._log.info("brainstormed_ideas", count=len(ideas))
                 return ideas[:count]
@@ -66,12 +65,20 @@ class Brainstormer:
         return ideas[0] if ideas else ""
 
     def _fallback(self, brief: DataBrief, recent: list[str], focus: str, count: int) -> list[str]:
-        """Deterministic: content angles (plus a couple seeded on ``focus``), skipping recent ones."""
+        """Deterministic: clean focus-based angles (or the brief's content angles when there is no
+        focus), skipping recently-made ones."""
         pool: list[str] = []
         if focus:
+            f = focus.strip().rstrip(".")
+            low = (f[:1].lower() + f[1:]) if f else f
             pool += [
-                f"{focus.strip().capitalize()}: what the {brief.niche} data actually says",
-                f"{count} {focus.strip()} moves that beat the {brief.niche} market",
+                f"{f}: a practical step-by-step guide",
+                f"{f}: the mistakes that keep you stuck",
+                f"{f}: what actually works, backed by the data",
+                f"The truth about {low}",
+                f"{f}: what the {brief.niche} numbers really say",
+                f"{f} in 30 days: a realistic plan",
+                f"{f}: the first moves to make right now",
             ]
         pool += [a.hook for a in brief.content_angles]
         if not pool:
@@ -91,3 +98,39 @@ def _dedup(items) -> list[str]:
             seen.add(text.lower())
             out.append(text)
     return out
+
+
+def _slice_array(text: str) -> str:
+    """Slice the first ``[`` to the last ``]`` (recovers a JSON array wrapped in prose)."""
+    start, end = text.find("["), text.rfind("]")
+    return text[start : end + 1] if start != -1 and end > start else ""
+
+
+def _parse_ideas(text: str) -> list[str]:
+    """Robustly pull the list of idea strings from an LLM reply. Handles a bare JSON array, an object
+    ``{"ideas": [...]}``, an array of objects, or an array wrapped in prose. NOTE: a plain
+    ``extract_json`` MANGLES a top-level array (it slices first ``{`` to last ``}``), so we try a
+    direct parse and an array-slice too."""
+    raw = (text or "").strip()
+    data = None
+    for candidate in (raw, extract_json(raw), _slice_array(raw)):
+        if not candidate:
+            continue
+        try:
+            data = json.loads(candidate)
+            break
+        except (json.JSONDecodeError, ValueError):
+            continue
+    if isinstance(data, dict):
+        data = data.get("ideas") or data.get("items") or data.get("titles") or []
+    if not isinstance(data, list):
+        return []
+    out: list[str] = []
+    for item in data:
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict):  # array of objects -> use the most title-like field
+            val = item.get("title") or item.get("idea") or item.get("angle") or item.get("text")
+            if isinstance(val, str):
+                out.append(val)
+    return _dedup(out)

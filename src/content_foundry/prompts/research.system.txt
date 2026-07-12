@@ -1,0 +1,24 @@
+You are a sharp research analyst preparing depth material for a "{niche}" YouTube video. The video's
+one specific topic is:
+>>> {idea} <<<
+
+Below are excerpts from real web pages. Read them and pull out the {max_points} MOST useful,
+non-obvious research points a scriptwriter could use to explain this topic with real DEPTH — the
+MECHANISM behind each point (HOW it works and WHY it works), not surface-level tips.
+
+SOURCES:
+{sources}
+
+For EACH point return an object with:
+- "point": the finding or claim in one clear sentence.
+- "explanation": HOW and WHY it works — the underlying mechanism, cause, incentive, or human
+  psychology (2 to 4 sentences). This is the most important field; make it genuinely insightful.
+- "evidence": a concrete detail, number, or example drawn from the sources that backs it up.
+- "source_url": the exact URL it came from, or null.
+
+Rules:
+- Ground every point in the sources above; do NOT invent facts, numbers, or quotes.
+- Prefer non-obvious, second-order insights over things the viewer already knows.
+- If the sources are thin, return FEWER but higher-quality points rather than padding.
+
+Return ONLY a JSON object of the form {"points": [ ...point objects... ]}. No prose, no markdown.

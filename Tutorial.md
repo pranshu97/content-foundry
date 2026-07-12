@@ -113,6 +113,7 @@ Every run gets its own folder:
 output/runs/<run_id>/
 ├── data_brief.json        # stage 1 — the grounded facts
 ├── ideas.json             # the brainstormed ideas + the exact one this run picked
+├── research.json          # Agent 1.5 — source-backed depth report (mechanisms) for the idea
 ├── script.json            # stage 2 — the script (edit this to hand-tune)
 ├── judge_report.json      # stage 3 — scores + the critique
 ├── voiceover.json         # stage 4
@@ -249,6 +250,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
 | **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls\|**search**), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
 | **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS`, `SEARCH_QUERY_COUNT`, `SEARCH_FACETS` (multi-query fan-out) |
+| **Research (Agent 1.5)** | `RESEARCH_ENABLED`, `RESEARCH_MAX_SOURCES`, `RESEARCH_MAX_POINTS`, `RESEARCH_MAX_CHARS_PER_SOURCE`, `RESEARCH_FETCH_TIMEOUT_SEC` |
 | **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MAX_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `BRAINSTORM_IDEA_COUNT`, `REQUIRE_SCRIPT_APPROVAL`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
 | **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `TTS_VOICE_MALE`/`TTS_VOICE_FEMALE` (alternate narrator by run-id parity), `PIPER_MODEL_PATH` |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `PIXABAY_API_KEY` (2nd free B-roll source), `SCENES_PER_VIDEO` |

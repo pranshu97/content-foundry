@@ -15,7 +15,7 @@ from __future__ import annotations
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..errors import LLMError
-from .base import LLMResponse
+from .base import LLMResponse, run_interruptible
 
 
 class LocalLLMProvider:
@@ -53,8 +53,10 @@ class LocalLLMProvider:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
         try:
-            resp = self._call(
-                messages=messages, temperature=temperature, max_tokens=max_tokens
+            resp = run_interruptible(
+                lambda: self._call(
+                    messages=messages, temperature=temperature, max_tokens=max_tokens
+                )
             )
         except Exception as exc:
             raise LLMError(f"Local LLM call failed ({self._base_url}): {exc}") from exc

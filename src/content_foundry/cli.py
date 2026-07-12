@@ -94,7 +94,7 @@ class _RunReporter:
             reason_txt = f"  [yellow]· {reason}[/]" if reason and verdict != "PASS" else ""
             self._c.print(
                 f"  [{color}]⚖ attempt {d['n']} → {verdict}[/]  [dim]score[/] "
-                f"[bold]{float(d['total']):.2f}[/][dim]/10 · insight[/] "
+                f"[bold]{float(d['total']):.2f}[/][dim]/5 · insight[/] "
                 f"{float(d['insight']):.1f}{reason_txt}"
             )
         elif event == "gate":
@@ -176,6 +176,10 @@ def _run(**kwargs):
         reporter.close()
         console.print(f"[red]✗ Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
+    except KeyboardInterrupt:  # Ctrl+C is honored mid-LLM-call via providers.base.run_interruptible
+        reporter.close()
+        console.print("\n[yellow]✗ Cancelled.[/yellow]")
+        raise typer.Exit(code=130) from None
     reporter.close()
 
     color = {"PASS": "green", "REVISE": "yellow", "FAIL": "red"}.get(

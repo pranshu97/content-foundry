@@ -19,9 +19,9 @@ class Verdict(str, Enum):
 class DimensionScore(BaseModel):
     dimension: str
     score_1_5: int | None = None  # LLM-scored dims: discrete 1-5 (None for code-only dims)
-    score: float  # normalized 0-10
+    score: float  # normalized 0-5
     weight: float
-    minimum: float | None = None  # hard floor on the 0-10 scale
+    minimum: float | None = None  # hard floor on the 0-5 scale
     passed: bool
     evidence: str | None = None  # quoted span(s) from the script (LLM-scored dims)
     justification: str

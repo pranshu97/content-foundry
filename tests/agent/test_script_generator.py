@@ -27,7 +27,7 @@ def test_revision_embeds_previous_draft_for_surgical_edit(settings, data_brief, 
         judge_feedback="- WITTINESS 2.5/10: too dry.", previous_script=prev,
     )
     system = llm.calls[-1]["system"]
-    assert "PREVIOUS DRAFT" in system and "EDIT that exact draft" in system
+    assert "PREVIOUS DRAFT" in system and "improve THAT draft" in system
     assert "bottom rung is gone" in system  # a distinctive line from the prior draft, verbatim
     assert "WITTINESS 2.5/10" in system  # the fix-list is included
 
@@ -67,6 +67,91 @@ def test_duplicate_scenes_are_dropped_deterministically(settings, data_brief, fa
     assert [s.index for s in script.scenes] == list(range(len(script.scenes)))  # re-indexed
 
 
+def test_research_context_appears_in_prompt_when_provided(settings, data_brief, fakes):
+    from content_foundry.models import ResearchBrief, ResearchPoint
+
+    llm = fakes.LLM()
+    research = ResearchBrief(run_id="R", idea="x", points=[
+        ResearchPoint(point="ATS scans keywords", explanation="the first reader cannot gauge skill",
+                      evidence="most resumes are filtered", source_url="https://x/1"),
+    ])
+    ScriptGenerator(settings, llm).run(
+        "R", data_brief, get_template("contrarian"), research=research)
+    system = llm.calls[-1]["system"]
+    assert "RESEARCH (source-backed depth" in system  # the depth block header is rendered
+    assert "ATS scans keywords" in system and "cannot gauge skill" in system
+
+
+def test_research_context_absent_when_none(settings, data_brief, fakes):
+    llm = fakes.LLM()
+    ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
+    assert "RESEARCH (source-backed depth" not in llm.calls[-1]["system"]  # no block without research
+
+
+def test_ending_is_guaranteed_when_model_omits_it(settings, data_brief, fakes):
+    from content_foundry.agents.judge_checks import ending_report
+
+    # The model closes with plain advice — NO subscribe nudge and NO sign-off.
+    payload = {
+        "title_options": ["t"],
+        "hook": "A specific hook about breaking into big tech right now.",
+        "scenes": [
+            {"index": 0, "narration": "First, target adjacent teams and build a small portfolio project.",
+             "fact_ref": 0},
+            {"index": 1, "narration": "Second, referrals matter far more than cold applications do.",
+             "fact_ref": 1},
+            {"index": 2, "narration": "Finally, drill the interview format until it feels routine and calm.",
+             "fact_ref": None},
+        ],
+        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "grounded_fact_refs": [0, 1],
+    }
+    llm = fakes.LLM(script_json=payload)
+    script = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
+    # the ending floor is now GUARANTEED in code — both a nudge and a sign-off were appended
+    assert ending_report(script)[0] == 10.0
+    assert "subscribe" in script.scenes[-1].narration.lower()
+    assert "next one" in script.scenes[-1].narration.lower()
+
+
+def test_intro_tagline_prepended_to_first_scene(monkeypatch, data_brief, fakes):
+    # A fixed channel intro must open every video (spoken first), guaranteed in code regardless of
+    # what the model wrote — and only on the FIRST scene.
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("INTRO_ENABLED", "true")
+    monkeypatch.setenv("INTRO_TAGLINE", "No fluff, let's dive in.")
+    reset_settings_cache()
+    settings = get_settings()
+    script = ScriptGenerator(settings, fakes.LLM()).run("R", data_brief, get_template("contrarian"))
+    assert script.scenes[0].narration.startswith("No fluff, let's dive in. ")
+    assert script.scenes[1].narration.count("No fluff") == 0  # only the opening scene carries it
+
+
+def test_intro_tagline_not_doubled_when_already_present(monkeypatch, data_brief, fakes):
+    # A revision embeds the previous (already-introed) draft, so the prepend must be idempotent.
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    tag = "No fluff, let's dive in."
+    monkeypatch.setenv("INTRO_ENABLED", "true")
+    monkeypatch.setenv("INTRO_TAGLINE", tag)
+    reset_settings_cache()
+    settings = get_settings()
+    payload = {
+        "title_options": ["t"],
+        "hook": "A specific hook about breaking into big tech right now.",
+        "scenes": [
+            {"index": 0, "narration": f"{tag} Everyone says grind leetcode, but entry roles thinned this year.", "fact_ref": 0},
+            {"index": 1, "narration": "Referrals beat cold applications because a human vouches before the resume is even read.", "fact_ref": 1},
+            {"index": 2, "narration": "So target adjacent teams first, then ship one portfolio project. If this helped, subscribe, and I'll see you in the next one.", "fact_ref": None},
+        ],
+        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "grounded_fact_refs": [0, 1],
+    }
+    script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
+        "R", data_brief, get_template("contrarian"))
+    assert script.scenes[0].narration.lower().count("no fluff, let's dive in.") == 1  # not doubled
+    assert script.scenes[0].narration.startswith(tag)
 
 
 def test_reformat_retry_on_bad_json(settings, data_brief, fakes):
@@ -200,6 +285,30 @@ def test_clean_narration_removes_meta_but_keeps_prose():
         == "Track the S&P 500 (a stock index) daily."
     )
     assert _clean_narration("No meta here at all.") == "No meta here at all."
+
+
+def test_clean_narration_softens_structural_labels():
+    from content_foundry.agents.script_generator import _clean_narration
+
+    # A model that announces its explanation structure out loud ("Why this works:") gets the label
+    # dropped and the sentence after it kept, so narration doesn't read like a lecture outline.
+    assert (
+        _clean_narration("Why this works: recruiters scan for the exact keywords.")
+        == "Recruiters scan for the exact keywords."
+    )
+    assert (
+        _clean_narration("First, tailor it. Here's how it works: the ATS ranks you.")
+        == "First, tailor it. The ATS ranks you."
+    )
+    assert (
+        _clean_narration("Step 1: mirror the posting's language.")
+        == "Mirror the posting's language."
+    )
+    # The same words used naturally (not as a heading) are left completely alone.
+    assert (
+        _clean_narration("That is exactly why this works so well in practice.")
+        == "That is exactly why this works so well in practice."
+    )
 
 
 def test_clean_narration_drops_bracketed_source_attribution():

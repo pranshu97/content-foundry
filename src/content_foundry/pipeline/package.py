@@ -36,7 +36,7 @@ def build_package_md(
         else (script.title_options[0] if script.title_options else "Untitled")
     )
     verdict = (
-        f"{judge_report.verdict.value} ({judge_report.weighted_total}/10)"
+        f"{judge_report.verdict.value} ({judge_report.weighted_total}/5)"
         if judge_report
         else "n/a"
     )

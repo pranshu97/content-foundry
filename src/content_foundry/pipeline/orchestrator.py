@@ -16,11 +16,13 @@ from ..agents import (
     Judge,
     Publisher,
     Renderer,
+    Researcher,
     ScriptGenerator,
     Visuals,
     Voiceover,
 )
 from ..agents.judge_checks import redundancy_report
+from ..agents.research import research_key_facts
 from ..config import get_settings
 from ..errors import BudgetExhaustedError, ContentFoundryError, SchemaValidationError
 from ..logging import configure_logging, get_logger
@@ -29,6 +31,7 @@ from ..models import (
     IdeaSelection,
     JudgeReport,
     PublishResult,
+    ResearchBrief,
     RunResult,
     RunState,
     Script,
@@ -223,12 +226,14 @@ class Orchestrator:
             elif stage == "generate":
                 if "judge" in stages:
                     verdict = self._gen_judge_loop(
-                        run_id, paths, produced, hashes, template_id=template_id, idea=idea
+                        run_id, paths, produced, hashes, template_id=template_id, idea=idea,
+                        force=force,
                     )
                     handled_judge = True
                 else:
                     self._generate_once(
-                        run_id, paths, produced, hashes, template_id=template_id, idea=idea
+                        run_id, paths, produced, hashes, template_id=template_id, idea=idea,
+                        force=force,
                     )
 
             elif stage == "judge":
@@ -269,7 +274,8 @@ class Orchestrator:
         bits: list[str] = []
         if len(script.scenes) < min_scenes or script.word_count < floor:
             bits.append(
-                f"too short ({script.word_count}/{floor} words, {len(script.scenes)} scenes)"
+                f"too short ({script.word_count} words, need {floor}+ for target "
+                f"{s.script_target_words}, {len(script.scenes)} scenes)"
             )
         if not redundancy_report(script, threshold=s.max_scene_similarity)[0]:
             bits.append("duplicate scenes")
@@ -280,13 +286,19 @@ class Orchestrator:
             bits.append("template fatigue")
         return "; ".join(bits) or f"score {report.weighted_total:.2f} < {self.s.pass_threshold}"
 
-    def _resolve_idea(self, run_id, paths, brief, seed, recent_hooks) -> str:
+    def _resolve_idea(self, run_id, paths, brief, seed, recent_hooks, *, force=False) -> str:
         """The user's --idea (``seed``) FOCUSES the brainstormer rather than being used verbatim, so
         the script is a concrete, relevant video instead of generic niche filler. The Brainstormer
         proposes several ideas; an interactive chooser (CLI) picks one, else the first is used.
         Brainstorm off => the seed is used raw. Either way the ideas + the exact pick are recorded
-        to ``ideas.json`` for provenance."""
+        to ``ideas.json`` for provenance. On a resume (``ideas.json`` already exists) the saved pick
+        is reused so re-running generate keeps the SAME video, unless ``force``."""
         seed = (seed or "").strip()
+        if not force:
+            saved = self._load_ideas(paths)
+            if saved and saved.chosen:
+                self._emit("done", label="Idea (reused)", detail=saved.chosen[:80])
+                return saved.chosen
         if not self.s.brainstorm_enabled:
             self._record_idea(run_id, paths, seed=seed, generated=[], chosen=seed, source="seed")
             return seed
@@ -315,20 +327,78 @@ class Orchestrator:
         )
         save_model(selection, paths.ideas)
 
+    def _run_research(self, run_id, paths, brief, idea, *, force=False) -> ResearchBrief | None:
+        """Agent 1.5: synthesize a source-backed DEPTH report for the chosen idea and persist it. Runs
+        ONCE per generate stage (before the revision loop), so all attempts share it. Best-effort —
+        research is enrichment, so any failure degrades to no research rather than blocking the run. On
+        a resume it reuses a prior ``research.json`` for the SAME idea (research is a slow LLM + web
+        call) unless ``force``."""
+        if not self.s.research_enabled:
+            return None
+        if not force and paths.research.exists():
+            try:
+                cached = load_model(ResearchBrief, paths.research, expected_stage="research")
+            except SchemaValidationError:
+                cached = None
+            if cached and cached.idea == idea:
+                self._emit("done", label="Research (reused cached)",
+                           detail=f"{len(cached.points)} points")
+                return cached
+        self._emit("step", label="Researching the topic")
+        try:
+            research = Researcher(self.s, self._llm_provider()).run(run_id, brief, idea=idea)
+        except Exception as exc:  # never fatal
+            self.log.warning("research_failed", run_id=run_id, error=str(exc))
+            return None
+        save_model(research, paths.research)
+        if research.used_model:
+            self.credit.record(research.used_model, 3000, 400)
+        self._emit("done", label="Research", detail=f"{len(research.points)} points")
+        return research
+
+    def _augment_brief(self, brief: DataBrief, research: ResearchBrief | None) -> DataBrief:
+        """Fold the Researcher's idea-relevant findings into the brief's CITABLE key_facts (prepended,
+        so they rank first). This grounds the script in on-topic, source-backed specifics instead of
+        letting it drift to whatever numbers happen to be in the raw feed. Used for BOTH generation
+        and judging so their fact_refs line up."""
+        if not research or not research.points:
+            return brief
+        return brief.model_copy(
+            update={"key_facts": research_key_facts(research) + list(brief.key_facts)}
+        )
+
+    def _load_research(self, paths) -> ResearchBrief | None:
+        """Best-effort load of a run's saved research.json — so a `--from-stage judge` resume can
+        re-augment the brief exactly as generation did (else research-cited fact_refs fall out of
+        range and those stats silently score as ungrounded). None if absent/unreadable."""
+        if not paths.research.exists():
+            return None
+        try:
+            return load_model(ResearchBrief, paths.research, expected_stage="research")
+        except SchemaValidationError:
+            return None
+
     def _gen_judge_loop(
-        self, run_id, paths, produced, hashes, *, template_id, idea=None
+        self, run_id, paths, produced, hashes, *, template_id, idea=None, force=False
     ) -> Verdict | None:
         brief = self._need(produced, "data_brief", paths)
-        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
-        recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback)
+        # Exclude THIS run's own rows: template/hook fatigue is a CROSS-video signal, so iterating or
+        # re-judging a single run must not fail structural-freshness against its own prior attempts.
+        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback, exclude_run_id=run_id)
+        recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback, exclude_run_id=run_id)
         template = get_template(template_id) if template_id else select_template(recent_ids)
-        idea = self._resolve_idea(run_id, paths, brief, idea, recent_hooks)
+        idea = self._resolve_idea(run_id, paths, brief, idea, recent_hooks, force=force)
+        research = self._run_research(run_id, paths, brief, idea, force=force)
+        gen_brief = self._augment_brief(brief, research)
 
         feedback: str | None = None
         perspective = ""
         forced = False
         verdict: Verdict | None = None
         previous_script: Script | None = None
+        # Track the BEST-scoring draft so far: each revision iterates from it (not the last attempt),
+        # so one bad revision can't drag the loop away from a near-miss.
+        best_total, best_script, best_feedback = -1.0, None, None
         # Resume-safe: continue the DB attempt numbering past any attempts from a prior run so the
         # UNIQUE(run_id, attempt_number) key never collides — while the judge still counts THIS
         # session's attempts from 1, so a resume gets a fresh MAX_REVISIONS budget.
@@ -341,9 +411,10 @@ class Orchestrator:
                        label=f"Generating script (attempt {attempt_number}/{self.s.max_revisions})")
             attempt_id = str(ULID())
             script = ScriptGenerator(self.s, self._llm_provider()).run(
-                run_id, brief, template,
+                run_id, gen_brief, template,
                 perspective_modifier=perspective, judge_feedback=feedback,
                 attempt_number=attempt_number, idea=idea, previous_script=previous_script,
+                research=research,
             )
             self.repo.add_attempt(attempt_id, run_id, db_offset + attempt_number, template.id, forced)
             self._persist(
@@ -354,8 +425,10 @@ class Orchestrator:
             self.repo.update_run(run_id, state=RunState.GENERATED.value)
             self._estimate_generate_spend(script)
 
+            self._emit("step",
+                       label=f"Evaluating script (attempt {attempt_number}/{self.s.max_revisions})")
             report = Judge(self.s, self._llm_provider()).run(
-                run_id, script, brief, attempt_number=attempt_number,
+                run_id, script, gen_brief, attempt_number=attempt_number,
                 recent_template_ids=recent_ids, recent_hooks=recent_hooks,
             )
             self._record_judge_attempt(run_id, attempt_id, report, paths, produced, hashes)
@@ -396,29 +469,41 @@ class Orchestrator:
                 verdict = Verdict.FAIL
                 break
 
-            feedback = report.revision_instructions
-            # Iterate on THIS draft next attempt (edit it) rather than regenerating from scratch —
-            # that is what stops the loop from losing a good ending/wit it already had.
-            previous_script = script
             if report.force_shift and report.forced_template_id:
+                # Structural shift: regenerate fresh on the new template (the old best no longer fits).
                 template = get_template(report.forced_template_id)
                 perspective = pick_perspective_modifier(random.Random(attempt_number))
                 forced = True
-                previous_script = None  # a forced structural shift wants a fresh draft, not an edit
+                previous_script, feedback = None, report.revision_instructions
+                best_total, best_script, best_feedback = -1.0, None, None
+            else:
+                # Anchor the next revision on the BEST draft so far (not the last one), so a revision
+                # that regresses wittiness/ending can't derail the loop off a near-miss.
+                if report.weighted_total > best_total:
+                    best_total = report.weighted_total
+                    best_script = script
+                    best_feedback = report.revision_instructions
+                previous_script, feedback = best_script, best_feedback
             self.repo.update_run(run_id, state=RunState.REVISING.value)
 
         return verdict
 
-    def _generate_once(self, run_id, paths, produced, hashes, *, template_id, idea=None) -> None:
+    def _generate_once(
+        self, run_id, paths, produced, hashes, *, template_id, idea=None, force=False
+    ) -> None:
         brief = self._need(produced, "data_brief", paths)
-        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
+        # Exclude THIS run's own rows so a re-generate on one run_id doesn't count against itself.
+        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback, exclude_run_id=run_id)
         template = get_template(template_id) if template_id else select_template(recent_ids)
         idea = self._resolve_idea(
-            run_id, paths, brief, idea, self.repo.recent_hooks(self.s.fatigue_lookback)
+            run_id, paths, brief, idea,
+            self.repo.recent_hooks(self.s.fatigue_lookback, exclude_run_id=run_id), force=force,
         )
+        research = self._run_research(run_id, paths, brief, idea, force=force)
+        gen_brief = self._augment_brief(brief, research)
         attempt_id = str(ULID())
         script = ScriptGenerator(self.s, self._llm_provider()).run(
-            run_id, brief, template, attempt_number=1, idea=idea
+            run_id, gen_brief, template, attempt_number=1, idea=idea, research=research
         )
         self.repo.add_attempt(attempt_id, run_id, 1, template.id, False)
         self._persist(
@@ -432,8 +517,13 @@ class Orchestrator:
     def _judge_once(self, run_id, paths, produced, hashes) -> Verdict:
         script = self._need(produced, "script", paths)
         brief = self._need(produced, "data_brief", paths)
-        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback)
-        recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback)
+        # Re-augment with the saved research so the script's research-derived fact_refs line up with
+        # the brief the Judge grounds against (generation used the augmented brief). Without this a
+        # `--from-stage judge` resume silently scores those research-cited stats as ungrounded.
+        brief = self._augment_brief(brief, self._load_research(paths))
+        # Exclude THIS run's own rows so re-judging one run doesn't fail freshness against itself.
+        recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback, exclude_run_id=run_id)
+        recent_hooks = self.repo.recent_hooks(self.s.fatigue_lookback, exclude_run_id=run_id)
         attempts = self.repo.get_attempts(run_id)
         n = (attempts[-1].attempt_number + 1) if attempts else 1
         attempt_id = str(ULID())
@@ -451,6 +541,19 @@ class Orchestrator:
             fields["approved_attempt_id"] = attempt_id
         self.repo.update_run(run_id, **fields)
         return report.verdict
+
+    def _direct_broll(self, script):
+        """LLM visual-director pass (Agent 5.5): rewrite each scene's B-roll queries for relevance +
+        cross-scene diversity. Gated + best-effort; keeps the generator's keywords on any failure."""
+        if not self.s.broll_director_enabled or not script.scenes:
+            return script
+        try:
+            from ..agents.broll_director import BrollDirector
+
+            return BrollDirector(self.s, self._llm_provider()).run(script)
+        except Exception as exc:  # never let visual direction break the visuals stage
+            self.log.warning("broll_director_skipped", error=str(exc))
+            return script
 
     # --------------------------------------------------------- production
     def _run_production_stage(
@@ -475,6 +578,7 @@ class Orchestrator:
 
         elif stage == "visuals":
             script = self._need(produced, "script", paths)
+            script = self._direct_broll(script)
             vo = self._need(produced, "voiceover", paths)
             vis = Visuals(self.s, self._image_provider(), self._broll_client()).run(
                 run_id, script, vo, run_root=run_root

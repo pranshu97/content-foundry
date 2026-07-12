@@ -29,7 +29,8 @@ GROUNDING (use these facts; cite each stat by its index as fact_ref):
 HARD RULES:
 - Every quantitative claim MUST map to a provided fact via fact_ref. No other numbers.
 - The hook (first ~10s) must open a curiosity gap with a concrete, specific claim.
-- WIT & PERSONALITY (dialed way up): write like the viewer's funniest expert friend — punchy phrasing, vivid analogies, a real comedic beat in most scenes — with the humour always riding on top of accurate substance, never replacing it.
+- GO DEEP / EXPLAIN THE MECHANISM (the Insight driver): never just state a tip — for each point unpack the claim, HOW it works under the hood, WHY it works (the cause, incentive, or psychology), a concrete example, and any non-obvious second-order effect. Every scene teaches something a smart viewer couldn't have guessed.
+- WIT & PERSONALITY: the bar is a likable, human voice throughout PLUS a few lines that genuinely land (a vivid analogy that makes a mechanism click, a playful aside, a bit of self-aware humour) — NOT a forced joke in every scene, which lands flat and scores worse. Carries concrete dry-to-witty rewrite examples so the model matches the reviewer's "a little personality + an analogy that lands" bar. Humour rides on top of accurate substance, never replacing it.
 - STICK THE LANDING: the final scene must pay off the core idea with the wittiest line, give one natural like/subscribe nudge, and sign off warmly, all inside that scene's spoken narration.
 - Each scene.narration is plain spoken English (no stage directions in narration).
 - Provide on_screen_text and b_roll_keywords per scene for downstream production.

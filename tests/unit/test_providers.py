@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
+import respx
 
-from content_foundry.errors import LLMError
+from content_foundry.errors import LLMError, LLMRateLimitError
 from content_foundry.providers import (
     FallbackProvider,
     build_broll_client,
@@ -14,7 +16,12 @@ from content_foundry.providers import (
     build_render_backend,
     build_tts_provider,
 )
-from content_foundry.providers.base import LLMResponse, extract_json
+from content_foundry.providers.base import (
+    LLMResponse,
+    _raise_in_thread,
+    extract_json,
+    run_interruptible,
+)
 
 
 class _OK:
@@ -35,9 +42,69 @@ class _Boom:
         raise LLMError("down")
 
 
+class _BoomCounted:
+    name = "boom"
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, prompt, **kwargs):
+        self.calls += 1
+        raise LLMError("down")
+
+
+class _RateLimited:
+    name = "rate"
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, prompt, **kwargs):
+        self.calls += 1
+        raise LLMRateLimitError("429 quota exhausted")
+
+
 def test_extract_json_strips_fences():
     assert extract_json('```json\n{"a": 1}\n```') == '{"a": 1}'
     assert extract_json('prefix {"a": 1} suffix') == '{"a": 1}'
+
+
+def test_run_interruptible_returns_value():
+    # Transparent for the fast path: the worker's return value is passed straight through.
+    assert run_interruptible(lambda: 42) == 42
+
+
+def test_run_interruptible_reraises_worker_error():
+    # A failure inside the worker thread surfaces on the caller's thread unchanged.
+    def boom():
+        raise ValueError("nope")
+
+    with pytest.raises(ValueError, match="nope"):
+        run_interruptible(boom)
+
+
+def test_raise_in_thread_retires_a_running_worker():
+    # On Ctrl+C the main wait re-raises immediately AND pokes the daemon so it unwinds the moment its
+    # blocking section yields, rather than running to completion in the background.
+    import threading
+
+    ev = threading.Event()
+    entered = threading.Event()
+
+    def loop():
+        entered.set()
+        try:
+            while True:
+                ev.wait(0.01)  # returns ~100x/s -> the async exception lands at the next bytecode
+        except BaseException:
+            return  # unwind cleanly, exactly like run_interruptible's worker does
+
+    worker = threading.Thread(target=loop, daemon=True)
+    worker.start()
+    assert entered.wait(2.0)  # worker is in its wait loop
+    _raise_in_thread(worker, SystemExit)
+    worker.join(timeout=2.0)
+    assert not worker.is_alive()
 
 
 def test_fallback_uses_primary():
@@ -52,6 +119,254 @@ def test_fallback_switches_on_error():
     fb = FallbackProvider(_Boom(), secondary)
     assert fb.complete("x").provider == "ok"
     assert secondary.calls == 1
+
+
+def test_fallback_latches_to_secondary_after_rate_limit():
+    # Once the primary hits a 429, the WHOLE run switches to the secondary (primary not retried again).
+    primary = _RateLimited()
+    secondary = _OK()
+    fb = FallbackProvider(primary, secondary)
+    assert fb.complete("a").provider == "ok"  # primary 429 -> served by secondary AND latched off
+    assert fb.complete("b").provider == "ok"  # primary skipped entirely now
+    assert primary.calls == 1  # tried once, then disabled for the rest of the run
+    assert secondary.calls == 2
+
+
+def test_fallback_does_not_latch_on_transient_error():
+    # A generic (non-rate-limit) error falls back for THAT call but keeps trying the primary next time.
+    primary = _BoomCounted()
+    secondary = _OK()
+    fb = FallbackProvider(primary, secondary)
+    fb.complete("a")
+    fb.complete("b")
+    assert primary.calls == 2  # retried each call (NOT latched)
+    assert secondary.calls == 2
+
+
+@respx.mock
+def test_google_provider_parses_and_reports_usage():
+    import json
+
+    route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
+        return_value=httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"text": "hello "}, {"text": "world"}]}}],
+            "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 7},
+        })
+    )
+    from content_foundry.providers.google_provider import GoogleProvider
+
+    resp = GoogleProvider("key", "gemini-2.5-flash").complete("hi", system="sys")
+    assert resp.text == "hello world"
+    assert resp.provider == "google" and resp.model == "gemini-2.5-flash"
+    assert resp.prompt_tokens == 5 and resp.completion_tokens == 7
+    body = json.loads(route.calls.last.request.content)
+    assert body["systemInstruction"]["parts"][0]["text"] == "sys"  # Gemini uses the native system role
+
+
+@respx.mock
+def test_google_provider_raises_rate_limit_on_429():
+    respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
+        return_value=httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED"}})
+    )
+    from content_foundry.providers.google_provider import GoogleProvider
+
+    with pytest.raises(LLMRateLimitError):
+        GoogleProvider("key", "gemini-2.5-flash").complete("hi")
+
+
+@respx.mock
+def test_google_provider_folds_system_into_prompt_for_gemma():
+    import json
+
+    route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
+        return_value=httpx.Response(
+            200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+        )
+    )
+    from content_foundry.providers.google_provider import GoogleProvider
+
+    GoogleProvider("key", "gemma-4-31b-it").complete("do it", system="be terse")
+    body = json.loads(route.calls.last.request.content)
+    assert "systemInstruction" not in body  # Gemma has no separate system role
+    assert body["contents"][0]["parts"][0]["text"] == "be terse\n\ndo it"  # folded into the prompt
+
+
+@respx.mock
+def test_google_provider_sends_top_p_and_thinking():
+    import json
+
+    route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
+        return_value=httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    )
+    from content_foundry.providers.google_provider import GoogleProvider
+
+    GoogleProvider("key", "gemini-2.5-flash", top_p=0.95, thinking=True).complete("hi", system="sys")
+    body = json.loads(route.calls.last.request.content)
+    assert body["generationConfig"]["topP"] == 0.95
+    assert body["generationConfig"]["thinkingConfig"] == {"thinkingBudget": -1}  # dynamic thinking
+    assert body["systemInstruction"]["parts"][0]["text"] == "[THINK]\nsys"  # marker prepended
+
+
+@respx.mock
+def test_google_provider_skips_thinking_config_for_gemma():
+    import json
+
+    route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
+        return_value=httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    )
+    from content_foundry.providers.google_provider import GoogleProvider
+
+    GoogleProvider("key", "gemma-4-31b-it", thinking=True).complete("do it", system="be terse")
+    body = json.loads(route.calls.last.request.content)
+    assert "thinkingConfig" not in body["generationConfig"]  # gemma has no thinking mode
+    assert body["contents"][0]["parts"][0]["text"].startswith("[THINK]\nbe terse")  # marker folded in
+
+
+def test_build_llm_provider_google_primary_local_fallback(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("PRIMARY_PROVIDER", "google")
+    monkeypatch.setenv("FALLBACK_PROVIDER", "local")
+    monkeypatch.setenv("GOOGLE_API_KEY", "gkey")
+    monkeypatch.setenv("GOOGLE_MODELS", "gemini-2.5-flash")  # a single Google model in this case
+    reset_settings_cache()
+    llm = build_llm_provider(get_settings())
+    assert llm.primary.name == "google"  # switch to Google
+    assert llm.secondary.name == "local"  # ...with local as the quota fallback
+
+
+def test_build_llm_provider_google_two_model_chain(monkeypatch):
+    # "Within Google": a best-first list, each model taking over on any error, then the outer (local).
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("PRIMARY_PROVIDER", "google")
+    monkeypatch.setenv("FALLBACK_PROVIDER", "local")
+    monkeypatch.setenv("GOOGLE_API_KEY", "gkey")
+    monkeypatch.setenv("GOOGLE_MODELS", "gemini-3.5-flash, gemini-2.5-flash, gemini-2.5-flash-lite")
+    reset_settings_cache()
+    llm = build_llm_provider(get_settings())
+    assert llm.primary.name == "fallback"  # the intra-Google best-first chain
+    assert llm.primary.primary.name == "google" and llm.primary.primary._model == "gemini-3.5-flash"
+    # the next Google model takes over on ANY error, before the outer (local) fallback
+    assert llm.primary.secondary.name == "fallback"  # nested: 2.5-flash -> 2.5-flash-lite
+    assert llm.primary.secondary.primary._model == "gemini-2.5-flash"
+    assert llm.primary.secondary.secondary._model == "gemini-2.5-flash-lite"
+    assert llm.secondary.name == "local"  # ... then local as the final fallback
+
+
+@respx.mock
+def test_google_image_imagen_predict_path():
+    import base64
+
+    img = base64.b64encode(b"IMGBYTES").decode()
+    respx.post(url__startswith="https://generativelanguage.googleapis.com/v1beta/models/imagen").mock(
+        return_value=httpx.Response(200, json={"predictions": [{"bytesBase64Encoded": img}]})
+    )
+    from content_foundry.providers.image import GoogleImage
+
+    out = GoogleImage("key", "imagen-4.0-ultra-generate-001").generate("a shocked developer")
+    assert out == b"IMGBYTES"
+
+
+@respx.mock
+def test_google_image_nano_banana_generate_content_path():
+    import base64
+
+    img = base64.b64encode(b"NANO").decode()
+    respx.post(url__startswith="https://generativelanguage.googleapis.com/v1beta/models/gemini").mock(
+        return_value=httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [
+                {"text": "here you go"},
+                {"inlineData": {"mimeType": "image/png", "data": img}},
+            ]}}]
+        })
+    )
+    from content_foundry.providers.image import GoogleImage
+
+    out = GoogleImage("key", "gemini-2.5-flash-image").generate("a shocked developer")
+    assert out == b"NANO"
+
+
+def test_build_image_provider_google(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("IMAGE_PROVIDER", "google")
+    monkeypatch.setenv("GOOGLE_API_KEY", "gkey")
+    monkeypatch.setenv("GOOGLE_IMAGE_MODEL", "imagen-4.0-ultra-generate-001")
+    reset_settings_cache()
+    provider = build_image_provider(get_settings())
+    assert provider.name == "google" and provider._model == "imagen-4.0-ultra-generate-001"
+
+
+@respx.mock
+def test_pollinations_image_fetches_bytes():
+    respx.get(url__startswith="https://image.pollinations.ai/prompt/").mock(
+        return_value=httpx.Response(
+            200, content=b"JPEGBYTES", headers={"content-type": "image/jpeg"}
+        )
+    )
+    from content_foundry.providers.image import PollinationsImage
+
+    assert PollinationsImage().generate("a shocked developer", size="1280x720") == b"JPEGBYTES"
+
+
+def test_build_image_provider_pollinations(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("IMAGE_PROVIDER", "pollinations")  # free, no key required
+    reset_settings_cache()
+    assert build_image_provider(get_settings()).name == "pollinations"
+
+
+@respx.mock
+def test_google_image_fast_fails_on_client_error_no_retry():
+    route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
+        return_value=httpx.Response(400, json={"error": {"message": "Imagen is paid-only"}})
+    )
+    from content_foundry.providers.image import GoogleImage, _ImageClientError
+
+    with pytest.raises(_ImageClientError):
+        GoogleImage("key", "imagen-4.0-fast-generate-001").generate("x")
+    assert route.call_count == 1  # a 4xx is NOT retried, so the fallback kicks in immediately
+
+
+def test_fallback_image_provider_falls_back_on_primary_failure():
+    from content_foundry.providers.image import FallbackImageProvider
+
+    class _BoomImg:
+        name = "boom"
+
+        def generate(self, prompt, size="1024x1024"):
+            raise RuntimeError("primary down")
+
+    class _OKImg:
+        name = "pollinations"
+
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, prompt, size="1024x1024"):
+            self.calls += 1
+            return b"FALLBACK"
+
+    ok = _OKImg()
+    fb = FallbackImageProvider(_BoomImg(), ok)
+    assert fb.generate("x") == b"FALLBACK"
+    assert ok.calls == 1
+    assert fb.name == "boom"  # reports the primary's (intended) name for metadata
+
+
+def test_build_image_provider_google_primary_pollinations_fallback(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.providers.image import FallbackImageProvider
+
+    monkeypatch.setenv("IMAGE_PROVIDER", "google")
+    monkeypatch.setenv("IMAGE_FALLBACK_PROVIDER", "pollinations")
+    monkeypatch.setenv("GOOGLE_API_KEY", "gkey")
+    reset_settings_cache()
+    provider = build_image_provider(get_settings())
+    assert isinstance(provider, FallbackImageProvider)
+    assert provider.primary.name == "google" and provider.secondary.name == "pollinations"
 
 
 def test_fallback_reraises_without_secondary():

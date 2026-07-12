@@ -39,7 +39,7 @@ A single Markdown file the operator opens to record/approve and publish. Skeleto
 ```markdown
 # <Chosen Title>
 
-**Run:** <run_id>   **Template:** <template_id>   **Verdict:** PASS (8.4/10)
+**Run:** <run_id>   **Template:** <template_id>   **Verdict:** PASS (4.2/5)
 **YouTube:** <video_url> — status: **PRIVATE (draft)**
 
 ## ⚠️ MANDATORY DISCLOSURE CHECKLIST (do before going public)

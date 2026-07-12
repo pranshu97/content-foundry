@@ -188,15 +188,16 @@ class Settings(BaseSettings):
     pexels_api_key: str = ""
     pixabay_api_key: str = ""  # optional 2nd free B-roll source (more variety across videos)
     coverr_api_key: str = ""  # optional 3rd free B-roll source (coverr.co; request a key + attribution)
-    # How many candidate clips to pull per B-roll query so each scene can get a distinct clip
-    # (and no clip repeats more than twice across the video). Pexels allows up to 80 per page.
-    broll_pool_size: int = Field(15, ge=1, le=80)
+    # How many candidate clips to pull per B-roll query so each scene can get many distinct clips
+    # (every clip is used at most once, so a bigger pool = shorter, more varied beats — no stretching
+    # one clip). Pexels allows up to 80 per page.
+    broll_pool_size: int = Field(24, ge=1, le=80)
     # LLM "visual director" (Agent 5.5): after the script is written, re-derive each scene's B-roll
     # search queries from the WHOLE script so the footage is both relevant to the scene AND visually
     # diverse across the video (no repeated shots). Uses the configured LLM (e.g. Gemini); best-effort,
     # falls back to the generator's keywords on any failure.
     broll_director_enabled: bool = True
-    broll_director_max_queries: int = Field(6, ge=1, le=8)
+    broll_director_max_queries: int = Field(8, ge=1, le=12)
     visual_style: str = "clean infographic, high-contrast, bold text"
     scenes_per_video: int = 10
     thumbnail_size: str = "1280x720"

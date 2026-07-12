@@ -17,7 +17,9 @@ from content_foundry.providers.broll import (
     NullBrollClient,
     PexelsBrollClient,
     PixabayBrollClient,
+    _clip_ok,
     _interleave,
+    _off_topic,
     _pick_page,
 )
 
@@ -59,6 +61,88 @@ def test_pick_page_is_front_biased_and_in_range():
     assert _pick_page(random.Random(0), base=0) in {0, 1, 2}  # Coverr pages are 0-indexed
 
 
+def test_off_topic_filter_logic():
+    assert _off_topic("busy modern office", "moon, night, sky") is True  # unrelated stock junk
+    assert _off_topic("busy modern office", "office, business, laptop") is False  # on-topic
+    assert _off_topic("full moon rising", "moon, night") is False  # the query DID ask for the moon
+    assert _off_topic("close up of person smiling", "woman, lipstick, makeup") is True  # cosmetics
+    assert _off_topic("happy team", "valentine, love, hearts, romantic") is True  # greeting-card junk
+    assert _off_topic("anything at all", "") is False  # no metadata -> only drop on positive evidence
+
+
+def test_clip_ok_positive_context_drops_unrelated():
+    vocab = {"developer", "code", "laptop", "office", "computer", "software", "engineer"}
+    # Dodges the denylist but its tags touch nothing in this video -> positive filter drops it:
+    assert _clip_ok("woman at computer", "pottery, ceramics, clay", vocab) is False
+    # Names an off-topic subject even though it shares a generic word -> denylist drops it:
+    assert _clip_ok("woman at computer", "woman, valentine, hearts", vocab) is False
+    # On-topic clip (tags touch the video's vocabulary) is kept:
+    assert _clip_ok("woman at computer", "office, computer, business", vocab) is True
+    # No vocabulary known (context off) -> only the denylist applies, unrelated tags pass:
+    assert _clip_ok("woman at computer", "pottery, ceramics", set()) is True
+    # No tags at all -> keep (we only drop on positive evidence):
+    assert _clip_ok("woman at computer", "", vocab) is True
+
+
+@respx.mock
+def test_pixabay_positive_context_drops_unrelated_clip():
+    respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
+        return_value=httpx.Response(200, json={"hits": [
+            {"videos": {"large": {"url": "https://cdn.pixabay.com/code.mp4"}},
+             "tags": "developer, code, laptop"},
+            {"videos": {"large": {"url": "https://cdn.pixabay.com/valentine.mp4"}},
+             "tags": "valentine, love, hearts"},  # off-topic for a software video
+        ]})
+    )
+    urls = PixabayBrollClient("key").search(
+        "developer typing", context="developer code laptop office computer software engineer"
+    )
+    assert urls == ["https://cdn.pixabay.com/code.mp4"]
+
+
+@respx.mock
+def test_pixabay_drops_off_topic_clips_by_tags():
+    respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
+        return_value=httpx.Response(200, json={"hits": [
+            {"videos": {"large": {"url": "https://cdn.pixabay.com/office.mp4"}},
+             "tags": "office, business, computer"},
+            {"videos": {"large": {"url": "https://cdn.pixabay.com/moon.mp4"}},
+             "tags": "moon, night, sky"},  # off-topic for an office query -> dropped
+        ]})
+    )
+    assert PixabayBrollClient("key").search("busy modern office") == [
+        "https://cdn.pixabay.com/office.mp4"
+    ]
+
+
+@respx.mock
+def test_pixabay_keeps_off_topic_subject_when_query_asks_for_it():
+    respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
+        return_value=httpx.Response(200, json={"hits": [
+            {"videos": {"large": {"url": "https://cdn.pixabay.com/moon.mp4"}}, "tags": "moon, night"},
+        ]})
+    )
+    # The video really is about the moon, so the moon clip is kept.
+    assert PixabayBrollClient("key").search("full moon timelapse") == [
+        "https://cdn.pixabay.com/moon.mp4"
+    ]
+
+
+@respx.mock
+def test_pexels_drops_off_topic_by_url_slug():
+    respx.get(url__startswith="https://api.pexels.com/videos/search").mock(
+        return_value=httpx.Response(200, json={"videos": [
+            {"url": "https://www.pexels.com/video/developer-typing-code-101/",
+             "video_files": [{"link": "https://videos.pexels.com/code.mp4", "width": 1920}]},
+            {"url": "https://www.pexels.com/video/woman-applying-red-lipstick-202/",
+             "video_files": [{"link": "https://videos.pexels.com/lipstick.mp4", "width": 1920}]},
+        ]})
+    )
+    assert PexelsBrollClient("key").search("developer typing code") == [
+        "https://videos.pexels.com/code.mp4"
+    ]
+
+
 def test_interleave_round_robins_and_dedups():
     assert _interleave([["a", "b", "c"], ["b", "x", "y"]]) == ["a", "b", "x", "c", "y"]
 
@@ -69,7 +153,7 @@ class _StubClient:
         self._urls = urls
         self._boom = boom
 
-    def search(self, query):
+    def search(self, query, *, context=""):
         if self._boom:
             raise RuntimeError("rate limited")
         return list(self._urls)

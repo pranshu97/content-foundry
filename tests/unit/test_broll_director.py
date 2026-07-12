@@ -29,7 +29,8 @@ def test_broll_director_applies_relevant_diverse_queries(monkeypatch, good_scrip
 
 
 def test_broll_director_caps_queries_at_max(monkeypatch, good_script, fakes):
-    settings = _settings(monkeypatch, enabled=True)  # BROLL_DIRECTOR_MAX_QUERIES default = 6
+    monkeypatch.setenv("BROLL_DIRECTOR_MAX_QUERIES", "6")  # pin the cap; test is default-independent
+    settings = _settings(monkeypatch, enabled=True)
     payload = {"scenes": [
         {"index": good_script.scenes[0].index, "queries": ["a", "b", "c", "d", "e", "f", "g"]}
     ]}

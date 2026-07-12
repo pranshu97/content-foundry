@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -59,6 +60,51 @@ def _probe_seconds(path: str) -> float:
         return 0.0
 
 
+_ENCODER_CACHE: dict[str, set[str]] = {}
+# Preference order for automatic GPU encoder selection: NVIDIA NVENC, Intel Quick Sync, AMD AMF.
+_HW_ENCODER_PREFERENCE = ("h264_nvenc", "h264_qsv", "h264_amf")
+
+
+def _available_encoders(exe: str) -> set[str]:
+    """The GPU/CPU H.264/HEVC encoder names this ffmpeg build exposes (cached per binary)."""
+    if exe not in _ENCODER_CACHE:
+        try:
+            import subprocess
+
+            out = subprocess.run(
+                [exe, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=15
+            ).stdout
+        except Exception:
+            out = ""
+        pat = r"\b(h264_nvenc|hevc_nvenc|h264_qsv|hevc_qsv|h264_amf|hevc_amf|libx264)\b"
+        _ENCODER_CACHE[exe] = set(re.findall(pat, out))
+    return _ENCODER_CACHE[exe]
+
+
+def _select_encoder(exe: str, configured: str) -> str:
+    """Resolve the video encoder: an explicit setting wins; 'auto'/'' picks the best available GPU
+    H.264 encoder, else CPU libx264."""
+    choice = (configured or "auto").strip().lower()
+    if choice not in ("", "auto"):
+        return choice  # user forced a specific encoder
+    avail = _available_encoders(exe)
+    for enc in _HW_ENCODER_PREFERENCE:
+        if enc in avail:
+            return enc
+    return "libx264"
+
+
+def _encoder_opts(encoder: str) -> dict:
+    """Modest quality/speed options per encoder family so files stay small and the encode is fast."""
+    if encoder.endswith("_nvenc"):
+        return {"preset": "p5", "rc": "vbr", "cq": 23}
+    if encoder.endswith("_qsv"):
+        return {"global_quality": 23, "preset": "faster"}
+    if encoder.endswith("_amf"):
+        return {"quality": "balanced", "rc": "vbr_latency"}
+    return {}  # libx264: ffmpeg defaults (crf 23, preset medium)
+
+
 @runtime_checkable
 class RenderBackend(Protocol):
     name: str
@@ -90,8 +136,9 @@ class FfmpegBackend:
 
     name = "ffmpeg"
 
-    def __init__(self, ffmpeg_path: str = "") -> None:
+    def __init__(self, ffmpeg_path: str = "", video_encoder: str = "auto") -> None:
         self._ffmpeg = ffmpeg_path
+        self._encoder = video_encoder
 
     def render(
         self,
@@ -219,26 +266,42 @@ class FfmpegBackend:
             # sync automatically.
             video = video.filter("setpts", f"{1.0 / speed}*PTS")
             audio = _apply_atempo(audio, speed)
+        encoder = _select_encoder(exe, self._encoder)
         try:
-            (
-                ffmpeg.output(
-                    video,
-                    audio,
-                    output_path,
-                    vcodec="libx264",
-                    acodec="aac",
-                    pix_fmt="yuv420p",
-                    r=fps,
-                    shortest=None,
-                )
-                .overwrite_output()
-                .run(cmd=exe, quiet=True)
-            )
+            self._encode(video, audio, output_path, encoder, fps, exe)
+            return output_path
         except Exception as exc:  # ffmpeg.Error
-            stderr = getattr(exc, "stderr", None)
-            detail = stderr.decode("utf-8", "ignore").strip() if stderr else str(exc)
-            raise RenderError(f"ffmpeg render failed:\n{detail[-1200:]}") from exc
-        return output_path
+            error = exc
+        # A GPU encoder can fail (driver/session limits, an unsupported pixel format) — fall back to
+        # CPU libx264 so a render never dies just because hardware encoding was unavailable.
+        if encoder != "libx264":
+            try:
+                self._encode(video, audio, output_path, "libx264", fps, exe)
+                return output_path
+            except Exception as exc:
+                error = exc
+        stderr = getattr(error, "stderr", None)
+        detail = stderr.decode("utf-8", "ignore").strip() if stderr else str(error)
+        raise RenderError(f"ffmpeg render failed:\n{detail[-1200:]}") from error
+
+    def _encode(self, video, audio, output_path, encoder, fps, exe):  # pragma: no cover - ffmpeg
+        import ffmpeg
+
+        (
+            ffmpeg.output(
+                video,
+                audio,
+                output_path,
+                vcodec=encoder,
+                acodec="aac",
+                pix_fmt="yuv420p",
+                r=fps,
+                shortest=None,
+                **_encoder_opts(encoder),
+            )
+            .overwrite_output()
+            .run(cmd=exe, quiet=True)
+        )
 
 
 def _xfade_chain(streams, durations, transition, dur):  # pragma: no cover - requires ffmpeg

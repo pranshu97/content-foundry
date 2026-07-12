@@ -43,10 +43,19 @@ class BrollDirector:
         return script
 
     def _direct(self, script: Script) -> dict[int, list[str]]:
-        # Hand the model the WHOLE script (every scene's narration) so it can keep the shots relevant
-        # per scene AND deliberately diverse across scenes.
+        # Hand the model the WHOLE script (every scene's narration, the on-screen stat/callout, and
+        # the generator's first-draft keywords) so it can keep each shot relevant to what is said AND
+        # deliberately distinct across scenes.
         scenes_json = json.dumps(
-            [{"index": s.index, "narration": s.narration} for s in script.scenes],
+            [
+                {
+                    "index": s.index,
+                    "narration": s.narration,
+                    "on_screen": s.on_screen_text or "",
+                    "current_keywords": s.b_roll_keywords,
+                }
+                for s in script.scenes
+            ],
             ensure_ascii=False,
         )
         model = select_model(

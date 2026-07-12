@@ -212,6 +212,9 @@ class Settings(BaseSettings):
     video_speed: float = Field(1.0, ge=0.25, le=4.0)
     captions_enabled: bool = True
     caption_aligner: Literal["tts", "whisper"] = "tts"
+    # On-screen source citation (top strip): seconds it stays up from the moment the stat is spoken
+    # before it disappears — a brief glance, not a permanent watermark.
+    citation_seconds: float = Field(7.0, ge=3.0, le=15.0)
     render_fallback: bool = True
     # Cross-blend consecutive scenes instead of hard cuts (ffmpeg xfade). "none" = hard cut.
     # "fade" is a smooth crossfade; "fadewhite" flashes through white for a lighter feel.

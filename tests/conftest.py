@@ -276,7 +276,7 @@ class FakeBrollClient:
         ]
         self.downloaded: list[str] = []
 
-    def search(self, query: str) -> list[str]:
+    def search(self, query: str, *, context: str = "") -> list[str]:
         return list(self._urls)
 
     def download(self, url: str) -> bytes:

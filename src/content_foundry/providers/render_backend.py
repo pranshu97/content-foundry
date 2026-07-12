@@ -48,6 +48,17 @@ def resolve_ffmpeg(configured: str = "") -> str | None:
     return None
 
 
+def _probe_seconds(path: str) -> float:
+    """Best-effort clip duration in seconds via ffprobe; 0.0 when it can't be determined (the caller
+    then freeze-pads to fill the beat instead of guessing — it still never loops the clip)."""
+    try:
+        import ffmpeg
+
+        return float(ffmpeg.probe(path)["format"]["duration"])
+    except Exception:
+        return 0.0
+
+
 @runtime_checkable
 class RenderBackend(Protocol):
     name: str
@@ -123,12 +134,26 @@ class FfmpegBackend:
             for j, (path, clip_dur) in enumerate(beats):
                 d = max(clip_dur, 0.1) + (pad if j == last else 0.0)  # pad only the scene's tail
                 if path.lower().endswith(video_exts):
-                    s = ffmpeg.input(path, stream_loop=-1, t=d)
+                    # Fit the clip to its beat WITHOUT looping — a short clip looping mid-scene is the
+                    # "same b-roll 3x" artifact. A too-short clip is slowed to fill the beat (smooth
+                    # slow-mo); a longer clip is simply trimmed. tpad freezes the final frame only as a
+                    # last-resort safety when the clip length can't be probed, so we never loop.
+                    v = ffmpeg.input(path).video
+                    clen = _probe_seconds(path)
+                    if clen and clen + 0.05 < d:
+                        v = v.filter("setpts", f"{d / clen:.6f}*PTS")
+                    s = (
+                        v.filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
+                        .filter("tpad", stop_mode="clone", stop_duration=d)
+                        .trim(duration=d)
+                        .filter("setpts", "PTS-STARTPTS")
+                    )
                 else:
-                    s = ffmpeg.input(path, loop=1, t=d)
-                substreams.append(
-                    s.filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
-                )
+                    s = (
+                        ffmpeg.input(path, loop=1, t=d)
+                        .filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
+                    )
+                substreams.append(s)
             seg_stream = (
                 ffmpeg.concat(*substreams, v=1, n=len(substreams))
                 if len(substreams) > 1

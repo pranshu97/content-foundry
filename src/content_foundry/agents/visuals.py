@@ -14,9 +14,9 @@ from ..production.captions import write_srt
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
 _MIN_SHOT_SEC = 2.0  # each B-roll beat runs at least this long, to avoid choppiness
-# More, shorter beats per scene: slicing a long scene into ~6 clips (not 3 long ones) stops any single
-# clip lingering or looping on screen — the fix for visible back-to-back B-roll repetition.
-_MAX_SHOTS_PER_SCENE = 6
+# More, shorter beats per scene: slicing a long scene into up to 8 clips (not a few long ones) stops
+# any single clip lingering or being slowed to fill the gap — more distinct footage, less stretching.
+_MAX_SHOTS_PER_SCENE = 20
 
 
 def build_image_prompt(
@@ -141,6 +141,7 @@ class Visuals:
         self._settings = settings
         self._image = image_provider
         self._broll = broll_client
+        self._relevance_context = ""
         self._log = get_logger(component="visuals")
 
     def run(
@@ -151,6 +152,16 @@ class Visuals:
         scenes_dir.mkdir(parents=True, exist_ok=True)
 
         scene_visuals: list[SceneVisual] = []
+        # A bag of words describing THIS video (every scene's directed B-roll queries). It is handed
+        # to the stock search so clips whose tags touch nothing in this video (holiday/greeting/other
+        # off-topic padding the API returns) are rejected. Off when too thin to be reliable.
+        vocab = {
+            w
+            for scene in script.scenes
+            for kw in scene.b_roll_keywords
+            for w in re.findall(r"[a-z]{3,}", (kw or "").lower())
+        }
+        self._relevance_context = " ".join(sorted(vocab)) if len(vocab) >= 8 else ""
         # Per-run picker: seeded so different runs pick different clips (varied videos), while
         # de-duping, capping reuse, and never repeating a clip in consecutive scenes.
         picker = _BrollPicker(random.Random(run_id))
@@ -192,7 +203,9 @@ class Visuals:
             if not term:
                 continue
             try:
-                combined.extend(self._broll.search(_search_terms(term)))
+                combined.extend(
+                    self._broll.search(_search_terms(term), context=self._relevance_context)
+                )
             except Exception as exc:  # a flaky search must not kill the scene
                 self._log.warning("broll_search_failed", query=term, error=str(exc))
         return combined

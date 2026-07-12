@@ -6,6 +6,7 @@ Disabled gracefully (NullBrollClient) when no key is set; each scene then falls 
 from __future__ import annotations
 
 import random
+import re
 from itertools import zip_longest
 from typing import Protocol, runtime_checkable
 
@@ -43,12 +44,96 @@ def _pick_page(rng: random.Random, *, base: int = 1) -> int:
     return rng.choices(pages, weights=list(_PAGE_WEIGHTS), k=1)[0]
 
 
+# Subjects stock sites pad generic queries with even when they are unrelated to the video — a moon
+# time-lapse for "busy office", a lipstick close-up for "person smiling". A clip is dropped when its
+# OWN tags/slug name one of these AND the query never asked for it, so a clip whose subject the query
+# really did request (an astronomy video that queries "moon") is still kept. Deliberately EXCLUDES
+# tech-ambiguous words (cloud, star, tree, network, data) so genuine B-roll is never filtered.
+_OFF_TOPIC_SUBJECTS = frozenset({
+    # celestial / sky scenery
+    "moon", "lunar", "galaxy", "galaxies", "planet", "planets", "nebula", "cosmos", "cosmic",
+    "universe", "aurora", "eclipse", "meteor", "comet", "sunset", "sunrise", "twilight", "dusk",
+    # beauty / cosmetics
+    "lipstick", "makeup", "mascara", "eyeshadow", "eyeliner", "cosmetic", "cosmetics", "skincare",
+    "manicure", "pedicure", "perfume", "salon", "spa", "lipgloss",
+    # animals / wildlife
+    "cat", "cats", "kitten", "dog", "dogs", "puppy", "pet", "pets", "wildlife", "bird", "birds",
+    "horse", "cow", "sheep", "goat", "insect", "insects", "butterfly", "bee", "spider", "fish",
+    "dolphin", "whale", "lion", "tiger", "elephant", "monkey", "deer", "rabbit",
+    # nature / travel scenery
+    "flower", "flowers", "floral", "blossom", "waterfall", "beach", "ocean", "sea", "seascape",
+    "seaside", "mountain", "mountains", "jungle", "forest", "meadow", "sunflower", "tulip", "rose",
+    "coral", "safari", "vineyard",
+    # food / drink
+    "pizza", "burger", "cake", "dessert", "cupcake", "cocktail", "smoothie", "sushi", "pancake",
+    "wine", "beer", "champagne",
+    # romance / celebration clichés
+    "wedding", "bride", "groom", "kiss", "kissing", "romantic", "romance", "honeymoon", "fireworks",
+    "confetti", "balloon", "balloons",
+    # love / valentine / holidays / greetings (stock "greeting-card" padding)
+    "valentine", "valentines", "love", "heart", "hearts", "dating", "couple", "couples",
+    "christmas", "xmas", "santa", "halloween", "easter", "thanksgiving", "holiday", "holidays",
+    "festive", "festival", "birthday", "party", "celebration", "celebrate", "anniversary",
+    "gift", "gifts", "present", "greeting", "greetings",
+    # lifestyle / people fluff
+    "yoga", "meditation", "baby", "babies", "toddler", "newborn", "fashion",
+    "dance", "dancing", "concert", "nightclub", "disco", "karaoke",
+})
+
+
+def _off_topic(query: str, meta) -> bool:
+    """True when a clip's own tags/slug name a known off-topic stock subject (moon, lipstick, cat,
+    sunset…) that the query never asked for — so an unrelated clip the API padded results with is
+    dropped, while a clip whose subject the query DID request is kept. No metadata => never off-topic
+    (we only drop on positive evidence)."""
+    if isinstance(meta, (list, tuple)):
+        meta = " ".join(str(m) for m in meta)
+    meta_words = set(re.findall(r"[a-z]+", str(meta).lower()))
+    stray = meta_words & _OFF_TOPIC_SUBJECTS
+    if not stray:
+        return False
+    query_words = set(re.findall(r"[a-z]+", (query or "").lower()))
+    return bool(stray - query_words)
+
+
+_SLUG_STOP = frozenset({"http", "https", "www", "com", "pexels", "video", "videos", "photo", "photos"})
+
+
+def _slug_words(url: str) -> str:
+    """Pexels clips carry a descriptive page slug ('.../video/woman-applying-lipstick-123/'); flatten
+    it to its DESCRIPTIVE words (dropping the domain boilerplate) for the relevance check. Other
+    providers pass their tags directly."""
+    words = re.findall(r"[a-z]+", (url or "").lower())
+    return " ".join(w for w in words if w not in _SLUG_STOP)
+
+
+def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
+    """Keep a candidate clip only when it is NOT an off-topic stock subject the query never asked for
+    AND — when we know this video's vocabulary (``vocab``) — its tags/slug actually touch that
+    vocabulary. The second check is what stops holiday/greeting/unrelated clips that dodge the
+    denylist (e.g. a 'Happy Valentine's Day' clip in a software video). No tags/slug => keep (we only
+    drop on positive evidence)."""
+    if _off_topic(query, meta):
+        return False
+    if not vocab:
+        return True
+    if isinstance(meta, (list, tuple)):
+        meta = " ".join(str(m) for m in meta)
+    meta_words = set(re.findall(r"[a-z]+", str(meta).lower()))
+    if not meta_words:
+        return True
+    return bool(meta_words & vocab)
+
+
 @runtime_checkable
 class BrollClient(Protocol):
     enabled: bool
 
-    def search(self, query: str) -> list[str]:
-        """Return candidate downloadable clip URLs for the query (best first; [] if no match)."""
+    def search(self, query: str, *, context: str = "") -> list[str]:
+        """Return candidate downloadable clip URLs for the query (best first; [] if no match).
+
+        ``context`` is an optional bag of words describing the whole video; clips whose tags touch
+        nothing in it are dropped."""
         ...
 
     def download(self, url: str) -> bytes: ...
@@ -59,7 +144,7 @@ class NullBrollClient:
 
     enabled = False
 
-    def search(self, query: str) -> list[str]:
+    def search(self, query: str, *, context: str = "") -> list[str]:
         return []
 
     def download(self, url: str) -> bytes:  # pragma: no cover - never called when disabled
@@ -76,7 +161,7 @@ class PexelsBrollClient:
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
 
-    def search(self, query: str) -> list[str]:
+    def search(self, query: str, *, context: str = "") -> list[str]:
         import httpx
 
         resp = httpx.get(
@@ -91,10 +176,11 @@ class PexelsBrollClient:
             timeout=30,
         )
         resp.raise_for_status()
+        vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
         urls: list[str] = []
         for video in resp.json().get("videos", []):
             files = sorted(video.get("video_files", []), key=lambda f: f.get("width", 0))
-            if files:
+            if files and _clip_ok(query, _slug_words(video.get("url", "")), vocab):
                 urls.append(files[-1]["link"])
         return urls
 
@@ -115,7 +201,7 @@ class PixabayBrollClient:
         self._pool_size = min(200, max(3, pool_size))  # Pixabay requires per_page in [3, 200]
         self._rng = rng or random.Random()
 
-    def search(self, query: str) -> list[str]:
+    def search(self, query: str, *, context: str = "") -> list[str]:
         import httpx
 
         resp = httpx.get(
@@ -129,13 +215,15 @@ class PixabayBrollClient:
             timeout=30,
         )
         resp.raise_for_status()
+        vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
         urls: list[str] = []
         for hit in resp.json().get("hits", []):
             renditions = hit.get("videos", {})
             for size in ("large", "medium", "small", "tiny"):
                 link = (renditions.get(size) or {}).get("url")
                 if link:
-                    urls.append(link)
+                    if _clip_ok(query, hit.get("tags", ""), vocab):
+                        urls.append(link)
                     break
         return urls
 
@@ -157,7 +245,7 @@ class CoverrBrollClient:
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
 
-    def search(self, query: str) -> list[str]:
+    def search(self, query: str, *, context: str = "") -> list[str]:
         import httpx
 
         resp = httpx.get(
@@ -172,10 +260,11 @@ class CoverrBrollClient:
             timeout=30,
         )
         resp.raise_for_status()
+        vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
         urls: list[str] = []
         for hit in resp.json().get("hits", []):
             link = (hit.get("urls") or {}).get("mp4")
-            if link:
+            if link and _clip_ok(query, [hit.get("title", ""), hit.get("tags", "")], vocab):
                 urls.append(link)
         return urls
 
@@ -194,11 +283,11 @@ class MultiBrollClient:
     def enabled(self) -> bool:
         return bool(self._clients)
 
-    def search(self, query: str) -> list[str]:
+    def search(self, query: str, *, context: str = "") -> list[str]:
         pools: list[list[str]] = []
         for client in self._clients:
             try:
-                pools.append(client.search(query))
+                pools.append(client.search(query, context=context))
             except Exception:  # one source failing must not sink the scene
                 pools.append([])
         return _interleave(pools)

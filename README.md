@@ -10,6 +10,12 @@ strict quality rubric, and compliant with synthetic-content disclosure by defaul
 > A high-level architecture summary is in [`TECH_REPORT.md`](TECH_REPORT.md), and the operator guide
 > in [`Tutorial.md`](Tutorial.md). Build learnings & conventions are tracked in [`Reference.md`](Reference.md).
 
+## Live channel
+
+Watch the output live: **[youtube.com/@TheCrackedEng](https://www.youtube.com/@TheCrackedEng)**
+
+> **Disclaimer:** This channel is 100% generated, voiced, and published autonomously by this repository.
+
 ## Quickstart
 
 ```bash

@@ -5,7 +5,7 @@
 secrets/
 
 # ---- Data & generated output ----
-data/
+/data/                       # repo-root runtime data (DB, dev sound cache); packaged sounds live under src/
 output/
 *.db
 *.sqlite3

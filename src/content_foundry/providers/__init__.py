@@ -167,14 +167,18 @@ def build_render_backend(settings: Settings) -> RenderBackend:
     if settings.render_backend == "ffmpeg":
         from .render_backend import FfmpegBackend
 
-        return FfmpegBackend(settings.ffmpeg_path)
+        return FfmpegBackend(settings.ffmpeg_path, settings.video_encoder)
     if settings.render_backend == "moviepy":
         from .render_backend import MoviePyBackend
 
         return MoviePyBackend()
     from .render_backend import AvatarBackend, FfmpegBackend
 
-    fallback = FfmpegBackend(settings.ffmpeg_path) if settings.render_fallback else None
+    fallback = (
+        FfmpegBackend(settings.ffmpeg_path, settings.video_encoder)
+        if settings.render_fallback
+        else None
+    )
     return AvatarBackend(settings.avatar_provider, settings.heygen_api_key, fallback)
 
 

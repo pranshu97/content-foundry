@@ -510,3 +510,21 @@ def test_resolve_ffmpeg_never_returns_missing_configured(tmp_path, monkeypatch):
     monkeypatch.setattr(rb.shutil, "which", lambda _name: None)
     bad = str(tmp_path / "does-not-exist.exe")
     assert rb.resolve_ffmpeg(bad) != bad  # a non-existent path is skipped, never returned
+
+
+def test_select_encoder_prefers_gpu_then_falls_back_to_cpu(monkeypatch):
+    import content_foundry.providers.render_backend as rb
+
+    monkeypatch.setattr(rb, "_available_encoders", lambda _exe: {"libx264", "h264_nvenc", "h264_amf"})
+    assert rb._select_encoder("ffmpeg", "auto") == "h264_nvenc"  # NVIDIA preferred over AMD
+    monkeypatch.setattr(rb, "_available_encoders", lambda _exe: {"libx264"})
+    assert rb._select_encoder("ffmpeg", "auto") == "libx264"  # no GPU encoder -> CPU
+    assert rb._select_encoder("ffmpeg", "h264_qsv") == "h264_qsv"  # an explicit choice always wins
+
+
+def test_encoder_opts_per_family():
+    import content_foundry.providers.render_backend as rb
+
+    assert rb._encoder_opts("h264_nvenc")["rc"] == "vbr"
+    assert rb._encoder_opts("h264_qsv")["global_quality"] == 23
+    assert rb._encoder_opts("libx264") == {}  # CPU keeps ffmpeg defaults

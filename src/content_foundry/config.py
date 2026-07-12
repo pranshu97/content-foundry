@@ -205,6 +205,11 @@ class Settings(BaseSettings):
     # ---------- Render ----------
     render_backend: Literal["ffmpeg", "moviepy", "avatar"] = "ffmpeg"
     ffmpeg_path: str = ""  # optional explicit path to ffmpeg(.exe); auto-discovered when blank
+    # Video encoder. "auto" uses your GPU's hardware H.264 encoder when ffmpeg exposes one (NVIDIA
+    # h264_nvenc, then Intel h264_qsv, then AMD h264_amf) — far faster than the CPU libx264 — and
+    # falls back to libx264 automatically if the GPU encode fails. Force one by name to override
+    # ("libx264" = CPU, "h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf").
+    video_encoder: str = "auto"
     avatar_provider: Literal["none", "heygen", "did"] = "none"
     heygen_api_key: str = ""
     video_resolution: str = "1920x1080"

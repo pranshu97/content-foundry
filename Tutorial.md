@@ -86,7 +86,7 @@ The `--dry-run` still produces a real `assets/video.mp4` — it just skips the Y
 ```
 ▶ content-foundry  niche tech careers  ·  fetch → publish
   ✓ Data brief  — 8 facts · search
-  ⚖ attempt 1 → PASS  score 8.10/10 · insight 8.0
+  ⚖ attempt 1 → PASS  score 4.05/5 · insight 4.0
   ✓ Voiceover (TTS)
   ✓ Visuals & thumbnail
   ✓ Rendering video
@@ -171,29 +171,29 @@ type your own idea instead, before writing.
 
 ## 7. Understanding the Judge
 
-The Judge scores 10 dimensions (0–10). Some have **hard floors** — miss a floor and it's a REVISE
+The Judge scores 10 dimensions (0–5). Some have **hard floors** — miss a floor and it's a REVISE
 no matter the total:
 
 | Dimension | Weight | Floor | How scored |
 |---|---|---|---|
 | Actionability | 14% | — | LLM (hybrid) |
 | Specificity | 14% | — | deterministic |
-| Factual Grounding | 14% | **`GROUNDING_MIN` (8.0)** | deterministic |
-| Insight | 14% | **`INSIGHT_MIN` (7.0)** | LLM (hybrid) |
+| Factual Grounding | 14% | **`GROUNDING_MIN` (4.0)** | deterministic |
+| Insight | 14% | **`INSIGHT_MIN` (3.5)** | LLM (hybrid) |
 | Engagement | 10% | — | LLM (hybrid) |
-| Wittiness | 7% | **`WITTINESS_MIN` (5.0)** | LLM (hybrid) |
-| Ending / Sign-off | 7% | **`ENDING_MIN` (6.0)** | deterministic |
+| Wittiness | 7% | **`WITTINESS_MIN` (2.5)** | LLM (hybrid) |
+| Ending / Sign-off | 7% | **`ENDING_MIN` (3.0)** | deterministic |
 | Hook & Retention | 10% | — | deterministic |
 | Structural Freshness | 7% | — | deterministic |
 | Compliance | 3% | pass/fail | deterministic |
 
-- **PASS**: weighted total ≥ `PASS_THRESHOLD` (7.5) **and** all floors met.
+- **PASS**: weighted total ≥ `PASS_THRESHOLD` (3.75) **and** all floors met.
 - **REVISE**: a floor missed or total too low → the Judge's critique is fed into a rewrite.
 - **FAIL**: never passed within `MAX_REVISIONS` (usually a *data* problem, not writing).
 
 **Completeness gate (hard).** Independent of the score, a script is REVISEd if it's too short — fewer
 than `MIN_SCENES` (3) scenes **or** below `MIN_SCRIPT_WORD_RATIO × SCRIPT_TARGET_WORDS` words (default
-`0.5 × 900 = 450`). This is why a script can score **8+/10 and still not PASS**: high quality but too
+`0.5 × 900 = 450`). This is why a script can score **4+/5 and still not PASS**: high quality but too
 short — `report` shows a `LENGTH:` line when it fires. If your local model under-produces, lower
 `SCRIPT_TARGET_WORDS` (e.g. `350`) or use a bigger model. Every statistic also carries its **source**
 on screen (`… · Source: Adzuna`), enforced in code so a stat can never appear un-sourced.

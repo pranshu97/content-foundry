@@ -1,6 +1,6 @@
 ## 15. Prompt Library
 
-Prompts live as plain `.txt` files under `prompts/` and are loaded by `load_prompt(name)`. They use `{placeholder}` tokens filled at runtime. LLM stages **must request strict JSON** matching the relevant Pydantic schema.
+Prompts live as plain `.txt` files under `prompts/` and are loaded by `load_prompt(name)`. They use `{placeholder}` tokens filled at runtime. LLM stages **must request strict JSON** matching the relevant Pydantic schema. Each prompt is organized into **labeled XML-style sections** (`<role>`, `<template>`/`<grounding>`/`<sources>`, `<rules>`, `<output_format>`, …) so the model cleanly separates its instructions from the injected data; `render_prompt` fills only the named `{placeholder}` tokens and leaves every other brace (e.g. the JSON shape) untouched.
 
 > **Cost note:** only **one stage always calls an LLM** — the Script Generator (§15.2). The Judge calls an LLM **at most once** and only in `hybrid`/`llm` mode (§15.3). The **Data Fetcher** and **Visuals** stages are now fully deterministic and have **no prompts** (their old prompt files are removed; see [Ch. 7](07-agent-1-data-fetcher.md#7-agent-1-data-fetcher) and [Ch. 11](11-agent-5-visuals-thumbnail.md#11-agent-5-visuals-thumbnail)).
 
@@ -85,7 +85,7 @@ Return ONLY valid JSON:
   "engagement":    {"justification": str, "evidence": str, "score_1_5": int},
   "wittiness":     {"justification": str, "evidence": str, "score_1_5": int} }
 ```
-Code maps `score_1_5` → 0-10 via `(score_1_5-1)*2.5`. In `deterministic` mode this prompt is **not used** — all four dimensions fall back to heuristics ([Ch. 9.3b](09-judge-agent.md#9-judge-agent)).
+The raw `score_1_5` is used **directly** on the 0-5 rubric scale (no rescaling). In `deterministic` mode this prompt is **not used** — all four dimensions fall back to heuristics ([Ch. 9.3b](09-judge-agent.md#9-judge-agent)).
 
 ### 15.4 `judge.rubric.txt` (anchored 1-5 scales for the LLM-scored dims)
 ```text
@@ -123,20 +123,21 @@ WITTINESS / ENTERTAINMENT — is it genuinely fun to listen to? (humour rides ON
   4 = genuinely funny: a vivid analogy, playful aside, or well-timed joke that lands.
   5 = consistently sharp and memorable, several real laughs, never at the cost of the facts.
 
-Mapping to the weighted rubric: score10 = (score_1_5 - 1) * 2.5  (1->0 ... 5->10).
-The other SIX dimensions are computed deterministically in code (see Ch. 9.3a):
-  Specificity (w=0.14), Factual Grounding (w=0.14, FLOOR=8.0), Hook & Retention (w=0.10),
-  Structural Freshness (w=0.07), Compliance (w=0.03, PASS/FAIL), and Ending (w=0.07, FLOOR=6.0 —
-  a word-match needing BOTH a like/subscribe nudge AND a sign-off, each worth 5). Actionability &
-  Insight are w=0.14 each; Engagement w=0.10 (no floor); Wittiness w=0.07 (FLOOR=5.0). Weights sum to 1.0.
-weighted_total = sum(score10 * weight)  (a plain weighted average on 0-10). A dimension below its FLOOR forces non-PASS.
+Mapping: each 1-5 score is used DIRECTLY on the 0-5 scale (no rescaling).
+The other SIX dimensions are computed deterministically in code (see Ch. 9.3a), on 0-10 internally
+and halved to 0-5:
+  Specificity (w=0.14), Factual Grounding (w=0.14, FLOOR=4.0), Hook & Retention (w=0.10),
+  Structural Freshness (w=0.07), Compliance (w=0.03, PASS/FAIL), and Ending (w=0.07, FLOOR=3.0 —
+  a word-match needing BOTH a like/subscribe nudge AND a sign-off). Actionability &
+  Insight are w=0.14 each (Insight FLOOR=3.5); Engagement w=0.10 (no floor); Wittiness w=0.07 (FLOOR=2.5). Weights sum to 1.0.
+weighted_total = sum(score * weight)  (a plain weighted average on 0-5). A dimension below its FLOOR forces non-PASS.
 ```
 
 ### 15.5 `visuals` — deterministic (no prompt)
 The old `visuals.system.txt` LLM pass is **removed**. Per-scene image prompts and the
 thumbnail prompt are now built by code from a fixed f-string template
 (`VISUAL_STYLE` + `b_roll_keywords` + `on_screen_text`), and scene `kind` is chosen by a
-simple rule. See [Ch. 11.5](11-agent-5-visuals-thumbnail.md#11-agent-5-visuals-thumbnail).
+simple rule. The per-scene image prompt also carries **quality cues** (cinematic lighting, sharp focus, high detail) and the thumbnail prompt is a **high-CTR template** (one bold focal subject, exaggerated emotion, dramatic rim lighting, rule-of-thirds composition, clean title space, no baked-in text/logos/real people). See [Ch. 11.5](11-agent-5-visuals-thumbnail.md#11-agent-5-visuals-thumbnail).
 
 ### 15.6 Conventions
 - **JSON-only outputs** are validated against Pydantic; on parse failure the agent runs a single "reformat to valid JSON" retry before failing.

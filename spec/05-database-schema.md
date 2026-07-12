@@ -34,8 +34,8 @@ CREATE TABLE attempts (
     template_id      TEXT NOT NULL,                    -- e.g. 'problem_solution'
     forced_shift     INTEGER NOT NULL DEFAULT 0,       -- 1 if Judge forced a structural shift
     verdict          TEXT,                             -- PASS|REVISE|FAIL
-    insight_score    REAL,                             -- 0-10 (denormalized for dashboard)
-    weighted_total   REAL,                             -- 0-10 overall rubric score
+    insight_score    REAL,                             -- 0-5 (denormalized for dashboard)
+    weighted_total   REAL,                             -- 0-5 overall rubric score
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(run_id, attempt_number)
 );
@@ -58,7 +58,7 @@ CREATE TABLE rubric_scores (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     attempt_id       TEXT NOT NULL REFERENCES attempts(attempt_id) ON DELETE CASCADE,
     dimension        TEXT NOT NULL,                    -- actionability|specificity|grounding|insight|hook|fatigue|compliance
-    score            REAL NOT NULL,                    -- 0-10
+    score            REAL NOT NULL,                    -- 0-5
     weight           REAL NOT NULL,                    -- rubric weight used
     passed           INTEGER NOT NULL,                 -- 1/0 vs. dimension minimum
     comment          TEXT                              -- Judge's justification

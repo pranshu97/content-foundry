@@ -84,7 +84,7 @@ A coherent walkthrough for one run (`niche="tech careers"`, `topic="junior devel
 ### 24.5 `package.md` (excerpt)
 ```markdown
 # The Junior Dev Job Is Disappearing (Do This Instead)
-**Run:** 01J9X2...  **Template:** contrarian  **Verdict:** PASS (8.4/10)
+**Run:** 01J9X2...  **Template:** contrarian  **Verdict:** PASS (4.2/5)
 **YouTube:** https://youtu.be/dQw4... — status: **PRIVATE (draft)**
 
 ## ⚠️ MANDATORY DISCLOSURE CHECKLIST

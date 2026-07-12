@@ -10,32 +10,32 @@ The quality gate. The Judge scores every script against a fixed rubric, enforces
 - **Output:** `JudgeReport` artifact → `output/runs/<run_id>/judge_report.json`.
 
 ### 9.3 The full rubric
-Each dimension is scored **0–10**. The **weighted total** is the publish-quality signal; dimensions with a **hard floor** can independently force a non-PASS even if the total is high.
+Each dimension is scored **0–5**. The **weighted total** is the publish-quality signal; dimensions with a **hard floor** can independently force a non-PASS even if the total is high.
 
-| # | Dimension | Weight | Hard floor | Method | What a 10 looks like |
+| # | Dimension | Weight | Hard floor | Method | What a 5 looks like |
 |---|-----------|:------:|:----------:|--------|----------------------|
 | 1 | **Actionability** | 14% | — | LLM* / heuristic | Viewer can *do* something specific today; concrete steps, not vibes |
 | 2 | **Specificity / Non-Generic** | 14% | — | **Deterministic** | Could not have been written without the data; names numbers, roles, tradeoffs |
-| 3 | **Factual Grounding** | 14% | `GROUNDING_MIN` (8.0) | **Deterministic** | Every stat traces to a `DataBrief` fact; zero invented numbers |
-| 4 | **Insight Score (value density)** | 14% | `INSIGHT_MIN` (7.0) | LLM* / heuristic | Contains a genuinely non-obvious insight that reframes the topic |
+| 3 | **Factual Grounding** | 14% | `GROUNDING_MIN` (4.0) | **Deterministic** | Every stat traces to a `DataBrief` fact; zero invented numbers |
+| 4 | **Insight Score (value density)** | 14% | `INSIGHT_MIN` (3.5) | LLM* / heuristic | Contains a genuinely non-obvious insight that reframes the topic |
 | 5 | **Engagement / Retention** | 10% | — | LLM* / heuristic | Opens loops and holds attention start to finish; you can't look away |
-| 6 | **Wittiness / Entertainment** | 7% | `WITTINESS_MIN` (5.0) | LLM* / heuristic | Genuinely funny and lively; the wit rides on top of the substance |
+| 6 | **Wittiness / Entertainment** | 7% | `WITTINESS_MIN` (2.5) | LLM* / heuristic | Genuinely funny and lively; the wit rides on top of the substance |
 | 7 | **Hook & Retention** | 10% | — | **Deterministic** | First 10s create a curiosity gap; no slow throat-clearing |
 | 8 | **Structural Freshness** | 7% | — | **Deterministic** | Opening, arc, and phrasing differ from recent videos |
 | 9 | **Compliance (disclosure)** | 3% | pass/fail | **Deterministic** | `synthetic_disclosure=true` present and reflected in description |
-| 10 | **Ending / Sign-off** | 7% | `ENDING_MIN` (6.0) | **Deterministic** | Closes with **both** a like/subscribe nudge AND a warm sign-off (each worth 5; word-match) |
+| 10 | **Ending / Sign-off** | 7% | `ENDING_MIN` (3.0) | **Deterministic** | Closes with **both** a like/subscribe nudge AND a warm sign-off (both required; word-match) |
 
-*\* LLM-scored (Actionability, Insight, Engagement, Wittiness) only when `JUDGE_MODE=hybrid|llm`; in `deterministic` mode a heuristic is used instead. Weights **sum to 1.0**, so `weighted_total` is a plain weighted average of the ten 0–10 dimension scores (it stays on 0–10 — that is why `PASS_THRESHOLD` and the floors are 0–10 values). **Floors that force a non-PASS:** Grounding, Insight, Wittiness (≥5/10, i.e. a 3/5), and Ending; Engagement is a weighted contributor with no floor. Insight and Wittiness are relaxable by gate relief; Grounding, Compliance, Ending, and fatigue are not. Keep any subjective floor ≤ 7.5 — on the coarse 1-5→0-10 scale a higher floor would need a perfect 5.*
+*\* LLM-scored (Actionability, Insight, Engagement, Wittiness) only when `JUDGE_MODE=hybrid|llm`; in `deterministic` mode a heuristic is used instead. Weights **sum to 1.0**, so `weighted_total` is a plain weighted average of the ten 0–5 dimension scores (it stays on 0–5 — that is why `PASS_THRESHOLD` and the floors are 0–5 values). The four LLM dims use their raw 1–5 integer **directly**; the six deterministic dims are computed on 0–10 and **halved (÷2)** onto the 0–5 scale. **Floors that force a non-PASS:** Grounding, Insight, Wittiness (≥2.5/5, i.e. a 3/5), and Ending; Engagement is a weighted contributor with no floor. Insight and Wittiness are relaxable by gate relief; Grounding, Compliance, Ending, and fatigue are not. Keep any subjective floor ≤ 4.0 — on the discrete 1–5 scale a higher floor would need a perfect 5.*
 
-> **Insight Score = value density.** It is its own gate (floor 7.0). Generic, "soul-crushing" advice scores low here and is rejected outright, even if everything else is fine — this is the core anti-mediocrity mechanism.
+> **Insight Score = value density.** It is its own gate (floor 3.5). Generic, "soul-crushing" advice scores low here and is rejected outright, even if everything else is fine — this is the core anti-mediocrity mechanism.
 
 ### 9.3a Deterministic checks (no tokens)
 Implemented in `judge/checks.py`, run **before** any LLM call:
-- **Grounding:** assert every number/`%`/`$` token in narration maps to a `Script.scenes[*].fact_ref` that exists in the `DataBrief`. Score = `10 * grounded_stats / total_stats`; below `GROUNDING_MIN` short-circuits to `REVISE`.
+- **Grounding:** assert every number/`%`/`$` token in narration maps to a `Script.scenes[*].fact_ref` that exists in the `DataBrief`. Score = `5 * grounded_stats / total_stats` on the 0–5 rubric (=5 when there are none); below `GROUNDING_MIN` (4.0) short-circuits to `REVISE`.
 - **Compliance:** assert `synthetic_disclosure=true` and a disclosure phrase is present in `description` (regex). Pass/fail.
 - **Structural Freshness / fatigue:** compare `template_id` and a hook-shingle (normalized 5-gram set, Jaccard) against the last `FATIGUE_LOOKBACK` runs from `template_usage`/stored hooks. Too-similar → `template_fatigue=true`.
-- **Specificity:** ratio of "concrete" tokens (digits, `$`, `%`, capitalized role/tech terms) to total; mapped to 0–10.
-- **Hook:** check the first scene contains a number/specific claim and is under N words; mapped to 0–10.
+- **Specificity:** ratio of "concrete" tokens (digits, `$`, `%`, capitalized role/tech terms) to total; mapped to the 0–5 rubric.
+- **Hook:** check the first scene contains a number/specific claim and is under N words; mapped to the 0–5 rubric.
 - **Completeness (hard gate):** reject a draft too short to be a real video — `len(scenes) < MIN_SCENES` **or** `word_count < MIN_SCRIPT_WORD_RATIO × SCRIPT_TARGET_WORDS`. A single-scene stub short-circuits to `REVISE` with no LLM call. The rubric scores *quality*, not *quantity*, so without this gate a grounded but tiny stub scores well (a short hook even scores *higher*).
 - **Redundancy / duplicate scenes (hard gate):** near-verbatim repeated scenes are lazy padding that drives viewers away, so any scene pair whose narration 3-gram Jaccard ≥ `MAX_SCENE_SIMILARITY` (0.5) short-circuits to `REVISE` with a note **naming the offending scene pairs** — stopping a model that recycles the same lines/facts across scenes.
 - **Generic-phrase penalty:** a blocklist (e.g. "network more", "update your resume", "work hard") deducts points and feeds the heuristic insight fallback.
@@ -47,15 +47,16 @@ Implemented in `judge/checks.py`, run **before** any LLM call:
 
 ### 9.3c Eval-prompt techniques (LLM-as-a-Judge)
 The optional LLM scoring pass (the four subjective dimensions) follows evaluation best practices to stay calibrated and stable. These are baked into `judge.system.txt` / `judge.rubric.txt` ([Ch. 15](15-prompt-library.md#15-prompt-library)):
-- **Discrete integer scale 1–5** (not free 0–10 floats or 0–1), with **every level explicitly anchored** to a description of what a 1/2/3/4/5 means. Code normalizes to the internal 0–10 scale via `score10 = (score_1_5 − 1) × 2.5` (1→0, 3→5, **4→7.5**, 5→10), so the Insight floor `INSIGHT_MIN=7.0` requires a genuine **4**. Because the scale is coarse, keep `INSIGHT_MIN ≤ 7.5`: a floor set in (7.5, 10] is only clearable by a *perfect 5*, which silently makes the gate unreachable.
+- **Discrete integer scale 1–5** (not free floats or 0–1), with **every level explicitly anchored** to a description of what a 1/2/3/4/5 means. The raw `score_1_5` is used **directly** on the 0–5 rubric scale (no rescaling), so the Insight floor `INSIGHT_MIN=3.5` requires a genuine **4**. Because the scale is discrete, keep `INSIGHT_MIN ≤ 4.0`: a floor set in (4, 5] is only clearable by a *perfect 5*, which silently makes the gate unreachable.
 - **Reason-before-score (chain-of-thought):** the model writes a one-sentence justification **before** the integer, and must **quote ≥1 concrete span** from the script as evidence (combats hallucinated grading).
 - **Bias mitigations stated explicitly in the prompt:**
   - *Recency / position bias* — evaluate the script as a whole; do not over-weight the first or last lines.
-  - *Leniency / central-tendency bias* — grade **hard**: most drafts sit at 2–3, a **4** must be genuinely non-obvious, **5** is rare; when torn between two scores, pick the **lower**. Effort, confidence, length, and fluent writing earn nothing.
+  - *Leniency / central-tendency bias* — grade **hard but FAIR**: most drafts sit at 2–3, a **4** must be genuinely non-obvious, **5** is rare; do not inflate, but do **not** withhold a **4** the script has clearly earned. Effort, confidence, length, and fluent writing earn nothing.
   - *Verbosity bias* — length ≠ quality; long is not insightful.
   - *Self-preference bias* — grade against the rubric, not against "how an LLM would phrase it."
 - **Independent dimensions:** the subjective dimensions are scored separately; one must not anchor another.
 - **Determinism:** temperature 0 ⇒ identical input yields identical score.
+- **Labeled prompt structure:** `judge.system.txt` and `judge.rubric.txt` are organized into explicit XML-style sections (`<role>`, `<scope>`, `<scoring_method>`, `<grading_standard>`, `<bias_rules>`, `<rubric>`, `<script>`, `<output_format>`; the rubric wraps its anchored 1–5 levels in `<anchors>`) so the scoring instructions stay cleanly separated from the script under review.
 
 ### 9.4 Template-fatigue detection
 Computed **deterministically in code** (no LLM): the Judge loads the last `FATIGUE_LOOKBACK` runs' `template_id` and stored hooks from the DB. If the current script reuses a template back-to-back, or its hook shingle is too similar (Jaccard ≥ threshold), it sets `template_fatigue=true` and `force_shift=true`, names a **different** `forced_template_id`, and returns `REVISE`. This implements the "radical shift in structure or perspective" requirement at zero token cost.
@@ -83,9 +84,9 @@ On `REVISE`, the report includes **structured, actionable `revision_instructions
 class DimensionScore(BaseModel):
     dimension: str
     score_1_5: int | None   # LLM-scored dims: discrete 1-5 (None for code-only dims)
-    score: float            # normalized 0-10 (LLM: (score_1_5-1)*2.5; code dims: computed)
+    score: float            # 0-5 (LLM: raw 1-5 used directly; code dims: computed on 0-10, halved)
     weight: float
-    minimum: float | None   # hard floor on the 0-10 scale
+    minimum: float | None   # hard floor on the 0-5 scale
     passed: bool
     evidence: str | None    # quoted span(s) from the script (LLM-scored dims)
     justification: str
@@ -98,7 +99,7 @@ class JudgeReport(BaseModel):
     attempt_number: int
     template_id: str
     scores: list[DimensionScore]      # one per rubric dimension
-    weighted_total: float             # 0-10
+    weighted_total: float             # 0-5
     insight_score: float              # surfaced for dashboards/floors
     grounding_score: float
     template_fatigue: bool

@@ -281,7 +281,7 @@ beat sheets and default perspectives, and are rotated to defeat template fatigue
 
 ## 8. The Judge — Quality Gate
 
-The Judge scores ten dimensions on a 0–10 scale. **Six are computed by plain Python; at most one
+The Judge scores ten dimensions on a 0–5 scale. **Six are computed by plain Python; at most one
 cheap LLM call** scores the four subjective dimensions (Actionability, Insight, Engagement,
 Wittiness), and even that is skippable via `JUDGE_MODE`.
 
@@ -289,27 +289,27 @@ Wittiness), and even that is skippable via `JUDGE_MODE`.
 |-----------|:------:|:----------:|-----------|
 | Actionability | 0.14 | — | LLM (hybrid) |
 | Specificity | 0.14 | — | deterministic |
-| Grounding | 0.14 | **8.0** | deterministic |
-| Insight | 0.14 | **7.0** | LLM (hybrid) |
+| Grounding | 0.14 | **4.0** | deterministic |
+| Insight | 0.14 | **3.5** | LLM (hybrid) |
 | Engagement | 0.10 | — | LLM (hybrid) |
-| Wittiness | 0.07 | **5.0** | LLM (hybrid) |
-| Ending / Sign-off | 0.07 | **6.0** | deterministic |
+| Wittiness | 0.07 | **2.5** | LLM (hybrid) |
+| Ending / Sign-off | 0.07 | **3.0** | deterministic |
 | Hook & Retention | 0.10 | — | deterministic |
 | Structural Freshness | 0.07 | — | deterministic |
 | Compliance | 0.03 | pass/fail | deterministic |
 
-The weights sum to 1.0, so the weighted total is a plain weighted average on 0–10:
+The weights sum to 1.0, so the weighted total is a plain weighted average on 0–5:
 
 $$\text{weighted\_total} = \frac{\sum_i w_i \, s_i}{\sum_i w_i}$$
 
 **Grounding** is scored as the fraction of statistics that resolve to a valid fact:
 
-$$\text{grounding} = 10 \cdot \frac{\text{grounded stats}}{\text{total stats}} \quad (=10 \text{ when there are none})$$
+$$\text{grounding} = 5 \cdot \frac{\text{grounded stats}}{\text{total stats}} \quad (=5 \text{ when there are none})$$
 
 **Verdict logic.** A `PASS` requires the weighted total to clear `PASS_THRESHOLD` **and** every hard
 gate to hold:
 
-$$\text{PASS} \iff \text{total} \ge \tau \;\wedge\; \text{compliance} \;\wedge\; \text{grounding} \ge 8 \;\wedge\; \text{insight} \ge 7 \;\wedge\; \lnot\text{fatigue} \;\wedge\; \text{complete}$$
+$$\text{PASS} \iff \text{total} \ge \tau \;\wedge\; \text{compliance} \;\wedge\; \text{grounding} \ge 4 \;\wedge\; \text{insight} \ge 3.5 \;\wedge\; \lnot\text{fatigue} \;\wedge\; \text{complete}$$
 
 Otherwise the run `REVISE`s (feeding a per-dimension critique back to the generator) until it either
 passes or exhausts `MAX_REVISIONS`, which yields `FAIL`.
@@ -479,7 +479,7 @@ A selection of decisions and hardening that shaped the current system:
   that are doomed to `REVISE`.
 
 - **The completeness gate.** The original rubric scored *quality* but not *quantity*; a grounded
-  23-word stub scored ~8/10 and passed (the hook dimension even *rewarded* brevity). A deterministic
+  23-word stub scored ~4/5 and passed (the hook dimension even *rewarded* brevity). A deterministic
   completeness gate — parameterized by `MIN_SCENES` and `MIN_SCRIPT_WORD_RATIO` — now rejects stubs
   before they reach production, closing a class of "technically valid but useless" output.
 

@@ -178,14 +178,26 @@ def build_render_backend(settings: Settings) -> RenderBackend:
     return AvatarBackend(settings.avatar_provider, settings.heygen_api_key, fallback)
 
 
+def _bundled_sfx_dir():
+    """The SFX clip library packaged inside content_foundry (ships via package-data), used when the
+    configured sfx_dir is absent (e.g. a pip install has no repo-root ``data/sounds``)."""
+    from pathlib import Path
+
+    return Path(__file__).resolve().parent.parent / "data" / "sounds"
+
+
 def build_sfx_client(settings: Settings):
     if not settings.sfx_enabled:
         from .sfx import NullSfxClient
 
         return NullSfxClient()
+    from pathlib import Path
+
     from .sfx import SfxLibrary
 
-    return SfxLibrary(settings.sfx_dir, freesound_api_key=settings.freesound_api_key)
+    # Prefer the configured dir; fall back to the sound library BUNDLED in the installed package.
+    sounds_dir = settings.sfx_dir if Path(settings.sfx_dir).is_dir() else str(_bundled_sfx_dir())
+    return SfxLibrary(sounds_dir, freesound_api_key=settings.freesound_api_key)
 
 
 def build_publisher(settings: Settings, *, dry_run: bool = False) -> Publisher:

@@ -74,3 +74,25 @@ def source_only(on_screen_text: str) -> str:
     """
     idx = (on_screen_text or "").lower().rfind("source:")
     return on_screen_text[idx:].strip() if idx >= 0 else ""
+
+
+def _domain_name(name: str) -> str:
+    """Reduce a bare domain to just its registrable name — drop the TLD and any leading sub-domain:
+    'msoe.edu' -> 'msoe', 'www.bls.gov' -> 'bls', 'nytimes.com' -> 'nytimes'. A named source with a
+    space or without a dot ('Adzuna', 'Bureau of Labor Statistics') is returned untouched."""
+    name = name.strip()
+    if " " in name or "." not in name:
+        return name
+    labels = [p for p in name.split(".") if p]
+    return labels[-2] if len(labels) >= 2 else name
+
+
+def citation_label(on_screen_text: str) -> str:
+    """Text for the burned-in top 'source' strip: the source's DOMAIN NAME only — no 'Source:'
+    prefix and no '.com/.org/.gov' TLD ('… · Source: msoe.edu' -> 'msoe'). '' when the callout
+    carries no source."""
+    raw = source_only(on_screen_text)
+    if not raw:
+        return ""
+    name = raw.split(":", 1)[1] if ":" in raw else raw
+    return _domain_name(name)

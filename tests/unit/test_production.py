@@ -11,7 +11,7 @@ from content_foundry.models import (
     VoiceoverAsset,
     WordTiming,
 )
-from content_foundry.production.captions import build_srt
+from content_foundry.production.captions import build_srt, citation_label
 from content_foundry.production.timeline import build_timeline
 
 
@@ -21,6 +21,16 @@ def test_build_srt_groups_and_formats():
     assert "1\n00:00:00,000 --> " in srt
     # 9 words / 7 per cue => 2 cues
     assert "2\n" in srt
+
+
+def test_citation_label_shows_domain_without_tld_or_prefix():
+    assert citation_label("Junior postings -31% · Source: msoe.edu") == "msoe"
+    assert citation_label("Median $112k · Source: www.bls.gov") == "bls"
+    assert citation_label("Layoffs up · Source: nytimes.com") == "nytimes"
+    # A named source (no dotted domain) is shown as-is; a callout with no source yields nothing.
+    assert citation_label("Postings fell · Source: Adzuna") == "Adzuna"
+    assert citation_label("Bureau data · Source: Bureau of Labor Statistics") == "Bureau of Labor Statistics"
+    assert citation_label("No source here") == ""
 
 
 def test_build_timeline_locks_to_scene_timings():

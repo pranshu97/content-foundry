@@ -98,12 +98,13 @@ def _search_terms(beat: str, *, min_words: int = 2, max_words: int = 4) -> str:
 
 class _BrollPicker:
     """Chooses B-roll clips for one run: keeps the most relevant candidates near the top, adds
-    cross-video variety with a per-run seed, prefers unused clips, never repeats a clip in
-    consecutive scenes, and caps reuse at ``max_uses`` per video."""
+    cross-video variety with a per-run seed, and by default uses every clip AT MOST ONCE per video
+    (``max_uses=1``) so no shot is ever repeated — once a clip is taken it stays out of the pool and
+    ``pick`` returns None, letting the caller reach for a different one."""
 
     _TOP_K = 8  # sample among the most-relevant eligible clips (a wider window = much more variety)
 
-    def __init__(self, rng: random.Random, *, max_uses: int = 2) -> None:
+    def __init__(self, rng: random.Random, *, max_uses: int = 1) -> None:
         self._rng = rng
         self._used: dict[str, int] = {}
         self._prev = ""
@@ -113,10 +114,9 @@ class _BrollPicker:
         pool = [u for u in dict.fromkeys(candidates) if u]  # de-dup, keep relevance order
         if not pool:
             return None
-        # Two tiers only: prefer a never-used clip, else an under-cap clip that ISN'T the one we just
-        # showed. We deliberately DROP the old "any under-cap clip" last resort — if the only
-        # candidates left are the previous clip, return None and let the beat fall back rather than
-        # repeat a clip back-to-back (the consecutive reuse the viewer flagged).
+        # Two tiers: prefer a never-used clip; otherwise (only when a caller raises max_uses above 1)
+        # an under-cap clip that ISN'T the one we just showed, so any repeat is never back-to-back. At
+        # the default cap of 1 the second tier is always empty, so a clip is NEVER reused anywhere.
         tiers = (
             lambda u: self._used.get(u, 0) == 0,  # fresh (never == prev, since prev was used)
             lambda u: self._used.get(u, 0) < self._max and u != self._prev,  # under cap, not back-to-back
@@ -207,7 +207,12 @@ class Visuals:
         n = max(1, min(len(beats), int(duration // _MIN_SHOT_SEC) or 1, _MAX_SHOTS_PER_SCENE))
         found: list[tuple[str, str, str]] = []  # (rel_path, source, query)
         for j, beat in enumerate(beats[:n]):
-            url = picker.pick(self._broll_candidates([beat]))  # footage for THIS beat only
+            # Footage for THIS beat; if every candidate for the beat is already used elsewhere, widen
+            # to the scene's other queries so a hole is filled with a DIFFERENT fresh clip instead of
+            # being left empty or repeated (the picker still never reuses a clip).
+            url = picker.pick(self._broll_candidates([beat])) or picker.pick(
+                self._broll_candidates(beats)
+            )
             if not url:
                 continue
             rel = f"assets/scenes/scene_{scene.index}_shot_{j}.mp4"

@@ -10,6 +10,7 @@ from content_foundry.models import (
     SceneVisual,
     VisualPackage,
     VoiceoverAsset,
+    WordTiming,
 )
 
 
@@ -60,10 +61,43 @@ def test_on_screen_citations_burned_as_track(settings, tmp_path, fakes):
     srt = tmp_path / "assets" / "citations.srt"
     assert srt.exists()
     body = srt.read_text(encoding="utf-8")
-    assert "Source: Adzuna" in body
+    assert "Adzuna" in body  # the source name is shown
+    assert "Source:" not in body  # ...as the domain/name only — no 'Source:' prefix
     assert "Junior postings" not in body  # only the source line, not the full callout
     assert body.count("-->") == 1  # only the scene that carries on_screen_text
     assert render.last_citations_path == str(srt)
+
+
+def test_citation_shows_domain_only_when_stat_is_spoken(monkeypatch, tmp_path, fakes):
+    monkeypatch.setenv("CITATION_SECONDS", "6")
+    reset_settings_cache()
+    settings = get_settings()
+    voiceover = VoiceoverAsset(
+        run_id="R", audio_path="assets/narration.mp3", duration_sec=12.0, sample_rate=16000,
+        voice_id="v", provider="fake",
+        word_timings=[
+            WordTiming(word="Junior", start=0.0, end=0.4),
+            WordTiming(word="postings", start=0.4, end=0.9),
+            WordTiming(word="fell", start=0.9, end=1.3),
+            WordTiming(word="31%", start=5.0, end=5.6),  # the number is spoken late in the scene
+        ],
+        scene_timings=[SceneTiming(scene_index=0, start=0.0, end=12.0)],
+        provenance=Provenance(produced_by="voiceover"),
+    )
+    visuals = VisualPackage(
+        run_id="R", thumbnail_path="assets/thumbnail.png", thumbnail_text="t",
+        captions_path="assets/captions.srt", visual_style="clean",
+        scenes=[SceneVisual(scene_index=0, kind="image", path="assets/scenes/scene_0.png",
+                            source="card", prompt_or_query="p", duration_sec=12.0,
+                            on_screen_text="Junior postings -31% · Source: bls.gov")],
+        provenance=Provenance(produced_by="visuals"),
+    )
+    Renderer(settings, fakes.Render()).run("R", voiceover, visuals, run_root=tmp_path)
+    body = (tmp_path / "assets" / "citations.srt").read_text(encoding="utf-8")
+    assert "bls" in body and "bls.gov" not in body  # domain only, TLD stripped
+    assert "00:00:05,000 -->" in body  # appears exactly when '31%' is spoken, not at scene start
+    assert "--> 00:00:11,000" in body  # and clears CITATION_SECONDS (6s) later, well before scene end
+    reset_settings_cache()
 
 
 def test_video_speed_passed_and_duration_adjusted(monkeypatch, tmp_path, fakes):

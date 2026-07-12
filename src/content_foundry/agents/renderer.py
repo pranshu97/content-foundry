@@ -7,13 +7,23 @@ from pathlib import Path
 
 from ..logging import get_logger
 from ..models import Provenance, VideoAsset, VisualPackage, VoiceoverAsset
-from ..production.captions import source_only, write_scene_srt
+from ..production.captions import citation_label, write_scene_srt
 from ..production.overlay import build_overlay_spec
 from ..production.sound_design import mix_sfx
 from ..production.subscribe import build_subscribe_spec
 from ..production.timeline import build_timeline
 
 _VIDEO_REL = "assets/video.mp4"
+
+
+def _stat_spoken_at(seg, word_timings) -> float:
+    """The moment the scene's statistic is spoken — the first digit-bearing word inside the scene's
+    window — so the source citation appears exactly when the data is stated. Falls back to the
+    scene's start when the number is spelled out (no digits) or word timings are missing."""
+    for w in word_timings:
+        if seg.start <= w.start <= seg.end and any(ch.isdigit() for ch in w.word):
+            return w.start
+    return seg.start
 
 
 class Renderer:
@@ -56,10 +66,18 @@ class Renderer:
             str(run_root / visuals.captions_path) if self._settings.captions_enabled else None
         )
         citations_rel = "assets/citations.srt"
-        has_citations = write_scene_srt(
-            run_root / citations_rel,
-            [(s.start, s.end, source_only(s.on_screen_text or "")) for s in segments],
-        )
+        # Each source citation appears the instant its statistic is spoken and clears after a brief
+        # window (citation_seconds) — a glance, not a whole-scene watermark. Only the source's domain
+        # name is shown (no 'Source:' prefix, no .com/.org TLD).
+        max_sec = self._settings.citation_seconds
+        cues: list[tuple[float, float, str]] = []
+        for s in segments:
+            label = citation_label(s.on_screen_text or "")
+            if not label:
+                continue
+            start = _stat_spoken_at(s, voiceover.word_timings)
+            cues.append((start, min(s.end, start + max_sec), label))
+        has_citations = write_scene_srt(run_root / citations_rel, cues)
         citations_real = str(run_root / citations_rel) if has_citations else None
         out_real = run_root / _VIDEO_REL
         out_real.parent.mkdir(parents=True, exist_ok=True)

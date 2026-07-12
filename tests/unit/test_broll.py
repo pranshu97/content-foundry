@@ -110,6 +110,16 @@ def test_picker_prefers_fresh_clips():
     assert len(set(picks)) == 5  # all distinct while fresh clips remain
 
 
+def test_picker_never_reuses_a_clip_by_default():
+    # The default cap is 1: every clip is used at most once, so a 3-clip pool yields 3 distinct picks
+    # and then None — no shot is ever repeated anywhere in the video.
+    picker = _BrollPicker(random.Random("seed"))
+    pool = ["a", "b", "c"]
+    picks = [picker.pick(list(pool)) for _ in range(3)]
+    assert sorted(picks) == ["a", "b", "c"]  # each used exactly once
+    assert picker.pick(list(pool)) is None  # pool exhausted -> caller must reach for a different clip
+
+
 def test_picker_varies_across_runs():
     pool = [f"c{i}" for i in range(12)]
     firsts = {

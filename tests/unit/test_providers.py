@@ -516,10 +516,15 @@ def test_select_encoder_prefers_gpu_then_falls_back_to_cpu(monkeypatch):
     import content_foundry.providers.render_backend as rb
 
     monkeypatch.setattr(rb, "_available_encoders", lambda _exe: {"libx264", "h264_nvenc", "h264_amf"})
-    assert rb._select_encoder("ffmpeg", "auto") == "h264_nvenc"  # NVIDIA preferred over AMD
-    monkeypatch.setattr(rb, "_available_encoders", lambda _exe: {"libx264"})
-    assert rb._select_encoder("ffmpeg", "auto") == "libx264"  # no GPU encoder -> CPU
+    # Simulate: NVENC listed but actually broken at runtime; AMF works.
+    monkeypatch.setattr(rb, "_probe_encoder", lambda _exe, enc: enc == "h264_amf")
+    rb._WORKING_ENCODER_CACHE.clear()
+    assert rb._select_encoder("ffmpeg", "auto") == "h264_amf"  # skips broken NVENC, picks AMF
+    rb._WORKING_ENCODER_CACHE.clear()
+    monkeypatch.setattr(rb, "_probe_encoder", lambda _exe, _enc: False)  # all GPU broken -> CPU
+    assert rb._select_encoder("ffmpeg", "auto") == "libx264"
     assert rb._select_encoder("ffmpeg", "h264_qsv") == "h264_qsv"  # an explicit choice always wins
+    rb._WORKING_ENCODER_CACHE.clear()
 
 
 def test_encoder_opts_per_family():

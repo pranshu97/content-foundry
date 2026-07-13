@@ -61,6 +61,7 @@ def _probe_seconds(path: str) -> float:
 
 
 _ENCODER_CACHE: dict[str, set[str]] = {}
+_WORKING_ENCODER_CACHE: dict[str, str | None] = {}
 # Preference order for automatic GPU encoder selection: NVIDIA NVENC, Intel Quick Sync, AMD AMF.
 _HW_ENCODER_PREFERENCE = ("h264_nvenc", "h264_qsv", "h264_amf")
 
@@ -81,17 +82,42 @@ def _available_encoders(exe: str) -> set[str]:
     return _ENCODER_CACHE[exe]
 
 
+def _probe_encoder(exe: str, encoder: str) -> bool:
+    """Return True only when this ffmpeg build can ACTUALLY run the encoder end-to-end — not just
+    that it is compiled in. Runs a silent sub-second test encode (discards output). Uses 256x144
+    so hardware encoders that enforce a minimum resolution (e.g. AMF) also pass the probe."""
+    import subprocess
+    import tempfile
+
+    opts = list(_encoder_opts(encoder).items())
+    extra: list[str] = [item for k, v in opts for item in [f"-{k}", str(v)]]
+    with tempfile.TemporaryDirectory() as td:
+        out = os.path.join(td, "probe.mp4")
+        r = subprocess.run(
+            [exe, "-y", "-f", "lavfi",
+             "-i", "color=black:size=256x144:rate=25",
+             "-t", "0.2", "-c:v", encoder] + extra + [out],
+            capture_output=True, timeout=15,
+        )
+        return r.returncode == 0 and os.path.getsize(out) > 0
+
+
 def _select_encoder(exe: str, configured: str) -> str:
-    """Resolve the video encoder: an explicit setting wins; 'auto'/'' picks the best available GPU
-    H.264 encoder, else CPU libx264."""
+    """Resolve the video encoder: an explicit non-auto setting wins; 'auto'/'' probes each GPU
+    encoder in preference order and picks the first one that actually works, else CPU libx264.
+    Results are cached per binary so the probe runs at most once per session."""
     choice = (configured or "auto").strip().lower()
     if choice not in ("", "auto"):
-        return choice  # user forced a specific encoder
-    avail = _available_encoders(exe)
-    for enc in _HW_ENCODER_PREFERENCE:
-        if enc in avail:
-            return enc
-    return "libx264"
+        return choice  # user forced a specific encoder — trust them
+    if exe not in _WORKING_ENCODER_CACHE:
+        avail = _available_encoders(exe)
+        picked = None
+        for enc in _HW_ENCODER_PREFERENCE:
+            if enc in avail and _probe_encoder(exe, enc):
+                picked = enc
+                break
+        _WORKING_ENCODER_CACHE[exe] = picked
+    return _WORKING_ENCODER_CACHE[exe] or "libx264"
 
 
 def _encoder_opts(encoder: str) -> dict:

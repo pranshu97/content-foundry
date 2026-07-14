@@ -57,6 +57,9 @@ _BASE_ENV = {
     "SFX_ENABLED": "false",
     # Off so the deterministic canned scripts keep their exact narration; the fixed intro is tested on its own.
     "INTRO_ENABLED": "false",
+    # Off so the thumbnail avatar composite (and its optional rembg background-removal) never runs in
+    # the hermetic suite — rembg would download a model + do slow inference on the operator's avatar.
+    "THUMBNAIL_USE_AVATAR": "false",
     "LOG_LEVEL": "ERROR",
     "LOG_FORMAT": "console",
 }

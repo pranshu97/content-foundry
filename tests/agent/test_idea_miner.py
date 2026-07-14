@@ -11,17 +11,23 @@ from content_foundry.pipeline.orchestrator import Orchestrator
 class FakeDataClient:
     enabled = True
 
-    def __init__(self, *, channels=None, uploads=None, videos=None, stats=None):
-        self._channels = channels or []
-        self._uploads = uploads or {}
-        self._videos = videos or {}
-        self._stats = stats or {}
+    def __init__(self, *, channels=None, uploads=None, videos=None, stats=None, search_videos=None):
+        self._channels = channels or []            # resolve / search_channel_ids result
+        self._uploads = uploads or {}              # channel_id -> uploads playlist id
+        self._videos = videos or {}                # playlist_id -> [video_id, ...]
+        self._stats = stats or {}                  # video_id -> stat dict
+        self._search_videos = search_videos or []  # search_video_ids result (candidate video ids)
         self.searched = None
+        self.video_searched = None
         self.resolved = None
 
     def search_channel_ids(self, query, *, limit):
         self.searched = query
         return self._channels[:limit]
+
+    def search_video_ids(self, query, *, limit):
+        self.video_searched = query
+        return self._search_videos[:limit]
 
     def resolve_channel_ids(self, handles):
         self.resolved = list(handles)
@@ -37,10 +43,11 @@ class FakeDataClient:
         return [self._stats[v] for v in video_ids if v in self._stats]
 
 
-def _stat(vid, title, views, *, channel="Chan", live="none"):
+def _stat(vid, title, views, *, channel="Chan", channel_id="UC_c", live="none", duration_sec=300):
     return {
-        "id": vid, "title": title, "channel_title": channel,
+        "id": vid, "title": title, "channel_title": channel, "channel_id": channel_id,
         "published_at": "2024-01-01T00:00:00Z", "views": views, "live": live,
+        "duration_sec": duration_sec,
     }
 
 
@@ -54,8 +61,67 @@ def _mining_settings(monkeypatch, *, channels=""):
     return get_settings()
 
 
-def test_miner_flags_channel_outlier(monkeypatch):
+# ---------------------------------------------------------------- default: search-first
+def test_search_finds_topic_outlier(monkeypatch):
+    settings = _mining_settings(monkeypatch)  # no pinned channels -> search-first
+    base = {f"g{i}": _stat(f"g{i}", f"upload {i}", 100, channel_id="UC_a") for i in range(5)}
+    cand = _stat("c1", "AI roles at FAANG explained", 900, channel_id="UC_a")
+    client = FakeDataClient(
+        search_videos=["c1"], uploads={"UC_a": "UU_a"},
+        videos={"UU_a": list(base)}, stats={**base, "c1": cand},
+    )
+    ideas = IdeaMiner(settings, client).mine("tech careers", focus="AI roles at FAANG")
+    assert client.video_searched == "tech careers AI roles at FAANG"  # topic-locked VIDEO search
+    assert [i.title for i in ideas] == ["AI roles at FAANG explained"]
+    assert ideas[0].multiple >= 3.0  # 900 / channel median 100
+
+
+def test_search_keeps_only_channel_outliers(monkeypatch):
     settings = _mining_settings(monkeypatch)
+    # A relevant, high-view video that only MATCHED its big channel's average is NOT proven.
+    base = {f"g{i}": _stat(f"g{i}", f"u{i}", 1000, channel_id="UC_big") for i in range(5)}
+    normal = _stat("c1", "Relevant but average video", 1100, channel_id="UC_big")  # 1.1x
+    client = FakeDataClient(
+        search_videos=["c1"], uploads={"UC_big": "UU_big"},
+        videos={"UU_big": list(base)}, stats={**base, "c1": normal},
+    )
+    assert IdeaMiner(settings, client).mine("tech careers", focus="AI") == []
+
+
+def test_search_skips_channel_it_cannot_baseline(monkeypatch):
+    settings = _mining_settings(monkeypatch)
+    base = {f"g{i}": _stat(f"g{i}", f"u{i}", 100, channel_id="UC_ok") for i in range(5)}
+    bad = _stat("cbad", "topic vid on a dead channel", 999, channel_id="UC_bad")
+    ok = _stat("cok", "great topic vid", 900, channel_id="UC_ok")
+
+    class Boom(FakeDataClient):
+        def uploads_playlist_id(self, channel_id):
+            if channel_id == "UC_bad":
+                raise RuntimeError("404 playlist")
+            return super().uploads_playlist_id(channel_id)
+
+    client = Boom(
+        search_videos=["cbad", "cok"], uploads={"UC_ok": "UU_ok"},
+        videos={"UU_ok": list(base)}, stats={**base, "cbad": bad, "cok": ok},
+    )
+    ideas = IdeaMiner(settings, client).mine("tech careers", focus="ai")
+    assert [i.title for i in ideas] == ["great topic vid"]  # unbaselineable channel skipped, not fatal
+
+
+def test_search_excludes_shorts(monkeypatch):
+    settings = _mining_settings(monkeypatch)
+    base = {f"g{i}": _stat(f"g{i}", f"u{i}", 100, channel_id="UC_a") for i in range(5)}
+    short = _stat("s1", "viral short", 9000, channel_id="UC_a", duration_sec=30)  # Short -> excluded
+    client = FakeDataClient(
+        search_videos=["s1"], uploads={"UC_a": "UU_a"},
+        videos={"UU_a": list(base)}, stats={**base, "s1": short},
+    )
+    assert IdeaMiner(settings, client).mine("tech careers", focus="ai") == []
+
+
+# ---------------------------------------------------------------- pinned: channel-sampling
+def test_pinned_channel_outlier_is_topic_ranked(monkeypatch):
+    settings = _mining_settings(monkeypatch, channels="UC_a")
     titles = ["Morning routine", "Desk tour", "Weekend vlog", "Coding music",
               "Q and A", "FAANG interview secrets"]
     stats = {
@@ -67,63 +133,62 @@ def test_miner_flags_channel_outlier(monkeypatch):
         videos={"UU_a": list(stats)}, stats=stats,
     )
     ideas = IdeaMiner(settings, client).mine("faang interview")
-    assert len(ideas) == 1
-    assert ideas[0].title == "FAANG interview secrets"  # the on-topic 800-view outlier (~7.6x)
-    assert ideas[0].views == 800
-    assert ideas[0].multiple >= 3.0
-    assert ideas[0].video_url == "https://youtu.be/v5"
-    assert client.searched == "faang interview"  # DYNAMIC niche search, no focus
+    assert ideas[0].title == "FAANG interview secrets"  # on-topic 800-view outlier (~7.6x)
+    assert client.resolved == ["UC_a"]  # pinned -> resolved, not searched
+    assert client.searched is None
 
 
-def test_miner_drops_off_topic_outlier(monkeypatch):
-    settings = _mining_settings(monkeypatch)
-    # The 800-view video is a genuine outlier for its channel but off-topic for a FAANG-interview
-    # run, so the relevance gate drops it -> no proven idea is surfaced.
+def test_pinned_ranks_on_topic_above_off_topic(monkeypatch):
+    settings = _mining_settings(monkeypatch, channels="UC_a")
     rows = [
-        ("Coding interview tips", 100), ("System design basics", 120), ("Resume review", 90),
-        ("Mock interview walkthrough", 110), ("Offer negotiation", 100), ("My gaming PC build", 800),
+        ("Coding interview tips", 100), ("System design basics", 100), ("Resume review", 100),
+        ("Mock interview walkthrough", 100), ("Offer negotiation", 100),
+        ("FAANG interview roadmap", 400),      # on-topic outlier, 4x
+        ("My gaming PC build 2026", 800),      # off-topic outlier, 8x
     ]
     stats = {f"v{i}": _stat(f"v{i}", title, views) for i, (title, views) in enumerate(rows)}
     client = FakeDataClient(
         channels=["UC_a"], uploads={"UC_a": "UU_a"},
         videos={"UU_a": list(stats)}, stats=stats,
     )
-    assert IdeaMiner(settings, client).mine("faang interview") == []
+    ideas = IdeaMiner(settings, client).mine("faang interview")
+    titles = [i.title for i in ideas]
+    assert titles[0] == "FAANG interview roadmap"   # on-topic wins despite the lower multiple
+    assert "My gaming PC build 2026" in titles       # off-topic outlier still offered (soft rank)
 
 
-def test_miner_includes_focus_in_channel_search(monkeypatch):
-    settings = _mining_settings(monkeypatch)
-    client = FakeDataClient(channels=["UC_a"])  # no uploads -> [] ideas; we assert the search query
-    IdeaMiner(settings, client).mine("software engineering", focus="resume tips")
-    assert client.searched == "software engineering resume tips"
+def test_pinned_skips_bad_channel_without_sinking_the_run(monkeypatch):
+    settings = _mining_settings(monkeypatch, channels="UC_bad, UC_good")
+    good = {
+        f"g{i}": _stat(f"g{i}", t, v)
+        for i, (t, v) in enumerate([("a", 100), ("b", 100), ("c", 100), ("d", 100), ("FAANG win", 900)])
+    }
 
+    class Boom(FakeDataClient):
+        def uploads_playlist_id(self, channel_id):
+            if channel_id == "UC_bad":
+                raise RuntimeError("404 playlist")
+            return super().uploads_playlist_id(channel_id)
 
-def test_miner_disabled_returns_empty(settings):
-    # Default settings have idea_mining_enabled=False, so nothing is mined even with a live client.
-    client = FakeDataClient(channels=["UC_a"])
-    assert IdeaMiner(settings, client).mine("x") == []
-
-
-def test_miner_skips_tiny_sample(monkeypatch):
-    settings = _mining_settings(monkeypatch)
-    stats = {f"v{i}": _stat(f"v{i}", f"T{i}", v) for i, v in enumerate([100, 5000, 100])}
-    client = FakeDataClient(
-        channels=["UC_a"], uploads={"UC_a": "UU_a"},
-        videos={"UU_a": list(stats)}, stats=stats,
+    client = Boom(
+        channels=["UC_bad", "UC_good"], uploads={"UC_good": "UU_good"},
+        videos={"UU_good": list(good)}, stats=good,
     )
-    assert IdeaMiner(settings, client).mine("x") == []  # <5 sampled videos -> no fair baseline
+    ideas = IdeaMiner(settings, client).mine("faang")
+    assert [i.title for i in ideas] == ["FAANG win"]
 
 
-def test_miner_uses_pinned_channels(monkeypatch):
+def test_pinned_uses_resolve_not_search(monkeypatch):
     settings = _mining_settings(monkeypatch, channels="@Creator, UC_raw")
-    client = FakeDataClient(channels=["UC_resolved"])
+    client = FakeDataClient(channels=["UC_resolved"])  # no uploads -> [] ideas; assert the wiring
     IdeaMiner(settings, client).mine("x")
     assert client.resolved == ["@Creator", "UC_raw"]
-    assert client.searched is None  # pinned channels bypass the niche search
+    assert client.searched is None
+    assert client.video_searched is None  # pinned mode never runs a search
 
 
-def test_miner_sorts_by_multiple_and_dedups(monkeypatch):
-    settings = _mining_settings(monkeypatch)
+def test_pinned_sorts_by_multiple_and_dedups(monkeypatch):
+    settings = _mining_settings(monkeypatch, channels="UC_a, UC_b")
     a = {
         f"a{i}": _stat(f"a{i}", t, v, channel="A")
         for i, (t, v) in enumerate([("n", 100), ("n", 100), ("n", 100), ("n", 100), ("Shared", 1000)])
@@ -144,6 +209,22 @@ def test_miner_sorts_by_multiple_and_dedups(monkeypatch):
     assert [i.title for i in ideas] == ["Shared", "Unique"]  # sorted desc, dup "Shared" collapsed
     assert ideas[0].views == 1000  # the STRONGER "Shared" (10x from channel A) was kept
     assert ideas[0].multiple >= ideas[1].multiple
+
+
+def test_pinned_skips_tiny_sample(monkeypatch):
+    settings = _mining_settings(monkeypatch, channels="UC_a")
+    stats = {f"v{i}": _stat(f"v{i}", f"T{i}", v) for i, v in enumerate([100, 5000, 100])}
+    client = FakeDataClient(
+        channels=["UC_a"], uploads={"UC_a": "UU_a"},
+        videos={"UU_a": list(stats)}, stats=stats,
+    )
+    assert IdeaMiner(settings, client).mine("x") == []  # <5 sampled videos -> no fair baseline
+
+
+def test_miner_disabled_returns_empty(settings):
+    # Default settings have idea_mining_enabled=False, so nothing is mined even with a live client.
+    client = FakeDataClient(search_videos=["c1"])
+    assert IdeaMiner(settings, client).mine("x") == []
 
 
 def test_mined_idea_display_tag():

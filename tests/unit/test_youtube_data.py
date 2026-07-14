@@ -27,6 +27,20 @@ def test_search_channel_ids_parses_and_dedups():
 
 
 @respx.mock
+def test_search_video_ids_parses_and_dedups():
+    respx.get(url__startswith=f"{_BASE}/search").mock(
+        return_value=httpx.Response(200, json={"items": [
+            {"id": {"videoId": "vid_a"}},
+            {"id": {"videoId": "vid_b"}},
+            {"id": {"videoId": "vid_a"}},  # duplicate -> ignored
+            {"id": {"kind": "youtube#channel"}},  # not a video -> skipped
+        ]})
+    )
+    ids = ApiYouTubeDataClient("key").search_video_ids("ai roles at faang", limit=5)
+    assert ids == ["vid_a", "vid_b"]
+
+
+@respx.mock
 def test_resolve_channel_ids_passes_raw_ids_and_resolves_handles():
     # A raw UC… id passes straight through (no API call); an @handle resolves via forHandle.
     respx.get(url__startswith=f"{_BASE}/channels").mock(
@@ -92,8 +106,9 @@ def test_video_stats_parses_and_coerces_views():
     respx.get(url__startswith=f"{_BASE}/videos").mock(
         return_value=httpx.Response(200, json={"items": [
             {"id": "v1",
-             "snippet": {"title": "A", "channelTitle": "Chan", "publishedAt": "2024-01-01T00:00:00Z"},
-             "statistics": {"viewCount": "1500"}},
+             "snippet": {"title": "A", "channelTitle": "Chan", "channelId": "UC_v1",
+                         "publishedAt": "2024-01-01T00:00:00Z"},
+             "statistics": {"viewCount": "1500"}, "contentDetails": {"duration": "PT5M30S"}},
             {"id": "v2",
              "snippet": {"title": "B", "liveBroadcastContent": "live"},
              "statistics": {}},  # no viewCount -> 0
@@ -101,8 +116,8 @@ def test_video_stats_parses_and_coerces_views():
     )
     stats = ApiYouTubeDataClient("key").video_stats(["v1", "v2"])
     assert stats[0] == {
-        "id": "v1", "title": "A", "channel_title": "Chan",
-        "published_at": "2024-01-01T00:00:00Z", "views": 1500, "live": "none",
+        "id": "v1", "title": "A", "channel_title": "Chan", "channel_id": "UC_v1",
+        "published_at": "2024-01-01T00:00:00Z", "views": 1500, "live": "none", "duration_sec": 330,
     }
     assert stats[1]["views"] == 0
     assert stats[1]["live"] == "live"
@@ -112,6 +127,7 @@ def test_null_client_is_disabled_and_empty():
     client = NullYouTubeDataClient()
     assert client.enabled is False
     assert client.search_channel_ids("x", limit=3) == []
+    assert client.search_video_ids("x", limit=3) == []
     assert client.resolve_channel_ids(["@a"]) == []
     assert client.uploads_playlist_id("UC") is None
     assert client.recent_video_ids("UU", limit=3) == []

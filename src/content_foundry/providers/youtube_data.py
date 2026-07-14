@@ -8,9 +8,20 @@ disabled :class:`NullYouTubeDataClient`, keeping the feature entirely opt-in and
 
 from __future__ import annotations
 
+import re
 from typing import Protocol, runtime_checkable
 
 _BASE = "https://www.googleapis.com/youtube/v3"
+_ISO_DURATION = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
+
+
+def _iso_seconds(duration: str) -> int:
+    """Seconds from an ISO-8601 video duration like ``PT5M30S``; 0 when absent/unparseable."""
+    match = _ISO_DURATION.fullmatch(duration or "")
+    if not match:
+        return 0
+    hours, minutes, seconds = (int(g) if g else 0 for g in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
 
 
 @runtime_checkable
@@ -20,6 +31,7 @@ class YouTubeDataClient(Protocol):
     enabled: bool
 
     def search_channel_ids(self, query: str, *, limit: int) -> list[str]: ...
+    def search_video_ids(self, query: str, *, limit: int) -> list[str]: ...
     def resolve_channel_ids(self, handles: list[str]) -> list[str]: ...
     def uploads_playlist_id(self, channel_id: str) -> str | None: ...
     def recent_video_ids(self, playlist_id: str, *, limit: int) -> list[str]: ...
@@ -32,6 +44,9 @@ class NullYouTubeDataClient:
     enabled = False
 
     def search_channel_ids(self, query: str, *, limit: int) -> list[str]:
+        return []
+
+    def search_video_ids(self, query: str, *, limit: int) -> list[str]:
         return []
 
     def resolve_channel_ids(self, handles: list[str]) -> list[str]:
@@ -75,6 +90,21 @@ class ApiYouTubeDataClient:
             cid = (item.get("id") or {}).get("channelId") or item.get("snippet", {}).get("channelId")
             if cid and cid not in ids:
                 ids.append(cid)
+        return ids[:limit]
+
+    def search_video_ids(self, query: str, *, limit: int) -> list[str]:
+        """Video ids most RELEVANT to ``query`` (search.list type=video, 100 quota units). YouTube's own
+        relevance ranking does the topical matching, so the candidates are on-topic by construction."""
+        data = self._get(
+            "search",
+            {"part": "snippet", "q": query, "type": "video", "order": "relevance",
+             "maxResults": min(50, max(1, limit))},
+        )
+        ids: list[str] = []
+        for item in data.get("items", []):
+            vid = (item.get("id") or {}).get("videoId")
+            if vid and vid not in ids:
+                ids.append(vid)
         return ids[:limit]
 
     def resolve_channel_ids(self, handles: list[str]) -> list[str]:
@@ -128,7 +158,9 @@ class ApiYouTubeDataClient:
             chunk = video_ids[start : start + 50]
             if not chunk:
                 continue
-            data = self._get("videos", {"part": "snippet,statistics", "id": ",".join(chunk)})
+            data = self._get(
+                "videos", {"part": "snippet,statistics,contentDetails", "id": ",".join(chunk)}
+            )
             for item in data.get("items", []):
                 snippet = item.get("snippet", {})
                 stats = item.get("statistics", {})
@@ -141,9 +173,11 @@ class ApiYouTubeDataClient:
                         "id": item.get("id", ""),
                         "title": snippet.get("title", ""),
                         "channel_title": snippet.get("channelTitle", ""),
+                        "channel_id": snippet.get("channelId", ""),
                         "published_at": snippet.get("publishedAt", ""),
                         "views": views,
                         "live": snippet.get("liveBroadcastContent", "none"),
+                        "duration_sec": _iso_seconds(item.get("contentDetails", {}).get("duration", "")),
                     }
                 )
         return out

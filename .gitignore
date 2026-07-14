@@ -9,6 +9,7 @@ secrets/
 output/
 *.db
 *.sqlite3
+*.cutout.png                 # derived transparent avatar cutouts (regenerated from the source avatar)
 
 # ---- Python ----
 __pycache__/

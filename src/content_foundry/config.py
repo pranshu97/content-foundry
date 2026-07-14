@@ -276,6 +276,7 @@ class Settings(BaseSettings):
     # Composite the avatar image (your face) into the THUMBNAIL as the human element instead of an
     # AI-generated face — a consistent real face lifts click-through. Skipped when the file is absent.
     thumbnail_use_avatar: bool = True
+    thumbnail_avatar_scale: float = Field(0.5, ge=0.15, le=1.0)  # avatar height as a fraction of the thumb
 
     # ---------- Publishing (YouTube) ----------
     youtube_client_secrets_file: str = "secrets/client_secrets.json"
@@ -295,6 +296,7 @@ class Settings(BaseSettings):
     idea_mining_channels: str = ""
     idea_mining_max_channels: int = Field(6, ge=1, le=25)
     idea_mining_videos_per_channel: int = Field(30, ge=5, le=100)
+    idea_mining_search_results: int = Field(25, ge=5, le=50)  # topical VIDEO candidates vetted (default)
     idea_mining_outlier_multiple: float = Field(3.0, ge=1.5, le=25.0)  # views >= N x channel median
     idea_mining_max_ideas: int = Field(5, ge=1, le=15)
 

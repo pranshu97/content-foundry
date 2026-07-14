@@ -84,6 +84,13 @@ def build_package_md(
     for scene in script.scenes:
         ost = f"  _[on-screen: {scene.on_screen_text}]_" if scene.on_screen_text else ""
         lines.append(f"{scene.index + 1}. {scene.narration}{ost}")
+        cues = []
+        if scene.cut:
+            cues.append(f"cut: {scene.cut}")
+        if scene.editor_note:
+            cues.append(f"editor: {scene.editor_note}")
+        if cues:
+            lines.append(f"   > _{' · '.join(cues)}_")
     lines += ["", f"**CTA:** {script.cta}", ""]
 
     return "\n".join(lines)

@@ -10,6 +10,7 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, SceneVisual, Script, VisualPackage, VisualShot, VoiceoverAsset
 from ..production.captions import write_srt
+from ..production.timebox import timebox_title
 
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
@@ -17,6 +18,23 @@ _MIN_SHOT_SEC = 2.0  # each B-roll beat runs at least this long, to avoid choppi
 # More, shorter beats per scene: slicing a long scene into up to 8 clips (not a few long ones) stops
 # any single clip lingering or being slowed to fill the gap — more distinct footage, less stretching.
 _MAX_SHOTS_PER_SCENE = 20
+
+# Editor 'cut' hint -> multiplier on the min seconds-per-shot: faster cutting packs MORE, shorter
+# shots into a scene; holding uses fewer, longer ones — so the render follows the script's pacing.
+_CUT_PACE = {
+    "fast": 0.6, "quick": 0.6, "rapid": 0.55, "snappy": 0.6, "hard": 0.7, "energetic": 0.65,
+    "hold": 1.8, "slow": 1.6, "linger": 1.9, "static": 2.0, "calm": 1.5,
+}
+
+
+def _cut_pace(cut: str | None) -> float:
+    """Map a scene's 'cut' hint to a min-shot-seconds multiplier (fast => more shots, hold => fewer).
+    Unknown/empty => 1.0 (neutral)."""
+    key = (cut or "").strip().lower()
+    for word, pace in _CUT_PACE.items():
+        if word in key:
+            return pace
+    return 1.0
 
 
 def build_image_prompt(
@@ -30,11 +48,22 @@ def build_image_prompt(
     )
 
 
-def _thumbnail_prompt(concept: str) -> str:
+def _thumbnail_prompt(concept: str, *, no_person: bool = False) -> str:
     """Turn the script's thumbnail concept into a punchy, high-CTR YouTube-thumbnail image prompt for a
     text-to-image model: one bold subject, exaggerated emotion, dramatic lighting, saturated
-    contrasting colors, clean space for the overlaid title, and NO baked-in text (we add the title)."""
+    contrasting colors, clean space for the overlaid title, and NO baked-in text (we add the title).
+    When ``no_person`` (the operator's avatar face is composited in separately) it asks for a
+    people-free background so the avatar is the ONLY face."""
     concept = (concept or "a shocked person reacting to a glowing screen").strip().rstrip(".")
+    if no_person:
+        return (
+            f"Ultra eye-catching YouTube thumbnail BACKGROUND, 16:9, cinematic. A dynamic scene "
+            f"related to: {concept}. NO people, no faces, no person at all (a presenter is composited "
+            "in separately) — just objects, symbols, setting and dramatic lighting. Punchy saturated "
+            "contrasting colors, high contrast, glossy photo-real render, subtle vignette. Keep the "
+            "LEFT side clean and simple for a big title overlay. No text, words, letters, watermark, "
+            "logos, or real/famous people."
+        )
     return (
         f"Ultra eye-catching YouTube thumbnail, 16:9, cinematic. Bold central focus: {concept}. "
         "Exaggerated emotion and energy, dramatic rim lighting, punchy saturated contrasting colors, "
@@ -176,8 +205,14 @@ class Visuals:
         captions_path = run_root / _CAPTIONS_REL
         write_srt(captions_path, voiceover.word_timings)
 
-        # Thumbnail.
-        thumbnail_text = (script.title_options or [script.thumbnail_concept or "Career Advice"])[0]
+        # Thumbnail. The overlay text is its OWN punchy line (decoupled from the title); fall back to
+        # the first title option when the writer didn't supply one.
+        thumbnail_text = (script.thumbnail_text or "").strip() or (
+            script.title_options or [script.thumbnail_concept or "Career Advice"]
+        )[0]
+        # Year-stamp the thumbnail too, but only when the writer flagged the topic time-sensitive.
+        if self._settings.time_box_enabled and script.time_sensitive:
+            thumbnail_text = timebox_title(thumbnail_text, self._settings.effective_content_year)
         self._compose_thumbnail(script.thumbnail_concept, thumbnail_text, run_root / _THUMB_REL)
 
         return VisualPackage(
@@ -217,7 +252,8 @@ class Visuals:
         matched to that moment — so the footage changes with the narration instead of one broad clip
         covering the whole scene."""
         beats = [k.strip() for k in scene.b_roll_keywords if k and k.strip()]
-        n = max(1, min(len(beats), int(duration // _MIN_SHOT_SEC) or 1, _MAX_SHOTS_PER_SCENE))
+        pace = _cut_pace(getattr(scene, "cut", None))  # the editor 'cut' hint steers shot density
+        n = max(1, min(len(beats), int(duration // (_MIN_SHOT_SEC * pace)) or 1, _MAX_SHOTS_PER_SCENE))
         found: list[tuple[str, str, str]] = []  # (rel_path, source, query)
         for j, beat in enumerate(beats[:n]):
             # Footage for THIS beat; if every candidate for the beat is already used elsewhere, widen
@@ -282,27 +318,57 @@ class Visuals:
         )
 
     # -------------------------------------------------------------- thumbnail
+    def _avatar_thumbnail_path(self) -> Path | None:
+        """The operator's avatar image for the thumbnail, or None when disabled/absent."""
+        if not self._settings.thumbnail_use_avatar:
+            return None
+        raw = (self._settings.avatar_image_path or "").strip()
+        if not raw:
+            return None
+        path = Path(raw)
+        return path if path.exists() else None
+
     def _compose_thumbnail(self, concept: str, text: str, target: Path) -> None:
         size = self._settings.thumbnail_wh
+        avatar = self._avatar_thumbnail_path()
         base: bytes | None = None
         if self._image is not None:
             try:
                 base = self._image.generate(
-                    _thumbnail_prompt(concept), size=self._settings.thumbnail_size
+                    _thumbnail_prompt(concept, no_person=avatar is not None),
+                    size=self._settings.thumbnail_size,
                 )
             except Exception as exc:  # a thumbnail image failure must never crash the run
                 self._log.warning("thumbnail_image_failed", error=str(exc))
-        _write_card(text, size, target, base_png=base, punchy=True)
+        _write_card(text, size, target, base_png=base, punchy=True, avatar_path=avatar)
 
 
 # --------------------------------------------------------------------- Pillow
+def _paste_avatar(img, avatar_path: Path, size_wh: tuple[int, int]) -> None:
+    """Composite the operator's avatar (their face) onto the RIGHT of the thumbnail, bottom-aligned,
+    leaving the left/bottom clear for the title. Uses the image's alpha when present (a transparent
+    PNG cuts out cleanly); a flaky/broken file is skipped so a thumbnail never fails on it."""
+    from PIL import Image
+
+    width, height = size_wh
+    try:
+        av = Image.open(avatar_path).convert("RGBA")
+    except Exception:
+        return
+    target_w = min(int(av.width * (height * 0.96) / max(av.height, 1)), int(width * 0.52))
+    target_h = int(av.height * (target_w / max(av.width, 1)))
+    av = av.resize((max(1, target_w), max(1, target_h)))
+    img.paste(av, (width - target_w, height - target_h), av)
+
+
 def _write_card(
     text: str, size_wh: tuple[int, int], target: Path, base_png: bytes | None = None,
-    *, punchy: bool = False,
+    *, punchy: bool = False, avatar_path: Path | None = None,
 ):
     """Render a title card. ``punchy`` = a high-CTR YouTube-thumbnail overlay (bold UPPERCASE, a dark
     bottom scrim, a drop shadow + heavy outline, and numbers/the key word highlighted); otherwise a
-    clean caption card (accent bar + centered shadowed text) used for scene fallbacks."""
+    clean caption card (accent bar + centered shadowed text) used for scene fallbacks. ``avatar_path``
+    composites the operator's face onto the frame before the title is drawn."""
     from PIL import Image, ImageDraw
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -313,6 +379,9 @@ def _write_card(
         img = Image.blend(img, Image.new("RGB", size_wh, (8, 11, 20)), darken)
     else:
         img = _gradient_bg(size_wh)
+
+    if avatar_path is not None:
+        _paste_avatar(img, avatar_path, size_wh)
 
     if punchy:
         _draw_punchy_title(img, text or "", size_wh)

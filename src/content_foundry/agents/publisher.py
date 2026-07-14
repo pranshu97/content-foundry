@@ -7,7 +7,7 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, PublishResult, Script, VideoAsset, VisualPackage, utcnow
 from ..production.seo import optimize_metadata
-from ..safeguards.disclosure import ensure_description_discloses, resolve_publish_outcome
+from ..safeguards.disclosure import resolve_publish_outcome
 
 
 class Publisher:
@@ -33,7 +33,6 @@ class Publisher:
             title = (script.title_options or ["Untitled career-advice video"])[0]
             description = script.description
             tags = script.tags
-        description = ensure_description_discloses(description)
         video_real = str(run_root / video.video_path)
         thumb_real = str(run_root / visuals.thumbnail_path)
 

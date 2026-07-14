@@ -110,3 +110,26 @@ def test_visuals_split_long_scene_into_ordered_beat_clips(settings, good_script,
     for shot in sv.shots:
         assert (tmp_path / shot.path).exists()
         assert abs(shot.duration_sec - 2.0) < 0.01  # the 6s scene split evenly across 3 beats
+
+
+def test_thumbnail_text_decoupled_from_title(settings, good_script, tmp_path):
+    vo = VoiceoverAsset(
+        run_id="R", audio_path="assets/narration.mp3", duration_sec=6.0, sample_rate=16000,
+        voice_id="v", provider="fake", word_timings=[],
+        scene_timings=[SceneTiming(scene_index=s.index, start=0.0, end=3.0)
+                       for s in good_script.scenes],
+        provenance=Provenance(produced_by="voiceover"),
+    )
+    # A dedicated thumbnail_text wins over the title (they're independent now).
+    s1 = good_script.model_copy(update={
+        "title_options": ["How Recommendation Engines Work"],
+        "thumbnail_text": "THEY'RE WATCHING YOU", "time_sensitive": False,
+    })
+    pkg = Visuals(settings, image_provider=None, broll_client=None).run("R", s1, vo, run_root=tmp_path)
+    assert pkg.thumbnail_text == "THEY'RE WATCHING YOU"  # decoupled, not the title
+    # An empty thumbnail_text falls back to the first title option.
+    s2 = good_script.model_copy(update={
+        "title_options": ["A Clear Title"], "thumbnail_text": "", "time_sensitive": False,
+    })
+    pkg2 = Visuals(settings, image_provider=None, broll_client=None).run("R", s2, vo, run_root=tmp_path)
+    assert pkg2.thumbnail_text == "A Clear Title"  # fallback to the title

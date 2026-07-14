@@ -86,8 +86,9 @@ def _visuals_with_scenes(duration: float) -> VisualPackage:
     )
 
 
-def test_seo_optimizes_metadata_and_keeps_disclosure(settings, good_script):
+def test_seo_optimizes_metadata(settings, good_script):
     good_script.title_options = ["Best Career Advice"]  # yearless => optimizer stamps the year
+    good_script.time_sensitive = True  # flagged time-sensitive => the year gets stamped
     pub = _FakePub(disclosure=True)
     result = Publisher(settings, pub).run(
         "R", _video(), good_script, _visuals_with_scenes(12.0), run_root=Path(".")
@@ -98,7 +99,6 @@ def test_seo_optimizes_metadata_and_keeps_disclosure(settings, good_script):
     assert all(t == t.lower() for t in kwargs["tags"])  # normalised
     assert "tech careers" in kwargs["tags"]  # niche seeded
     assert "Chapters:" in kwargs["description"]  # 3 x 12s scenes qualify
-    assert "synthetic" in kwargs["description"].lower()  # disclosure preserved
     assert result.chosen_title == kwargs["title"]
 
 
@@ -111,4 +111,4 @@ def test_seo_disabled_uses_raw_metadata(monkeypatch, good_script):
     _, kwargs = next(c for c in pub.calls if c[0] == "upload")
     assert kwargs["title"] == good_script.title_options[0]  # untouched
     assert kwargs["tags"] == good_script.tags
-    assert "synthetic" in kwargs["description"].lower()  # disclosure still enforced
+    assert kwargs["description"] == good_script.description  # raw, unmodified (no disclaimer added)

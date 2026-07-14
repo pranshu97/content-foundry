@@ -179,6 +179,15 @@ def test_broll_source_from_url():
     assert _broll_source("https://other.example/x.mp4") == "stock"
 
 
+def test_cut_pace_maps_editing_hint():
+    from content_foundry.agents.visuals import _cut_pace
+
+    assert _cut_pace("fast") < 1.0  # faster cutting -> more, shorter shots
+    assert _cut_pace("hold") > 1.0  # holding -> fewer, longer shots
+    assert _cut_pace(None) == 1.0  # no hint -> neutral
+    assert _cut_pace("whatever") == 1.0  # unknown hint -> neutral
+
+
 def test_picker_avoids_consecutive_and_caps_reuse():
     picker = _BrollPicker(random.Random("seed"), max_uses=2)
     seq = [picker.pick(["a", "b"]) for _ in range(4)]

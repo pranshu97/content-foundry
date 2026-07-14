@@ -80,7 +80,7 @@ class Researcher:
         self._log = get_logger(component="research")
 
     def run(self, run_id: str, brief: DataBrief, *, idea: str) -> ResearchBrief:
-        sources = self._gather_sources(brief)
+        sources = self._gather_sources(brief, idea=idea)
         points, used_model = self._synthesize(idea, brief.niche, sources)
         if not points:
             points = self._fallback(brief)
@@ -93,9 +93,14 @@ class Researcher:
             used_model=used_model,
         )
 
-    def _gather_sources(self, brief: DataBrief) -> list[tuple[str, str]]:
-        """Fetch the full text behind the brief's citation URLs (deduped, capped). Falls back to the
-        citation snippet for any page that cannot be fetched, so there is always something to read."""
+    def _gather_sources(self, brief: DataBrief, *, idea: str = "") -> list[tuple[str, str]]:
+        """Fetch the full text behind the brief's citation URLs (deduped). Over-fetches by
+        ``research_source_buffer`` extra candidates, then keeps the most ON-TOPIC
+        ``research_max_sources`` (ranked by how many of the idea/niche terms each page covers), so a
+        weak or paywalled fetch doesn't burn a slot. Falls back to the citation snippet for any page
+        that can't be fetched, so there is always something to read."""
+        want = self._settings.research_max_sources
+        limit = want + self._settings.research_source_buffer
         seen: set[str] = set()
         out: list[tuple[str, str]] = []
         for fact in brief.key_facts:
@@ -112,8 +117,16 @@ class Researcher:
                 text = (fact.citation.snippet or fact.statement or "").strip()
             if text:
                 out.append((url, text))
-            if len(out) >= self._settings.research_max_sources:
+            if len(out) >= limit:
                 break
+        if len(out) > want:
+            terms = set(re.findall(r"[a-z]{3,}", f"{idea} {brief.niche}".lower()))
+            if terms:
+                out.sort(
+                    key=lambda item: len(set(re.findall(r"[a-z]{3,}", item[1].lower())) & terms),
+                    reverse=True,
+                )
+            out = out[:want]
         return out
 
     def _synthesize(self, idea, niche, sources) -> tuple[list[ResearchPoint], str | None]:

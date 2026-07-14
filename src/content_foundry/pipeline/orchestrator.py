@@ -308,11 +308,50 @@ class Orchestrator:
         if not ideas:
             self._record_idea(run_id, paths, seed=seed, generated=[], chosen=seed, source="seed")
             return seed
-        chosen = (self._idea_chooser(ideas) if self._idea_chooser else ideas[0]) or ideas[0]
-        source = "brainstorm" if chosen in ideas else "custom"
-        self._record_idea(run_id, paths, seed=seed, generated=ideas, chosen=chosen, source=source)
+        # Proven ideas (real YouTube outliers) are offered ALONGSIDE the brainstormed ones, each with
+        # a view-count proof tag; the picker shows the tagged line but the run commits to the clean
+        # title. Disabled/unavailable => proven==[] and the picker is exactly the brainstorm list.
+        proven = self._mine_proven_ideas(brief.niche, seed)
+        offered, display_to_idea = self._merge_idea_options(proven, ideas)
+        picked = (self._idea_chooser(offered) if self._idea_chooser else offered[0]) or offered[0]
+        chosen = display_to_idea.get(picked, picked)  # map a tagged line back to its clean title
+        source = "brainstorm" if chosen in display_to_idea.values() else "custom"
+        self._record_idea(run_id, paths, seed=seed, generated=offered, chosen=chosen, source=source)
         self._emit("done", label="Idea", detail=chosen[:80])
         return chosen
+
+    @staticmethod
+    def _merge_idea_options(proven, brainstormed) -> tuple[list[str], dict[str, str]]:
+        """Build the picker list — proven (proof-tagged) first, then brainstormed — plus a map from
+        each DISPLAYED line back to the clean idea text a chosen run should actually build."""
+        display_to_idea: dict[str, str] = {}
+        offered: list[str] = []
+        for idea in proven:
+            line = idea.display()
+            offered.append(line)
+            display_to_idea[line] = idea.title
+        for idea in brainstormed:
+            offered.append(idea)
+            display_to_idea.setdefault(idea, idea)
+        return offered, display_to_idea
+
+    def _mine_proven_ideas(self, niche: str, focus: str = "") -> list:
+        """Mine outlier videos for proven ideas RELEVANT to the niche + the run's idea (``focus``);
+        a nice-to-have that never raises (``[]`` on any problem — feature off, no API key, quota
+        exhausted, network error)."""
+        if not self.s.idea_mining_enabled:
+            return []
+        try:
+            from ..agents import IdeaMiner
+            from ..providers import build_youtube_data_client
+
+            client = build_youtube_data_client(self.s)
+            if not getattr(client, "enabled", False):
+                return []
+            return IdeaMiner(self.s, client).mine(niche, focus=focus)
+        except Exception as exc:  # defensive: mining must never break idea selection
+            self.log.warning("idea_mining_unavailable", error=str(exc))
+            return []
 
     def _record_idea(self, run_id, paths, *, seed, generated, chosen, source) -> None:
         """Persist the brainstormed ideas + the exact pick to ``ideas.json`` for later inspection."""

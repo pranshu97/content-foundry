@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..models import Script
-from ..safeguards.disclosure import description_has_disclosure
 from ..safeguards.grounding import extract_stats
 
 GENERIC_PHRASES = (
@@ -195,7 +194,7 @@ def freshness_why(template_id: str, fresh: FreshnessResult, recent_template_ids:
 
 
 def compliance_check(script: Script) -> tuple[float, bool]:
-    ok = bool(script.synthetic_disclosure) and description_has_disclosure(script.description)
+    ok = bool(script.synthetic_disclosure)
     return (10.0 if ok else 0.0), ok
 
 

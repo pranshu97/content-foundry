@@ -127,9 +127,20 @@ def test_thumbnail_text_decoupled_from_title(settings, good_script, tmp_path):
     })
     pkg = Visuals(settings, image_provider=None, broll_client=None).run("R", s1, vo, run_root=tmp_path)
     assert pkg.thumbnail_text == "THEY'RE WATCHING YOU"  # decoupled, not the title
-    # An empty thumbnail_text falls back to the first title option.
+    # An empty thumbnail_text falls back to a SHORT punchy version of the title (never the whole
+    # long title, which is unreadable overlaid on a thumbnail).
     s2 = good_script.model_copy(update={
-        "title_options": ["A Clear Title"], "thumbnail_text": "", "time_sensitive": False,
+        "title_options": ["How to Get Into FAANG in 2026 (From a FAANG AI Scientist)"],
+        "thumbnail_text": "", "time_sensitive": False,
     })
     pkg2 = Visuals(settings, image_provider=None, broll_client=None).run("R", s2, vo, run_root=tmp_path)
-    assert pkg2.thumbnail_text == "A Clear Title"  # fallback to the title
+    assert pkg2.thumbnail_text == "Get Into FAANG in 2026"  # shortened fallback, not the full title
+
+
+def test_fallback_thumb_text_shortens_and_handles_empty():
+    from content_foundry.agents.visuals import _fallback_thumb_text
+
+    assert _fallback_thumb_text(
+        "How to Actually Get Into FAANG in 2026 (From a FAANG AI Scientist)"
+    ) == "Actually Get Into FAANG in 2026"
+    assert _fallback_thumb_text("") == ""

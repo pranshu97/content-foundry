@@ -131,6 +131,34 @@ def _encoder_opts(encoder: str) -> dict:
     return {}  # libx264: ffmpeg defaults (crf 23, preset medium)
 
 
+def _run_ffmpeg(stream, exe: str, output_path: str) -> None:  # pragma: no cover - requires ffmpeg
+    """Run an ffmpeg-python graph, passing a large ``-filter_complex`` via a SCRIPT FILE instead of
+    inline. A rich B-roll timeline builds a filtergraph tens of thousands of characters long, and
+    Windows caps a whole command line at ~32K (``WinError 206: filename or extension too long``);
+    ``-filter_complex_script`` keeps the graph off the CLI so the render scales to any scene/shot
+    count. The remaining args (inputs, output opts) stay well within the limit."""
+    import subprocess
+
+    import ffmpeg
+
+    args = list(stream.get_args())
+    script_path = None
+    if "-filter_complex" in args:
+        idx = args.index("-filter_complex")
+        script_path = f"{output_path}.filtergraph.txt"
+        with open(script_path, "w", encoding="utf-8") as fh:
+            fh.write(args[idx + 1])
+        args[idx] = "-filter_complex_script"
+        args[idx + 1] = script_path
+    try:
+        proc = subprocess.run([exe, *args], capture_output=True)
+    finally:
+        if script_path and os.path.exists(script_path):
+            os.remove(script_path)
+    if proc.returncode != 0:
+        raise ffmpeg.Error("ffmpeg", proc.stdout, proc.stderr)
+
+
 @runtime_checkable
 class RenderBackend(Protocol):
     name: str
@@ -313,7 +341,7 @@ class FfmpegBackend:
     def _encode(self, video, audio, output_path, encoder, fps, exe):  # pragma: no cover - ffmpeg
         import ffmpeg
 
-        (
+        stream = (
             ffmpeg.output(
                 video,
                 audio,
@@ -326,8 +354,8 @@ class FfmpegBackend:
                 **_encoder_opts(encoder),
             )
             .overwrite_output()
-            .run(cmd=exe, quiet=True)
         )
+        _run_ffmpeg(stream, exe, output_path)
 
 
 def _xfade_chain(streams, durations, transition, dur):  # pragma: no cover - requires ffmpeg

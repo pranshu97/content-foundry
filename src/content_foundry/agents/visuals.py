@@ -48,6 +48,16 @@ def build_image_prompt(
     )
 
 
+def _fallback_thumb_text(title: str) -> str:
+    """A short punchy thumbnail line when the writer supplied none: drop parentheticals + weak
+    lead-ins and keep the first few strong words (a whole long title overlaid on a thumbnail is
+    unreadable)."""
+    text = re.sub(r"\s*\([^)]*\)", "", title or "").strip()
+    text = re.sub(r"^(how to|how|why|what|the|a|an)\s+", "", text, flags=re.IGNORECASE).strip()
+    words = text.split()
+    return " ".join(words[:6]) if words else (title or "").strip()
+
+
 def _thumbnail_prompt(concept: str, *, no_person: bool = False) -> str:
     """Turn the script's thumbnail concept into a punchy, high-CTR YouTube-thumbnail image prompt for a
     text-to-image model: one bold subject, exaggerated emotion, dramatic lighting, saturated
@@ -207,9 +217,9 @@ class Visuals:
 
         # Thumbnail. The overlay text is its OWN punchy line (decoupled from the title); fall back to
         # the first title option when the writer didn't supply one.
-        thumbnail_text = (script.thumbnail_text or "").strip() or (
-            script.title_options or [script.thumbnail_concept or "Career Advice"]
-        )[0]
+        thumbnail_text = (script.thumbnail_text or "").strip() or _fallback_thumb_text(
+            (script.title_options or [script.thumbnail_concept or "Career Advice"])[0]
+        )
         # Year-stamp the thumbnail too, but only when the writer flagged the topic time-sensitive.
         if self._settings.time_box_enabled and script.time_sensitive:
             thumbnail_text = timebox_title(thumbnail_text, self._settings.effective_content_year)
@@ -331,6 +341,8 @@ class Visuals:
     def _compose_thumbnail(self, concept: str, text: str, target: Path) -> None:
         size = self._settings.thumbnail_wh
         avatar = self._avatar_thumbnail_path()
+        if avatar is not None:
+            avatar = self._prepare_avatar(avatar)  # cut the background out (transparent, cached)
         base: bytes | None = None
         if self._image is not None:
             try:
@@ -340,14 +352,47 @@ class Visuals:
                 )
             except Exception as exc:  # a thumbnail image failure must never crash the run
                 self._log.warning("thumbnail_image_failed", error=str(exc))
-        _write_card(text, size, target, base_png=base, punchy=True, avatar_path=avatar)
+        _write_card(
+            text, size, target, base_png=base, punchy=True,
+            avatar_path=avatar, avatar_scale=self._settings.thumbnail_avatar_scale,
+        )
+
+    def _prepare_avatar(self, path: Path) -> Path:
+        """Return a TRANSPARENT-background avatar for the thumbnail. If the source already has real
+        transparency, use it. Otherwise cut the background out with rembg (cached next to the source
+        as ``<name>.cutout.png``); if rembg is missing or fails, keep the original and log a one-line
+        hint so the thumbnail still renders (a face with a box beats no thumbnail)."""
+        from PIL import Image
+
+        try:
+            if Image.open(path).convert("RGBA").split()[-1].getextrema()[0] < 250:
+                return path  # already has meaningful transparency
+        except Exception:
+            return path
+        cutout = path.with_name(f"{path.stem}.cutout.png")
+        try:
+            if cutout.exists() and cutout.stat().st_mtime >= path.stat().st_mtime:
+                return cutout  # cached from a previous run
+            from rembg import remove
+
+            remove(Image.open(path)).save(cutout)  # RGBA with the background removed
+            self._log.info("avatar_background_removed", cutout=str(cutout))
+            return cutout
+        except Exception as exc:
+            self._log.info(
+                "avatar_cutout_unavailable",
+                hint="pip install rembg to auto-remove the background, or supply a transparent PNG",
+                error=str(exc),
+            )
+            return path
 
 
 # --------------------------------------------------------------------- Pillow
-def _paste_avatar(img, avatar_path: Path, size_wh: tuple[int, int]) -> None:
-    """Composite the operator's avatar (their face) onto the RIGHT of the thumbnail, bottom-aligned,
-    leaving the left/bottom clear for the title. Uses the image's alpha when present (a transparent
-    PNG cuts out cleanly); a flaky/broken file is skipped so a thumbnail never fails on it."""
+def _paste_avatar(img, avatar_path: Path, size_wh: tuple[int, int], scale: float = 0.5) -> None:
+    """Composite the operator's avatar (their face) SMALL in the bottom-right, leaving the rest clear
+    for the title. Uses the image's alpha when present (a transparent PNG cuts out cleanly); a broken
+    file is skipped so a thumbnail never fails on it. ``scale`` = avatar height as a fraction of the
+    frame (kept modest so the face never dominates)."""
     from PIL import Image
 
     width, height = size_wh
@@ -355,15 +400,18 @@ def _paste_avatar(img, avatar_path: Path, size_wh: tuple[int, int]) -> None:
         av = Image.open(avatar_path).convert("RGBA")
     except Exception:
         return
-    target_w = min(int(av.width * (height * 0.96) / max(av.height, 1)), int(width * 0.52))
-    target_h = int(av.height * (target_w / max(av.width, 1)))
+    target_h = int(height * min(max(scale, 0.15), 1.0))
+    target_w = int(av.width * target_h / max(av.height, 1))
+    max_w = int(width * 0.42)  # never let the face eat more than ~40% of the width
+    if target_w > max_w:
+        target_w, target_h = max_w, int(av.height * max_w / max(av.width, 1))
     av = av.resize((max(1, target_w), max(1, target_h)))
-    img.paste(av, (width - target_w, height - target_h), av)
+    img.paste(av, (width - target_w, height - target_h), av)  # flush bottom-right
 
 
 def _write_card(
     text: str, size_wh: tuple[int, int], target: Path, base_png: bytes | None = None,
-    *, punchy: bool = False, avatar_path: Path | None = None,
+    *, punchy: bool = False, avatar_path: Path | None = None, avatar_scale: float = 0.5,
 ):
     """Render a title card. ``punchy`` = a high-CTR YouTube-thumbnail overlay (bold UPPERCASE, a dark
     bottom scrim, a drop shadow + heavy outline, and numbers/the key word highlighted); otherwise a
@@ -381,7 +429,7 @@ def _write_card(
         img = _gradient_bg(size_wh)
 
     if avatar_path is not None:
-        _paste_avatar(img, avatar_path, size_wh)
+        _paste_avatar(img, avatar_path, size_wh, avatar_scale)
 
     if punchy:
         _draw_punchy_title(img, text or "", size_wh)

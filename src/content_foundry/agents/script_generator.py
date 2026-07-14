@@ -415,8 +415,8 @@ class ScriptGenerator:
     def _prepend_intro(self, script: Script) -> Script:
         """Fixed channel intro (Ch. 8): every video opens with the same signature line, prepended to
         the first scene so it is the FIRST thing spoken. Guaranteed in code, topic-agnostic, and
-        idempotent (never doubled on a revision that embedded an already-introed draft). A no-op when
-        disabled or the tagline is blank."""
+        idempotent (never doubled — even when a revision lightly REWORDED an already-introed draft).
+        A no-op when disabled or the tagline is blank."""
         if not self._settings.intro_enabled or not script.scenes:
             return script
         tagline = _replace_em_dashes((self._settings.intro_tagline or "").strip())
@@ -424,11 +424,24 @@ class ScriptGenerator:
             return script
         first = script.scenes[0]
         body = first.narration.lstrip()
-        if re.sub(r"\s+", " ", body.lower()).startswith(re.sub(r"\s+", " ", tagline.lower())):
-            return script  # this draft already opens with the signature line
+        if self._opens_with_intro(body, tagline):
+            return script  # already opens with the signature line (even lightly reworded)
         first.narration = f"{tagline} {body}".strip()
         script.word_count = _word_count(script)
         return script
+
+    @staticmethod
+    def _opens_with_intro(body: str, tagline: str) -> bool:
+        """True when the narration already opens with the intro — including a lightly reworded or
+        re-punctuated echo from a revision (e.g. 'let us' for 'let's', '.' for '!') — so the fixed
+        intro is never spoken twice. Scores how many of the tagline's words land in the opening
+        window rather than demanding an exact prefix."""
+        tag_words = [w for w in re.findall(r"[a-z0-9]+", tagline.lower()) if len(w) >= 2]
+        if not tag_words:
+            return True
+        window = re.findall(r"[a-z0-9]+", body.lower())[: len(tag_words) + 4]
+        hits = sum(1 for w in tag_words if w in window)
+        return hits >= max(2, int(0.7 * len(tag_words)))
 
     def _ensure_ending(self, script: Script) -> Script:
         """HARD GUARANTEE (Ch. 8): the last scene must close with BOTH a like/subscribe nudge AND a

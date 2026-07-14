@@ -194,13 +194,21 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   sees, with NO words or letters in the image (the thumbnail_text below is overlaid for you). Example
   (adapt the drama to YOUR niche): "a stunned person staring at a laptop glowing with a big red
   rejection X, dark background, dramatic blue and red split lighting".
-- THUMBNAIL TEXT (the words overlaid ON the thumbnail — SEPARATE from the title): a VERY short, punchy
-  line (about 2-5 words or one tiny phrase) built for the THUMBNAIL, not for search. It MAY differ
-  from the title: the title can be complete and searchable while the thumbnail text is a bolder hook —
-  an intriguing question, a shocking phrase, or a big number (e.g. title "How Recommendation Engines
-  Work" -> thumbnail_text "THEY'RE WATCHING YOU"). Same spirit as the title: sell the ONE hook, stay
-  truthful, and you MAY use the credibility tag when it sharpens it. Keep it instantly readable at a
-  glance — never a full sentence.
+- THUMBNAIL TEXT (2-4 BIG words overlaid ON the thumbnail — this + the image WIN THE CLICK; separate
+  from the title). Engineer it to stop the scroll. It MUST hit all three:
+  (1) A CURIOSITY GAP or a bold, specific claim — a concrete number, a "you're doing it wrong", real
+      stakes/urgency, or a provocative question (make the viewer NEED the answer).
+  (2) The ONE core SEARCHABLE keyword of the topic (the role / company / skill someone would type),
+      so the thumbnail reinforces the topic at a glance and the words aren't wasted.
+  (3) Instantly readable at arm's length: 2-4 huge words, ALL-CAPS energy, never a sentence.
+  It MAY differ from the title (the title is the complete searchable version; the thumbnail is the
+  bolder hook) and MAY use the credibility tag when it sharpens it.
+  BANNED vague filler that kills CTR: "The Truth", "Explained", "The Real Playbook", "Ultimate Guide",
+  "Secrets Revealed", "Deep Dive", "A Guide", "Everything You Need", or just restating the plain
+  topic. TEST: if the line could sit on ANY video in the niche, it's too vague — rewrite it around
+  THIS video's single sharpest hook.
+  Good: title "How Recommendation Engines Work" -> "THEY'RE WATCHING YOU"; a FAANG-hiring video ->
+  "STOP APPLYING WRONG" or "5 ROLES, 1 WINNER" or "FAANG WANTS THIS"; a salary video -> "$500K AT 25?".
 - DISCLOSURE: set synthetic_disclosure=true (a metadata flag only). Do NOT write any AI or
   synthetic-content note in the description or narration.
 </rules>

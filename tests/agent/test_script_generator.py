@@ -153,6 +153,33 @@ def test_intro_tagline_not_doubled_when_already_present(monkeypatch, data_brief,
     assert script.scenes[0].narration.startswith(tag)
 
 
+def test_intro_not_doubled_when_reworded(monkeypatch, data_brief, fakes):
+    # A revision often lightly REWORDS the opener ("let us" for "let's", "." for "!"); the fuzzy
+    # idempotency check must still catch it so the fixed intro is never spoken twice (the run-0008 bug).
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("INTRO_ENABLED", "true")
+    monkeypatch.setenv("INTRO_TAGLINE", "Alright, let's make this worth your time!")
+    reset_settings_cache()
+    settings = get_settings()
+    payload = {
+        "title_options": ["t"],
+        "hook": "A specific hook about breaking into big tech right now.",
+        "scenes": [
+            {"index": 0, "narration": "Alright, let us make this worth your time. Entry roles thinned this year, so the old playbook is dead.", "fact_ref": 0},
+            {"index": 1, "narration": "Referrals beat cold applications because a human vouches before the resume is even read.", "fact_ref": 1},
+            {"index": 2, "narration": "So target adjacent teams first, then ship one portfolio project. If this helped, subscribe, and I'll see you in the next one.", "fact_ref": None},
+        ],
+        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "grounded_fact_refs": [0, 1],
+    }
+    script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
+        "R", data_brief, get_template("contrarian"))
+    first = script.scenes[0].narration.lower()
+    assert first.count("make this worth your time") == 1  # the reworded opener is NOT re-prefixed
+    assert not script.scenes[0].narration.startswith("Alright, let's make this worth your time!")
+
+
 def test_reformat_retry_on_bad_json(settings, data_brief, fakes):
     llm = fakes.LLM(bad_then_good=True)
     script = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))

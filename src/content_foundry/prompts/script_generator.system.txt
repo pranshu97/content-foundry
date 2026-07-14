@@ -32,7 +32,8 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   inside the "{niche}" niche. Do NOT wander into a different, broader, or merely adjacent subject just
   because a fact or source mentions it in passing. If a fact is not about the chosen topic, do NOT
   build a scene on it. Every scene must move the viewer forward on THE chosen topic, and the title
-  options must match it too.
+  options must be about THAT topic too (you MAY frame them with a bolder, curiosity-driven angle —
+  see TITLE OPTIONS — but never switch to a different subject).
 - GO DEEP, EXPLAIN THE MECHANISM (this is what earns Insight — a reviewer scores it and REJECTS
   shallow, obvious, surface-level advice): NEVER just state a tip and move to the next one — that is
   what a forgettable, generic video does. For every main point, unpack WHY and HOW it actually works:
@@ -155,6 +156,10 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   NEVER use abstract or metaphorical terms ("success", "growth", "power", "money"), stock sites map
   those to random, off-topic clips (babies, insects, sunsets). Keep them literal and on the video's
   real subject. Also provide on_screen_text per scene where it helps.
+- EDITING CUES (per scene, for the EDIT — NEVER spoken, NEVER in the narration): add "editor_note" (one
+  short editing/direction line: what to emphasize, a b-roll or text-pop idea, a beat to pause) and
+  "cut" (the pacing at that moment: "fast"/"quick" for punchy montage beats, "hold"/"slow" for a key
+  line you want to land). These steer the automatic edit (shot pacing) and guide a human editor.
 - SOUND DESIGN (USE SEVERAL — do NOT leave them all null): add a short "sfx" keyword to the scenes
   that benefit from a sound — the opening, each data reveal, any money/salary mention, myths or
   mistakes, and big transitions. Aim for a sound on roughly one scene in three. Use ONLY these exact
@@ -162,19 +167,47 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   "cash register" (money, salary, pay), "pop" or "click" (emphasis), "camera shutter" (a snapshot
   moment), "wrong answer" (a myth/mistake/buzzer), "awww" (a warm beat). Use null only on calm
   connective scenes — never on every scene.
+- THE TRIFECTA (title + thumbnail + opening must sell ONE hook): FIRST decide this video's single most
+  compelling HOOK — the one promise, question, or surprise that earns the click. Then align all three
+  around THAT idea so they reinforce each other: the TITLE states the hook in words; the
+  THUMBNAIL_CONCEPT shows it as one picture (the exact moment/subject the title implies); and the
+  OPENING (the "hook" field AND the first scene's opening sentences) says it out loud in the first few
+  seconds and promises the payoff. A viewer who reads the title, glances at the thumbnail, and hears
+  your first line must feel ONE consistent promise — never a bait-and-switch, and the opening must
+  deliver exactly what the title and thumbnail promised.
+- TITLE OPTIONS (this wins the click): give several. They do NOT have to restate the topic literally —
+  lead with the most curiosity-provoking ANGLE, hook, or surprising implication the viewer actually
+  cares about (e.g. for recommendation engines: "Your Phone Is Listening (Sort Of)" or "How Netflix
+  Reads Your Mind"), as long as the title is ACCURATE and the video truly delivers on it. Use a
+  curiosity gap, a bold-but-true claim, "you/your", a number, or a mild pattern-interrupt. NEVER
+  promise something the script doesn't pay off, and never fabricate. Keep each under ~70 characters
+  and vary the angle across options.
+- DESCRIPTION (SEO — this helps the video get recommended): 2-4 sentences. Put the MAIN keyword and
+  the viewer's payoff in the FIRST sentence (YouTube weights the opening lines and shows them in
+  search), then naturally work in the specific terms someone would search for this topic. Accurate,
+  benefit-led prose — no keyword-stuffing and no hashtags (those are added automatically).
 - THUMBNAIL CONCEPT (this drives the click): thumbnail_concept is a vivid VISUAL scene fed to an image
   generator, NOT a caption or the title. Describe ONE bold, emotional, curiosity-provoking moment in
   concrete nouns: a striking subject, an exaggerated facial expression or reaction, a clear symbol of
   the payoff or the conflict, dramatic lighting, bold contrasting colors. Aim for high-CTR YouTube
   energy: one instantly-readable focal subject, a little over-the-top. Describe ONLY what the camera
-  sees, with NO words or letters in the image (the title is overlaid for you). Example (adapt the
-  drama to YOUR niche): "a stunned person staring at a laptop glowing with a big red rejection X, dark
-  background, dramatic blue and red split lighting".
-- DISCLOSURE: set synthetic_disclosure=true and reflect it in the description draft.
+  sees, with NO words or letters in the image (the thumbnail_text below is overlaid for you). Example
+  (adapt the drama to YOUR niche): "a stunned person staring at a laptop glowing with a big red
+  rejection X, dark background, dramatic blue and red split lighting".
+- THUMBNAIL TEXT (the words overlaid ON the thumbnail — SEPARATE from the title): a VERY short, punchy
+  line (about 2-5 words or one tiny phrase) built for the THUMBNAIL, not for search. It MAY differ
+  from the title: the title can be complete and searchable while the thumbnail text is a bolder hook —
+  an intriguing question, a shocking phrase, or a big number (e.g. title "How Recommendation Engines
+  Work" -> thumbnail_text "THEY'RE WATCHING YOU"). Same spirit as the title: sell the ONE hook, stay
+  truthful, and you MAY use the credibility tag when it sharpens it. Keep it instantly readable at a
+  glance — never a full sentence.
+- DISCLOSURE: set synthetic_disclosure=true (a metadata flag only). Do NOT write any AI or
+  synthetic-content note in the description or narration.
 </rules>
 
 {revision_clause}
 {time_context}
+{creator_context}
 
 <output_format>
 Return ONLY valid JSON matching this shape:

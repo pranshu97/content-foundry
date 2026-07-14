@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .render_backend import RenderBackend
     from .tts import TTSProvider
     from .youtube import Publisher
+    from .youtube_data import YouTubeDataClient
 
 
 def _chain_llms(providers: list[LLMProvider], *, latch_all: bool = False) -> LLMProvider:
@@ -214,6 +215,18 @@ def build_publisher(settings: Settings, *, dry_run: bool = False) -> Publisher:
     return YouTubePublisher(settings.youtube_client_secrets_file, settings.youtube_token_file)
 
 
+def build_youtube_data_client(settings: Settings) -> YouTubeDataClient:
+    """Read-only Data-API client for proven-idea mining; a disabled null client when no key is set."""
+    key = (settings.youtube_api_key or "").strip()
+    if not key:
+        from .youtube_data import NullYouTubeDataClient
+
+        return NullYouTubeDataClient()
+    from .youtube_data import ApiYouTubeDataClient
+
+    return ApiYouTubeDataClient(key)
+
+
 __all__ = [
     "LLMProvider",
     "LLMResponse",
@@ -226,4 +239,5 @@ __all__ = [
     "build_sfx_client",
     "build_render_backend",
     "build_publisher",
+    "build_youtube_data_client",
 ]

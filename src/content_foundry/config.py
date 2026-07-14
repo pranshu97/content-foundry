@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     # generator works from the data brief alone. Grounded in fetched pages; failures degrade to snippets.
     research_enabled: bool = True
     research_max_sources: int = Field(4, ge=1, le=12)
+    # Over-fetch this many EXTRA candidate pages, then keep only the most on-topic
+    # research_max_sources (a relevance buffer so a weak/paywalled fetch doesn't waste a slot).
+    research_source_buffer: int = Field(2, ge=0, le=8)
     research_max_points: int = Field(6, ge=1, le=20)
     research_max_chars_per_source: int = Field(4000, ge=500, le=20000)
     research_fetch_timeout_sec: float = Field(10.0, ge=1, le=60)
@@ -248,6 +251,12 @@ class Settings(BaseSettings):
     # or disable it to let each script open on its own first line.
     intro_enabled: bool = True
     intro_tagline: str = "No fluff, let's get straight into it."
+    # Your real background/credentials, woven SUBTLY into the narration for authority (blank = fully
+    # generic). Injected at runtime so the shipped prompt files stay generic. E.g. "AI Scientist at X".
+    creator_bio: str = ""
+    # Optional SHORT credibility tag some titles/thumbnails may carry (e.g. "FAANG AI Scientist").
+    # Blank = the writer may infer a short one from creator_bio, or omit it. Used only sometimes.
+    creator_title_tag: str = ""
 
     # ---------- Sound effects ----------
     # Script-authored SFX cues mixed into the narration at each scene's start. Local library first,
@@ -255,7 +264,7 @@ class Settings(BaseSettings):
     sfx_enabled: bool = False
     sfx_dir: str = "data/sounds"
     freesound_api_key: str = ""
-    sfx_volume_db: float = Field(-8.0, ge=-40.0, le=6.0)
+    sfx_volume_db: float = Field(-4.0, ge=-40.0, le=6.0)
 
     # Personal avatar overlay (future plan 1): composited at a fixed corner of every frame.
     # The image is operator-supplied; rendering skips gracefully when the file is absent.
@@ -264,6 +273,9 @@ class Settings(BaseSettings):
     avatar_position: Literal["top-left", "top-right", "bottom-left", "bottom-right"] = "bottom-right"
     avatar_scale: float = Field(0.18, gt=0, le=1)
     avatar_margin: int = Field(24, ge=0)
+    # Composite the avatar image (your face) into the THUMBNAIL as the human element instead of an
+    # AI-generated face — a consistent real face lifts click-through. Skipped when the file is absent.
+    thumbnail_use_avatar: bool = True
 
     # ---------- Publishing (YouTube) ----------
     youtube_client_secrets_file: str = "secrets/client_secrets.json"
@@ -273,6 +285,18 @@ class Settings(BaseSettings):
     youtube_category_id: str = "22"
     youtube_default_language: str = "en"
     require_manual_disclosure_before_public: bool = True
+
+    # ---------- Proven-idea mining (optional; read-only YouTube Data API v3, no scraping) ----------
+    # Surfaces REAL outlier videos (views far above a channel's median) as pre-vetted idea options.
+    # Needs only a read-only Data-API key; entirely opt-in (disabled => the picker is unchanged).
+    youtube_api_key: str = ""  # public Data-API key (separate from the OAuth publish credentials)
+    idea_mining_enabled: bool = False
+    # Optional comma list of channel @handles / URLs / UC… ids to mine; blank => search the niche.
+    idea_mining_channels: str = ""
+    idea_mining_max_channels: int = Field(6, ge=1, le=25)
+    idea_mining_videos_per_channel: int = Field(30, ge=5, le=100)
+    idea_mining_outlier_multiple: float = Field(3.0, ge=1.5, le=25.0)  # views >= N x channel median
+    idea_mining_max_ideas: int = Field(5, ge=1, le=15)
 
     # ---------- Notifications ----------
     notify_enabled: bool = True
@@ -367,6 +391,11 @@ class Settings(BaseSettings):
     @property
     def channel_keywords_list(self) -> list[str]:
         return [k.strip() for k in self.channel_keywords.split(",") if k.strip()]
+
+    @property
+    def idea_mining_channels_list(self) -> list[str]:
+        """Operator-pinned channels to mine for proven ideas (comma list of @handles/URLs/ids)."""
+        return [c.strip() for c in self.idea_mining_channels.split(",") if c.strip()]
 
     # ------------------------------------------------------------- validation
     @model_validator(mode="after")

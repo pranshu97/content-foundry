@@ -82,11 +82,12 @@ def _truncate(title: str, max_chars: int) -> str:
 
 
 def optimize_title(
-    title_options: list[str], *, year: int, time_box: bool, max_chars: int
+    title_options: list[str], *, year: int, time_box: bool, time_sensitive: bool, max_chars: int
 ) -> str:
-    """Pick, optionally year-stamp, and length-bound the published title."""
+    """Pick, optionally year-stamp (only when the writer flagged the topic ``time_sensitive``), and
+    length-bound the published title."""
     title = pick_title(title_options, max_chars=max_chars)
-    if time_box:
+    if time_box and time_sensitive:
         stamped = timebox_title(title, year)
         if len(stamped) <= max_chars:
             title = stamped
@@ -156,7 +157,7 @@ def optimize_description(
     if add_chapters and chapters:
         lines = "\n".join(f"{ts} {label}" for ts, label in chapters)
         blocks.append(f"Chapters:\n{lines}")
-    tag_line = " ".join(hashtags(tags or []))
+    tag_line = " ".join(hashtags(tags or [], limit=5))
     if tag_line:
         blocks.append(tag_line)
     return "\n\n".join(b for b in blocks if b)
@@ -173,6 +174,7 @@ def optimize_metadata(script: Script, visuals: VisualPackage, settings) -> Optim
         script.title_options,
         year=settings.effective_content_year,
         time_box=settings.time_box_enabled,
+        time_sensitive=script.time_sensitive,
         max_chars=settings.seo_title_max_chars,
     )
     tags = optimize_tags(

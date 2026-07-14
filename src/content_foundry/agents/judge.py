@@ -106,7 +106,7 @@ class Judge:
                          "Tie every stated number to a fact_ref from the DataBrief.",
             "hook": hook_why(script),
             "freshness": freshness_why(script.template_id, fresh, recent_template_ids),
-            "compliance": "synthetic_disclosure missing or not reflected in the description.",
+            "compliance": "synthetic_disclosure flag is not set.",
             "ending": end_detail,
         }
         justif = {**justif, **code_justif}
@@ -336,7 +336,7 @@ class Judge:
             "ending": "End the last scene with BOTH a like/subscribe nudge AND a warm sign-off (e.g. 'subscribe for more data-backed moves', then 'see you in the next one'), on top of a witty payoff line.",
             "hook": "Open with a specific number or claim in the first ~10 seconds.",
             "freshness": f"Switch structure to {forced_template_id or 'a different template'}; vary the hook.",
-            "compliance": "Set synthetic_disclosure and add a synthetic-content note to the description.",
+            "compliance": "Set synthetic_disclosure=true.",
         }.get(name, "Improve this dimension.")
 
     def _verdict(

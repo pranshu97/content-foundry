@@ -12,25 +12,26 @@ from ..production.timebox import build_time_context
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
 from ..providers.tiering import TaskTier, select_model
-from ..safeguards.disclosure import ensure_description_discloses
 from ..safeguards.grounding import STAT_RE, ungrounded_scene_indices
 from ..templates import Template
 from .judge_checks import dedupe_scene_indices, ending_parts_present
 
 SCRIPT_JSON_SHAPE = """{
   "title_options": ["...", "..."],
-  "hook": "first ~10s, specific, opens a curiosity gap",
+  "hook": "first ~10s spoken opening that delivers the SAME hook the title and thumbnail promise (the trifecta), specific, opens a curiosity gap",
   "scenes": [
     {"index": 0, "narration": "3-6 spoken sentences taking ONE point deep as natural speech: what to do, then the how and the why and a concrete, witty example woven together, with NO section labels or headings", "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh"},
+     "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh", "editor_note": "punch in on the key detail", "cut": "fast"},
     {"index": 1, "narration": "FINAL scene: 3-6 spoken sentences that pay off the idea with your wittiest line, then one natural like/subscribe nudge, then a warm 'see you in the next one' sign-off",
      "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["subject reacting with emotion", "two people celebrating together"], "fact_ref": 1, "sfx": "pop"}
+     "b_roll_keywords": ["subject reacting with emotion", "two people celebrating together"], "fact_ref": 1, "sfx": "pop", "editor_note": "hold on the payoff line", "cut": "hold"}
   ],
   "cta": "call to action",
-  "description": "YouTube description draft (must mention synthetic content)",
+  "description": "YouTube description draft: SEO-friendly, keyword-rich first sentence, no AI/synthetic-content note",
   "tags": ["tag1", "tag2"],
   "thumbnail_concept": "ONE bold, emotional, curiosity-driving SCENE for an image generator: concrete subject + exaggerated expression + dramatic lighting + bold contrasting colors; only what the camera sees, NO words in the image",
+  "thumbnail_text": "VERY short punchy overlay words for the thumbnail (2-5 words); MAY differ from the title — a bold hook or intriguing question",
+  "time_sensitive": false,
   "word_count": 0,
   "grounded_fact_refs": [0],
   "synthetic_disclosure": true
@@ -51,6 +52,8 @@ def _script_to_prompt_json(script: Script) -> dict:
                 "b_roll_keywords": s.b_roll_keywords,
                 "fact_ref": s.fact_ref,
                 "sfx": s.sfx,
+                "editor_note": s.editor_note,
+                "cut": s.cut,
             }
             for s in script.scenes
         ],
@@ -58,9 +61,42 @@ def _script_to_prompt_json(script: Script) -> dict:
         "description": script.description,
         "tags": script.tags,
         "thumbnail_concept": script.thumbnail_concept,
+        "thumbnail_text": script.thumbnail_text,
+        "time_sensitive": script.time_sensitive,
         "grounded_fact_refs": script.grounded_fact_refs,
         "synthetic_disclosure": script.synthetic_disclosure,
     }
+
+
+def _creator_context(bio: str, title_tag: str = "") -> str:
+    """Optional CREATOR CREDIBILITY clause from the user-configured ``creator_bio`` (narration
+    authority) plus an optional short ``creator_title_tag`` (a credential some titles/thumbnails may
+    carry). Empty when both are unset, so the shipped prompt files stay fully generic."""
+    bio = (bio or "").strip()
+    title_tag = (title_tag or "").strip()
+    if not bio and not title_tag:
+        return ""
+    parts = [
+        "CREATOR CREDIBILITY (use SPARINGLY, never braggy, only where it genuinely sharpens the "
+        "moment):"
+    ]
+    if bio:
+        parts.append(
+            "- NARRATION: at most once or twice in the whole script, lean on the presenter's real "
+            "background for authority, phrased naturally and humbly ('from what I've seen building "
+            f"these', 'having worked on this') — NEVER a resume brag or title-drop. Background: {bio}."
+        )
+    tag = (
+        f'"{title_tag}"' if title_tag else
+        "a SHORT, accurate credential you can infer from that background (e.g. 'FAANG AI Scientist')"
+    )
+    parts.append(
+        "- TITLE / THUMBNAIL: on SOME (not all) of the title options, you MAY append a short "
+        "credibility tag when it strengthens the hook and stays truthful — e.g. 'Resume Optimization "
+        f"Tips from a FAANG AI Scientist'. Use {tag} as that tag. Keep the title under ~70 characters "
+        "and never clunky; skip the tag when it doesn't fit. Never fabricate a credential."
+    )
+    return "\n".join(parts)
 
 
 _ENDING_FALLBACK_CTA = "If this helped, subscribe so the next one finds you."
@@ -130,6 +166,9 @@ class ScriptGenerator:
             if self._settings.time_box_enabled
             else ""
         )
+        creator_context = _creator_context(
+            self._settings.creator_bio, self._settings.creator_title_tag
+        )
         floor = int(self._settings.min_script_word_ratio * self._settings.script_target_words)
         per_scene = max(
             40, round(self._settings.script_target_words / max(self._settings.scenes_per_video, 1))
@@ -155,6 +194,7 @@ class ScriptGenerator:
             key_facts_json=json.dumps(facts, ensure_ascii=False),
             revision_clause=revision,
             time_context=time_context,
+            creator_context=creator_context,
             research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
         )
@@ -260,12 +300,12 @@ class ScriptGenerator:
                     b_roll_keywords=raw_scene.get("b_roll_keywords", []) or [],
                     fact_ref=_coerce_int(raw_scene.get("fact_ref")),
                     sfx=_str_or_none(raw_scene.get("sfx")),
+                    editor_note=_str_or_none(raw_scene.get("editor_note")),
+                    cut=_str_or_none(raw_scene.get("cut")),
                 )
             )
 
-        description = _replace_em_dashes(
-            ensure_description_discloses(parsed.get("description", ""))
-        )
+        description = _replace_em_dashes(parsed.get("description", ""))
         try:
             script = Script(
                 run_id=run_id,
@@ -279,9 +319,11 @@ class ScriptGenerator:
                 description=description,
                 tags=parsed.get("tags", []) or [],
                 thumbnail_concept=_replace_em_dashes(parsed.get("thumbnail_concept", "")),
+                thumbnail_text=_replace_em_dashes(parsed.get("thumbnail_text", "")),
                 word_count=0,
                 grounded_fact_refs=[],
                 synthetic_disclosure=True,
+                time_sensitive=bool(parsed.get("time_sensitive", False)),
                 provenance=Provenance(
                     produced_by="script_generator",
                     model=self._settings.generator_model,

@@ -14,7 +14,6 @@ def test_generate_good_script(settings, data_brief, fakes):
     assert script.word_count > 0
     assert script.grounded_fact_refs == [0, 1, 2]
     assert script.synthetic_disclosure is True
-    assert "synthetic" in script.description.lower()
 
 
 def test_revision_embeds_previous_draft_for_surgical_edit(settings, data_brief, fakes):
@@ -161,6 +160,19 @@ def test_reformat_retry_on_bad_json(settings, data_brief, fakes):
     assert script.hook
 
 
+def test_creator_bio_stays_generic_when_unset():
+    # Both blank => an EMPTY clause, so the shipped prompt stays fully generic for anyone who doesn't
+    # set one. A set bio/tag produces a "use sparingly" credibility clause for narration + titles.
+    from content_foundry.agents.script_generator import _creator_context
+
+    assert _creator_context("") == ""
+    assert _creator_context("   ", "  ") == ""
+    clause = _creator_context("AI Scientist at Microsoft", "FAANG AI Scientist")
+    assert "AI Scientist at Microsoft" in clause  # narration authority
+    assert "FAANG AI Scientist" in clause  # title/thumbnail credibility tag
+    assert "SPARINGLY" in clause  # woven in subtly, never a brag
+
+
 def test_ungrounded_stat_is_stripped(settings, data_brief, fakes):
     payload = {
         "title_options": ["t"],
@@ -181,7 +193,9 @@ def test_ungrounded_stat_is_stripped(settings, data_brief, fakes):
     assert extract_stats(script.scenes[1].narration) == []
 
 
-def test_disclosure_injected_when_missing(settings, data_brief, fakes):
+def test_no_ai_disclaimer_injected_into_description(settings, data_brief, fakes):
+    # The generator must NOT inject an AI/synthetic-content note into the description; the LLM's own
+    # description is preserved as-is (disclosure is a metadata flag only, not description text).
     payload = {
         "title_options": ["t"], "hook": "Specific 31% hook.",
         "scenes": [{"index": 0, "narration": "Postings fell 31%.", "on_screen_text": None,
@@ -191,7 +205,8 @@ def test_disclosure_injected_when_missing(settings, data_brief, fakes):
     }
     llm = fakes.LLM(script_json=payload)
     script = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
-    assert "synthetic" in script.description.lower()
+    assert "synthetic" not in script.description.lower()
+    assert "No disclosure here." in script.description
 
 
 def test_every_stat_scene_cites_its_source(settings, data_brief, fakes):

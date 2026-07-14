@@ -16,6 +16,8 @@ class SceneCue(BaseModel):
     b_roll_keywords: list[str] = Field(default_factory=list)
     fact_ref: int | None = None  # index into DataBrief.key_facts if this scene cites data
     sfx: str | None = None  # optional sound-effect keyword, mixed in at this scene's start
+    editor_note: str | None = None  # short editing/direction note for the editor (NEVER spoken)
+    cut: str | None = None  # pacing hint (fast|quick|hard|hold|slow...) — steers shot density
 
 
 class Script(BaseModel):
@@ -30,7 +32,9 @@ class Script(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     thumbnail_concept: str = ""
+    thumbnail_text: str = ""  # dedicated punchy overlay TEXT for the thumbnail (may differ from title)
     word_count: int = 0
     grounded_fact_refs: list[int] = Field(default_factory=list)
     synthetic_disclosure: bool = True
+    time_sensitive: bool = False  # LLM's call: is the topic time-bound? (drives year-stamping)
     provenance: Provenance

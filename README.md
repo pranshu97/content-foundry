@@ -1,7 +1,7 @@
 # Content Foundry
 
 An autonomous, fully-resumable multi-agent pipeline that turns real labor-market data into a
-published (Private/Unlisted draft) YouTube career-advice video — grounded in data, gated by a
+published (Private/Unlisted draft) YouTube video — grounded in data, gated by a
 strict quality rubric, and compliant with synthetic-content disclosure by default.
 
 **Pipeline:** Data Fetcher → Script Generator → Judge → Voiceover → Visuals → Render → Publish

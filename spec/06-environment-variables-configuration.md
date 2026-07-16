@@ -63,13 +63,20 @@ GATE_RELIEF_SCORE=4.5                      # drafts scoring >= this (0-5) get sl
 GATE_RELIEF_RATIO=0.20                     # slack amount (20%); never grounding/compliance/fatigue
 
 # ---------- Voiceover (TTS) ----------
-TTS_PROVIDER=elevenlabs                     # elevenlabs | openai
+TTS_PROVIDER=elevenlabs                     # elevenlabs | openai | edge (free) | piper (free offline) | chatterbox (free voice clone)
 ELEVENLABS_API_KEY=xxxx                     # required if TTS_PROVIDER=elevenlabs
 TTS_VOICE_ID=Rachel                         # provider voice id / name (fallback)
 TTS_VOICE_MALE=                             # odd run ids -> male voice (blank = use TTS_VOICE_ID)
 TTS_VOICE_FEMALE=                           # even run ids -> female voice (blank = use TTS_VOICE_ID)
 TTS_MODEL=eleven_multilingual_v2
 TTS_FORMAT=mp3_44100_128
+# Free zero-shot voice CLONING (TTS_PROVIDER=chatterbox): a short (~15-30s) clean WAV of your voice,
+# cloned locally (MIT license). pip install chatterbox-tts; GPU needs the CUDA torch build:
+# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+TTS_REFERENCE_CLIP=                         # path to your reference clip (required if chatterbox)
+TTS_CLONE_DEVICE=auto                       # auto | cuda | cpu (cuda hard-fails if the GPU isn't visible)
+TTS_CLONE_EXAGGERATION=0.5                  # 0.5 neutral; higher = more expressive
+TTS_CLONE_CFG=0.5                           # lower (~0.3) = steadier pacing
 
 # ---------- Visuals ----------
 IMAGE_PROVIDER=openai                        # openai | stability | none (none = B-roll/Pillow cards only)
@@ -79,6 +86,8 @@ PIXABAY_API_KEY=                             # optional 2nd free B-roll source (
 VISUAL_STYLE=clean infographic, high-contrast, bold text
 SCENES_PER_VIDEO=10                          # target number of distinct visuals
 THUMBNAIL_SIZE=1280x720
+THUMBNAIL_USE_AVATAR=true                     # composite your avatar face into the thumbnail (needs assets/avatar.png)
+THUMBNAIL_AVATAR_SCALE=0.5                    # avatar height as a fraction of the thumbnail (needs a transparent PNG or `pip install rembg`)
 
 # ---------- Render ----------
 RENDER_BACKEND=ffmpeg                         # ffmpeg | moviepy | avatar
@@ -86,8 +95,7 @@ AVATAR_PROVIDER=none                          # none | heygen | did
 HEYGEN_API_KEY=xxxx                           # required if RENDER_BACKEND=avatar & AVATAR_PROVIDER=heygen
 VIDEO_RESOLUTION=1920x1080
 VIDEO_FPS=30
-CAPTIONS_ENABLED=true
-CAPTION_ALIGNER=tts                           # tts | whisper (fallback alignment)
+CAPTIONS_ENABLED=false                        # off: YouTube auto-generates synced CC free. Burned narration captions only stay in sync with a timing-capable voice (ElevenLabs/Edge); Chatterbox/Piper/OpenAI even-split and drift. Source citations are a separate track, always burned.
 
 # ---------- Scene polish ----------
 SCENE_TRANSITION=none                         # none | fade | fadewhite | dissolve | slideleft ...
@@ -113,6 +121,19 @@ YOUTUBE_PRIVACY_STATUS=private                # private | unlisted | public
 YOUTUBE_CATEGORY_ID=22                        # 22 = People & Blogs
 YOUTUBE_DEFAULT_LANGUAGE=en
 REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC=true  # hard gate: never auto-publish public without disclosure
+
+# ---------- Proven-idea mining (optional; read-only YouTube Data API v3) ----------
+# Surfaces REAL outlier videos (views far above a channel's own median) as proof-tagged options in the
+# idea picker. Needs only a read-only Data-API key (NOT the OAuth publish creds). Blank key OR
+# IDEA_MINING_ENABLED=false leaves the picker unchanged.
+IDEA_MINING_ENABLED=false
+YOUTUBE_API_KEY=                              # read-only Data-API key (blank = mining off)
+IDEA_MINING_CHANNELS=                         # blank = search videos by your topic; or pin @handles/URLs/UC ids
+IDEA_MINING_SEARCH_RESULTS=25                 # topical video candidates vetted (blank-channels mode)
+IDEA_MINING_MAX_CHANNELS=6                    # channels sampled ONLY when you pin channels
+IDEA_MINING_VIDEOS_PER_CHANNEL=30             # recent uploads sampled per channel for its median
+IDEA_MINING_OUTLIER_MULTIPLE=3.0              # a video qualifies at >= N x its channel's median views
+IDEA_MINING_MAX_IDEAS=5                       # cap on proven ideas shown in the picker
 
 # ---------- Notifications (free Telegram bot) ----------
 NOTIFY_ENABLED=true
@@ -146,7 +167,7 @@ SCHEDULE_CRON=0 9 * * MON                  # weekly Monday 09:00 (used by schedu
 - **Cross-field validators:** if `adzuna` is enabled, `ADZUNA_APP_ID`/`KEY` must be present; if `FALLBACK_PROVIDER != none`, its key must exist.
 - **Threshold bounds:** `PASS_THRESHOLD`, `INSIGHT_MIN`, `WITTINESS_MIN`, `ENDING_MIN`, `GROUNDING_MIN` constrained to `0–5`.
 - A module-level `settings = Settings()` singleton; everything imports from it. A `config_hash` property (sha256 of the resolved, secret-redacted config) is written into every artifact's provenance for reproducibility.
-- **Media/publishing validators:** if `TTS_PROVIDER=elevenlabs`, `ELEVENLABS_API_KEY` is required; if `IMAGE_PROVIDER=stability`, `STABILITY_API_KEY` is required; if `RENDER_BACKEND=avatar`, `AVATAR_PROVIDER` must be ≠`none` with its key set; if `PUBLISH_MODE=auto` and `YOUTUBE_PRIVACY_STATUS=public`, then `REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC` **must** be `false` — otherwise startup fails (disclosure is non-negotiable).
+- **Media/publishing validators:** if `TTS_PROVIDER=elevenlabs`, `ELEVENLABS_API_KEY` is required; if `TTS_PROVIDER=chatterbox`, `TTS_REFERENCE_CLIP` is required; if `IMAGE_PROVIDER=stability`, `STABILITY_API_KEY` is required; if `RENDER_BACKEND=avatar`, `AVATAR_PROVIDER` must be ≠`none` with its key set; if `PUBLISH_MODE=auto` and `YOUTUBE_PRIVACY_STATUS=public`, then `REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC` **must** be `false` — otherwise startup fails (disclosure is non-negotiable).
 - **Notification validator:** if `NOTIFY_ENABLED=true` and `NOTIFIER=telegram`, both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are required.
 
 ### 6.3 Configuration precedence

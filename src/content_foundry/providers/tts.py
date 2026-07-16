@@ -214,6 +214,149 @@ class PiperTTS:
             return out.read_bytes()
 
 
+def _ensure_perth_watermarker() -> None:
+    """Chatterbox watermarks its output with perth's ``PerthImplicitWatermarker``, whose internal
+    import needs ``pkg_resources`` (dropped from setuptools >= 81). On a modern env perth swallows that
+    ImportError and leaves the class as ``None`` -> Chatterbox crashes with 'NoneType is not callable'.
+    Install a NO-OP watermarker when that happens so voiceover still works (the audio is simply not
+    perceptually watermarked); a warning is logged once."""
+    try:
+        import perth
+    except Exception:
+        return
+    if getattr(perth, "PerthImplicitWatermarker", None) is not None:
+        return  # perth is healthy; keep the real watermarker
+
+    from ..logging import get_logger
+
+    get_logger(component="tts").warning(
+        "perth_watermarker_unavailable",
+        detail="perth's watermarker failed to import (pkg_resources / setuptools >= 81); "
+        'cloning proceeds WITHOUT the audio watermark. `pip install "setuptools<81"` to restore it.',
+    )
+
+    class _NoopWatermarker:
+        def apply_watermark(self, wav, *args, **kwargs):
+            return wav
+
+        def get_watermark(self, *args, **kwargs):
+            return None
+
+    perth.PerthImplicitWatermarker = _NoopWatermarker
+
+
+class ChatterboxTTS:
+    """Chatterbox (Resemble AI) — FREE, offline, zero-shot voice cloning under the MIT license, so it's
+    safe for a monetized channel. Clones from a SINGLE short (~15-30s) clean reference clip of your
+    voice; runs locally (a CUDA GPU is strongly recommended). No native word timings -> even splits, so
+    burned captions would drift; leave CAPTIONS_ENABLED off and let YouTube auto-CC caption the audio.
+    The model loads once, then is reused.
+
+    Install: ``pip install chatterbox-tts`` (pulls torch). Point TTS_REFERENCE_CLIP at your WAV.
+    """
+
+    name = "chatterbox"
+
+    def __init__(self, reference_clip: str, *, device: str = "auto",
+                 exaggeration: float = 0.5, cfg_weight: float = 0.5) -> None:
+        from pathlib import Path
+
+        self._reference = reference_clip or ""
+        self._device = device or "auto"
+        self._exaggeration = exaggeration
+        self._cfg_weight = cfg_weight
+        self.voice = Path(self._reference).stem if self._reference else "cloned"
+        self.sample_rate = 24000
+        self._model = None
+
+    def _resolve_device(self) -> str:
+        dev = (self._device or "auto").lower()
+        if dev == "cpu":
+            return "cpu"
+        # cuda (explicit) OR auto -> use the NVIDIA GPU. If the operator DEMANDED cuda but torch can't
+        # see it (almost always a CPU-only torch build), fail LOUDLY with the fix instead of silently
+        # crawling on the CPU.
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                return "cuda"
+        except Exception:
+            pass
+        if dev == "cuda":
+            raise TTSError(
+                "TTS_CLONE_DEVICE=cuda but torch cannot see a CUDA GPU — you almost certainly have a "
+                "CPU-only torch build (`torch==...+cpu`). Install the CUDA build, e.g.: "
+                "pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio"
+            )
+        return "cpu"  # auto + no GPU -> CPU (slow) so non-GPU users still work
+
+    def _load(self):
+        if self._model is None:
+            try:
+                from chatterbox.tts import ChatterboxTTS as _Chatterbox  # lazy
+            except ImportError as exc:
+                raise TTSError(
+                    "chatterbox-tts is not installed. Run `pip install chatterbox-tts` "
+                    "(installs torch; a CUDA GPU is strongly recommended)."
+                ) from exc
+            _ensure_perth_watermarker()
+            device = self._resolve_device()
+            from ..logging import get_logger
+
+            get_logger(component="tts").info("chatterbox_loading", device=device)
+            self._model = _Chatterbox.from_pretrained(device=device)
+            self.sample_rate = int(getattr(self._model, "sr", 24000))
+        return self._model
+
+    def synthesize(self, text: str) -> tuple[bytes, list[WordTiming] | None]:
+        from pathlib import Path
+
+        if not self._reference or not Path(self._reference).exists():
+            raise TTSError(
+                f"Cloning reference clip not found at TTS_REFERENCE_CLIP={self._reference!r}. "
+                "Record a short (~15-30s) clean WAV of your voice and point this setting at it."
+            )
+        model = self._load()
+        # Chatterbox generates at most ~1000 tokens (~40s) PER CALL, so a long scene voiced in one
+        # shot is TRUNCATED mid-sentence and the video then cuts to the next scene before the line
+        # finishes. Split into sentence-sized chunks that each sit well inside that window, then
+        # stitch the audio back into one continuous scene.
+        import torch
+
+        pieces = []
+        for chunk in _chunk_for_tts(text):
+            try:
+                wav = model.generate(
+                    chunk, audio_prompt_path=self._reference,
+                    exaggeration=self._exaggeration, cfg_weight=self._cfg_weight,
+                )
+            except Exception as exc:
+                raise TTSError(f"Chatterbox synthesis failed: {exc}") from exc
+            if hasattr(wav, "dim") and wav.dim() == 1:
+                wav = wav.unsqueeze(0)
+            pieces.append(wav)
+        if not pieces:
+            raise TTSError("Chatterbox produced no audio (the scene narration was empty).")
+        wav = torch.cat(pieces, dim=-1) if len(pieces) > 1 else pieces[0]
+        # Duration straight from the tensor (samples / sr) — robust vs the stdlib wave reader, which
+        # can't parse torchaudio's float WAV (it would yield 0 and silently drop the word timings).
+        duration = float(wav.shape[-1]) / float(self.sample_rate or 24000)
+        wav_bytes = _tensor_to_wav_bytes(wav, self.sample_rate)
+        return _wav_to_mp3(wav_bytes), (_even_word_timings(text, duration) or None)
+
+
+def _tensor_to_wav_bytes(wav, sample_rate: int) -> bytes:
+    """Serialize a torch audio tensor (channels, samples) to in-memory WAV bytes."""
+    import io
+
+    import torchaudio
+
+    buf = io.BytesIO()
+    torchaudio.save(buf, wav, sample_rate, format="wav")
+    return buf.getvalue()
+
+
 def _wav_duration(wav_bytes: bytes) -> tuple[float, int]:
     import io
     import wave
@@ -248,3 +391,41 @@ def _even_word_timings(text: str, duration: float) -> list[WordTiming]:
         return []
     step = duration / len(words)
     return [WordTiming(word=w, start=i * step, end=(i + 1) * step) for i, w in enumerate(words)]
+
+
+def _chunk_for_tts(text: str, max_chars: int = 300) -> list[str]:
+    """Split narration into sentence-grouped chunks that each fit inside a neural TTS model's
+    per-call generation window. Chatterbox caps a single ``generate`` at ~1000 tokens (~40s) and
+    silently truncates anything longer, so a ~150-word scene must be voiced in pieces and stitched.
+    Sentences are kept whole where they fit; a lone over-long sentence is split on word boundaries."""
+    import re
+
+    text = " ".join(text.split())
+    if not text:
+        return []
+    chunks: list[str] = []
+    cur = ""
+    for raw in re.findall(r"[^.!?]+[.!?]*", text):
+        sentence = raw.strip()
+        if not sentence:
+            continue
+        if len(sentence) > max_chars:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            word_run = ""
+            for w in sentence.split():
+                if word_run and len(word_run) + len(w) + 1 > max_chars:
+                    chunks.append(word_run)
+                    word_run = w
+                else:
+                    word_run = f"{word_run} {w}".strip()
+            cur = word_run
+        elif cur and len(cur) + len(sentence) + 1 > max_chars:
+            chunks.append(cur)
+            cur = sentence
+        else:
+            cur = f"{cur} {sentence}".strip()
+    if cur:
+        chunks.append(cur)
+    return chunks

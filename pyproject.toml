@@ -61,6 +61,7 @@ video = ["moviepy>=1.0.3"]
 whisper = ["faster-whisper>=1.0"]
 dashboard = ["streamlit>=1.37"]
 avatar = ["rembg>=2.0"]
+clone = ["chatterbox-tts>=0.1"]
 all = [
     "elevenlabs>=1.5", "piper-tts>=1.2", "stability-sdk>=0.8", "moviepy>=1.0.3",
     "faster-whisper>=1.0", "streamlit>=1.37", "rembg>=2.0",

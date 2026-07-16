@@ -24,7 +24,7 @@ pip install -r requirements.txt
 pip install -e .            # exposes the `content-foundry` CLI
 
 # 2. Configure
-cp .env.example .env        # fill in your keys (see Human_Tasks.txt)
+cp .env.example .env        # fill in your keys (see Human_Tasks.md)
 
 # 3. Initialise the database
 python scripts/init_db.py
@@ -35,7 +35,7 @@ content-foundry run --niche "tech careers" --to-stage judge
 
 See [`spec/23-deployment-instructions.md`](spec/23-deployment-instructions.md) for full deployment,
 [`spec/17-cli-interface.md`](spec/17-cli-interface.md) for every command, and
-[`Human_Tasks.txt`](Human_Tasks.txt) for the manual setup checklist (API keys, OAuth, Telegram bot).
+[`Human_Tasks.md`](Human_Tasks.md) for the manual setup checklist (API keys, OAuth, Telegram bot).
 
 ## Project layout
 
@@ -55,9 +55,10 @@ the Visuals prompt-builder are deterministic Python — free, fast, and hallucin
 
 Cost levers (cheapest first):
 - **Run the LLM locally** — `PRIMARY_PROVIDER=local` (Ollama / LM Studio / vLLM) makes generation free.
-- **Free voice** — `TTS_PROVIDER=edge` (Microsoft neural, free, no key) or `piper` (fully offline). Paid: elevenlabs / openai. Voices auto-alternate male/female by run number.
+- **Free voice** — `TTS_PROVIDER=edge` (Microsoft neural, free, no key) or `piper` (fully offline), or `chatterbox` to **clone your own voice** free & locally (MIT-licensed, safe to monetize; GPU recommended). Paid: elevenlabs / openai. Voices auto-alternate male/female by run number.
 - **Free visuals** — `IMAGE_PROVIDER=none` renders polished title cards; add free Pexels + Pixabay keys for real, moment-matched B-roll (a clip per narration beat).
 - **Free research (default)** — `ENABLED_SOURCES=search` runs free DuckDuckGo web research on your run's topic (no key), so it works on **any** niche out of the box; the labor-market feeds (adzuna/layoffs/bls) are opt-in add-ons.
+- **Free idea discovery** — `IDEA_MINING_ENABLED=true` + a free `YOUTUBE_API_KEY` mines *proven* outlier videos in your niche (views far above the channel's median) so each run builds a topic with demonstrated demand instead of a guess; best-effort, so it never blocks a run.
 - **Free polish** — bundled sound effects (`SFX_ENABLED`), scene crossfades, a warm grade, and a Subscribe nudge are all local/ffmpeg (no paid services).
 - **`--profile cheap`** — deterministic judge + Pillow cards (no image API) + a single revision.
 - **Hard budget cap** — `ENFORCE_BUDGET_CAP=true` aborts a run once estimated month-to-date spend

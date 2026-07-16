@@ -294,6 +294,7 @@ class FakeRenderBackend:
         self.calls = 0
         self.last_overlay = None
         self.last_citations_path = None
+        self.last_burn_captions = True
         self.last_speed = 1.0
         self.last_transition = "none"
         self.last_transition_sec = 0.5
@@ -306,6 +307,7 @@ class FakeRenderBackend:
         self.calls += 1
         self.last_overlay = overlay
         self.last_citations_path = citations_path
+        self.last_burn_captions = burn_captions
         self.last_speed = speed
         self.last_transition = transition
         self.last_transition_sec = transition_sec

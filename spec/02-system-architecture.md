@@ -32,6 +32,12 @@ flowchart TD
     YT -.->|final go-live OK| HUMAN
 ```
 
+> **Pre-pipeline idea selection (optional):** before Agent 1, an idea step chooses the run's topic — the
+> Brainstormer proposes candidate angles and, when `IDEA_MINING_ENABLED=true`, the Idea Miner adds
+> *proven* outlier topics discovered via the YouTube Data API (videos whose views far exceed their own
+> channel's median). The chosen idea (persisted to `ideas.json`) focuses the Data Fetcher and Script
+> Generator. Best-effort: any failure falls back to the brainstormed / `--idea` topic and never blocks a run.
+
 ### 2.3 The artifact contract (resumability backbone)
 Every stage reads one artifact and writes one artifact. Because each artifact is a self-contained, schema-validated JSON file, the operator can:
 1. Run only stage 1, inspect/edit `DataBrief.json`, then run stage 2 with that file as input.

@@ -24,7 +24,6 @@ stability-sdk>=0.8
 Pillow>=10.4
 ffmpeg-python>=0.2
 moviepy>=1.0.3
-faster-whisper>=1.0
 # publishing
 google-api-python-client>=2.140
 google-auth-oauthlib>=1.2

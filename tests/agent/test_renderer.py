@@ -68,6 +68,28 @@ def test_on_screen_citations_burned_as_track(settings, tmp_path, fakes):
     assert render.last_citations_path == str(srt)
 
 
+def test_narration_captions_off_by_default_but_citations_still_burn(settings, tmp_path, fakes):
+    # Chatterbox/Piper report no real word timings -> even-split drift, so burned narration captions
+    # are OFF by default (YouTube auto-CC covers narration). Source citations still burn (not spoken).
+    visuals = VisualPackage(
+        run_id="R", thumbnail_path="assets/thumbnail.png", thumbnail_text="t",
+        captions_path="assets/captions.srt", visual_style="clean",
+        scenes=[
+            SceneVisual(scene_index=0, kind="image", path="assets/scenes/scene_0.png",
+                        source="card", prompt_or_query="p", duration_sec=3.0,
+                        on_screen_text="Junior postings -31% · Source: Adzuna"),
+            SceneVisual(scene_index=1, kind="broll", path="assets/scenes/scene_1.mp4",
+                        source="pexels", prompt_or_query="p", duration_sec=3.0),
+        ],
+        provenance=Provenance(produced_by="visuals"),
+    )
+    render = fakes.Render()
+    Renderer(settings, render).run("R", _voiceover(), visuals, run_root=tmp_path)
+    assert settings.captions_enabled is False        # default: rely on YouTube's free auto-CC
+    assert render.last_burn_captions is False         # narration captions are not burned
+    assert render.last_citations_path is not None     # ...but the source-citation strip still burns
+
+
 def test_citation_shows_domain_only_when_stat_is_spoken(monkeypatch, tmp_path, fakes):
     monkeypatch.setenv("CITATION_SECONDS", "6")
     reset_settings_cache()

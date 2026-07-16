@@ -22,7 +22,7 @@ flowchart TD
 ```
 - **Moment-matched B-roll:** `b_roll_keywords` is an ordered list of short, per-beat search phrases; the agent normalizes each into a stock-searchable query (drops articles/filler), fetches a **separate clip per beat** (one search each), and plays them in sequence so the footage tracks what is being said. Clips come from a **multi-source** pool (Pexels + Pixabay, aggregated by `MultiBrollClient`) chosen by a **run-seeded picker** that biases toward the most relevant (top-ranked) result, de-dups, never repeats a clip back-to-back, caps reuse at 2/video, and still lets different runs pick different clips. Scenes with no stock match fall back to a generated image or a Pillow card.
 - **Captions:** generated directly from `word_timings`, grouped into ≤ 7-word cues; written as `captions.srt` (style applied at render time).
-- **Thumbnail:** base image (generated from `Script.thumbnail_concept`) + bold overlay text via `Pillow`, sized to `THUMBNAIL_SIZE`.
+- **Thumbnail:** base image (generated from `Script.thumbnail_concept`) + bold overlay text via `Pillow`, sized to `THUMBNAIL_SIZE`. When `THUMBNAIL_USE_AVATAR` is on and `assets/avatar.png` exists, your face is composited in: an opaque source is background-removed with **`rembg`** (cached as `<name>.cutout.png`) and scaled by `THUMBNAIL_AVATAR_SCALE`. An empty `thumbnail_text` falls back to a shortened form of the title rather than dumping the whole title.
 
 ### 11.4 `VisualPackage` schema (Pydantic)
 ```python

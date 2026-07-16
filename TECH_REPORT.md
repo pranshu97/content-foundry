@@ -355,7 +355,7 @@ flowchart LR
 | Capability | Providers |
 |------------|-----------|
 | **LLM** | Anthropic · OpenAI · Local (OpenAI-compatible) |
-| **TTS** | ElevenLabs · OpenAI · **Edge** (free, online) · **Piper** (free, offline) |
+| **TTS** | ElevenLabs · OpenAI · **Edge** (free, online) · **Piper** (free, offline) · **Chatterbox** (free voice cloning, local/GPU) |
 | **Image** | OpenAI · Stability · **none** (procedural cards) + Pexels B-roll |
 | **Render** | ffmpeg (with PATH auto-discovery) · MoviePy · Avatar (HeyGen/D-ID) |
 | **Publish** | YouTube Data API v3 (OAuth) |
@@ -421,7 +421,7 @@ stage *k* is fixed and the run resumes at *k*, never from the top.
 Cost is a first-class configuration axis, tunable per stage:
 
 1. **Local LLM** — `PRIMARY_PROVIDER=local` (Ollama); generation & judging free.
-2. **Free voice** — `TTS_PROVIDER=edge` (online) or `piper` (offline). *(TTS is the single largest paid cost otherwise.)*
+2. **Free voice** — `TTS_PROVIDER=edge` (online) or `piper` (offline), or `chatterbox` to clone your own voice (local, GPU-accelerated). *(TTS is the single largest paid cost otherwise.)*
 3. **Free visuals** — procedural cards (`IMAGE_PROVIDER=none`) + a free Pexels key for real B-roll.
 4. **Deterministic judge** — `JUDGE_MODE=deterministic` spends zero tokens.
 5. **Budget cap** — `ENFORCE_BUDGET_CAP` hard-stops a run at the monthly budget.
@@ -523,8 +523,8 @@ A selection of decisions and hardening that shaped the current system:
 | **Data** | `httpx`, `beautifulsoup4`, `lxml`, `python-dateutil` |
 | **Persistence** | `SQLAlchemy` + SQLite |
 | **CLI & scheduling** | `typer`, `rich`, `APScheduler` |
-| **TTS** | `elevenlabs`, `edge-tts`, `piper-tts` |
-| **Visuals & render** | `Pillow`, `ffmpeg-python`, `moviepy`, `faster-whisper`, `stability-sdk` |
+| **TTS** | `elevenlabs`, `edge-tts`, `piper-tts`, `chatterbox-tts` (voice cloning) |
+| **Visuals & render** | `Pillow`, `ffmpeg-python`, `moviepy`, `stability-sdk` |
 | **Publishing** | `google-api-python-client`, `google-auth-oauthlib` |
 | **Reliability & logging** | `tenacity`, `structlog` |
 | **Dashboard** | `streamlit` |

@@ -20,6 +20,7 @@ career-advice-channel/
 │       │   ├── __init__.py
 │       │   ├── signals.py         # RawSignal, NormalizedSignal
 │       │   ├── data_brief.py      # DataBrief artifact
+│       │   ├── ideas.py           # MinedIdea (proven outliers) + IdeaSelection (ideas.json)
 │       │   ├── script.py          # Script artifact (+ SceneCue: narration, b_roll shots, sfx, fact_ref)
 │       │   ├── judge_report.py    # JudgeReport, RubricScore, Verdict enum
 │       │   ├── voiceover.py       # VoiceoverAsset (audio path + word timings)
@@ -34,12 +35,13 @@ career-advice-channel/
 │       │   ├── anthropic_provider.py
 │       │   ├── openai_provider.py
 │       │   ├── fallback.py        # FallbackProvider (primary→secondary)
-│       │   ├── tts.py             # TTSProvider + ElevenLabs/OpenAI impls
+│       │   ├── tts.py             # TTSProvider + ElevenLabs/OpenAI/Edge/Piper + Chatterbox voice-clone (CUDA)
 │       │   ├── image.py           # ImageProvider + OpenAI/Stability impls
 │       │   ├── broll.py           # Pexels + Pixabay stock-footage clients + MultiBrollClient
 │       │   ├── sfx.py             # SfxLibrary (local data/sounds) + optional Freesound download
 │       │   ├── render_backend.py  # RenderBackend + Ffmpeg/MoviePy/Avatar impls
-│       │   └── youtube.py         # Publisher protocol + YouTubePublisher (OAuth)
+│       │   ├── youtube.py         # Publisher protocol + YouTubePublisher (OAuth)
+│       │   └── youtube_data.py    # YouTube Data API client (proven-idea outlier mining)
 │       │
 │       ├── datasources/           # Pluggable fetchers
 │       │   ├── __init__.py
@@ -51,8 +53,9 @@ career-advice-channel/
 │       │   ├── search.py          # domain-agnostic web search (DuckDuckGo/Tavily/Brave)
 │       │   └── registry.py        # builds enabled sources from config
 │       │
-│       ├── agents/                # The seven agents
+│       ├── agents/                # The seven agents (+ pre-pipeline idea discovery)
 │       │   ├── __init__.py
+│       │   ├── idea_miner.py      # Pre-pipeline: proven-idea outlier mining (YouTube Data API)
 │       │   ├── data_fetcher.py    # Agent 1 (orchestrates fetch + deterministic distill)
 │       │   ├── distill.py         # deterministic KeyFact/angle extraction (no LLM)
 │       │   ├── script_generator.py# Agent 2 (the one always-on LLM call)
@@ -156,7 +159,7 @@ career-advice-channel/
 - No upward imports; no agent imports another agent. The Orchestrator is the only place that knows the full sequence.
 
 ### 4.3 Where artifacts live
-- **JSON artifacts:** `output/runs/<run_id>/<stage>.json` (human-readable, hand-editable) — `data_brief`, `script`, `judge_report`, `voiceover`, `visuals`, `video`, `publish_result`.
+- **JSON artifacts:** `output/runs/<run_id>/<stage>.json` (human-readable, hand-editable) — `ideas` (proven + brainstormed idea picks), `data_brief`, `script`, `judge_report`, `voiceover`, `visuals`, `video`, `publish_result`.
 - **Media assets:** `output/runs/<run_id>/assets/` — `narration.mp3`, `thumbnail.png`, `scenes/`, `captions.srt`, `video.mp4`.
 - **Metadata + index:** SQLite (`runs`, `attempts`, `artifacts`, `publish_results` tables) for querying and the dashboard.
 - The final deliverable is the **uploaded YouTube draft** (Private/Unlisted) plus `output/runs/<run_id>/package.md` — script, title, description, tags, thumbnail reference, and the disclosure checklist.

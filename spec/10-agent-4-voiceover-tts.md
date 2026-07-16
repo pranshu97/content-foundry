@@ -15,7 +15,7 @@ flowchart TD
     C --> D[Stitch audio -> narration.mp3]
     D --> E{Word timings returned?}
     E -->|yes| F[Use provider timings]
-    E -->|no| G[CAPTION_ALIGNER=whisper -> faster-whisper align]
+    E -->|no| G[Even-split per scene; YouTube auto-CC captions the final audio]
     F --> H[Compute per-scene start/end]
     G --> H
     H --> I[Persist VoiceoverAsset + provenance]
@@ -44,7 +44,7 @@ class VoiceoverAsset(BaseModel):
     duration_sec: float
     sample_rate: int
     voice_id: str
-    provider: str                   # elevenlabs | edge | piper | openai
+    provider: str                   # elevenlabs | edge | piper | openai | chatterbox
     word_timings: list[WordTiming]
     scene_timings: list[SceneTiming]
     provenance: Provenance
@@ -55,8 +55,11 @@ class VoiceoverAsset(BaseModel):
 - **`ElevenLabsTTS`** (primary) — high quality; returns character/word timestamps natively.
 - **`EdgeTTS`** — free Microsoft neural voices (online, no key); returns word timings.
 - **`PiperTTS`** — fully offline neural TTS (free; needs a downloaded `.onnx` voice).
-- **`OpenAITTS`** (fallback) — no native word timings ⇒ alignment falls back to `faster-whisper`.
+- **`OpenAITTS`** (fallback) — no native word timings ⇒ even-split per scene (burned captions off by default; see the caption note below).
+- **`ChatterboxTTS`** — free zero-shot **voice cloning** (Resemble AI, MIT-licensed ⇒ safe to monetize): clones your voice from one short (~15–30s) reference clip (`TTS_REFERENCE_CLIP`) and runs locally on GPU or CPU (`TTS_CLONE_DEVICE`). GPU is ~5× faster and needs the CUDA torch build (`pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124`); the default pip torch is CPU-only. A single Chatterbox generation caps at ~1000 tokens (~40s), so long scene narration is auto-split into sentence-sized chunks and the audio stitched — otherwise a long scene is truncated mid-sentence and the video cuts away before the line ends. No native word timings ⇒ even-split per scene, so burned captions drift — leave them off and let YouTube auto-CC caption the audio (see the caption note below).
 Voice, model, and format come from `TTS_VOICE_ID` / `TTS_MODEL` / `TTS_FORMAT`.
+
+> **Captions (narration):** burned-in subtitles are **off by default** (`CAPTIONS_ENABLED=false`). Only ElevenLabs and Edge emit real word timings; Chatterbox/Piper/OpenAI even-split, which drifts — so YouTube's free auto-generated CC (run on the real final audio) is the default path. Enable burned narration captions only with a timing-capable voice. The on-screen **source citations** are a separate track and are always burned in (they aren't spoken, so YouTube CC can't reproduce them).
 
 **Voice by run-id parity:** `pick_voice(run_id, ...)` in `providers/tts.py` alternates the narrator so consecutive videos don't sound identical — the **male** voice (`TTS_VOICE_MALE`) for odd run ids, the **female** voice (`TTS_VOICE_FEMALE`) for even. Both blank ⇒ always use `TTS_VOICE_ID`. The chosen voice is recorded in `VoiceoverAsset.voice_id`.
 
@@ -68,8 +71,8 @@ Voice, model, and format come from `TTS_VOICE_ID` / `TTS_MODEL` / `TTS_FORMAT`.
 | Failure | Handling |
 |---------|----------|
 | TTS provider error / rate limit | `tenacity` retry, then fall back to secondary provider |
-| Chunk stitch gap drift | Normalize timings to measured audio duration |
-| Alignment unavailable | Even-split timings per scene as last resort (logged, lower caption precision) |
+| Chunk stitch gap drift | Scene/word timings are locked to the **decoded** audio length — each chunk is measured and re-encoded into one gapless MP3, so the visuals never drift ahead of the voice |
+| TTS reports no word timings | Even-split per scene (Chatterbox/Piper/OpenAI); burned captions drift, so they're off by default — YouTube auto-CC captions the final audio |
 
 ---
 

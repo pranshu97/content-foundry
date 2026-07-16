@@ -102,6 +102,15 @@ def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSP
         from .tts import PiperTTS
 
         return PiperTTS(settings.piper_model_path, settings.piper_executable)
+    if settings.tts_provider == "chatterbox":
+        from .tts import ChatterboxTTS
+
+        return ChatterboxTTS(
+            settings.tts_reference_clip,
+            device=settings.tts_clone_device,
+            exaggeration=settings.tts_clone_exaggeration,
+            cfg_weight=settings.tts_clone_cfg,
+        )
     from .tts import OpenAITTS
 
     return OpenAITTS(settings.openai_api_key, voice)

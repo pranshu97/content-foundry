@@ -28,7 +28,7 @@ flowchart TD
 
 ### 12.4 Render-backend abstraction
 `RenderBackend.render(timeline, assets, config) -> mp4_path`, selected by `RENDER_BACKEND`:
-- **`FfmpegBackend`** (default) — builds an `ffmpeg` filtergraph via `ffmpeg-python`; fast, faceless slideshow + B-roll + captions.
+- **`FfmpegBackend`** (default) — builds an `ffmpeg` filtergraph via `ffmpeg-python`; fast, faceless slideshow + B-roll + captions. Long filtergraphs are written to a sidecar `<output>.filtergraph.txt` and passed via `-filter_complex_script` (avoids the Windows ~8191-char command-line limit — otherwise `WinError 206`).
 - **`MoviePyBackend`** (optional) — easier transitions/effects, heavier runtime.
 - **`AvatarBackend`** (optional) — delegates to a talking-head provider (`AVATAR_PROVIDER`=heygen/did): sends narration + script, retrieves a rendered avatar video, then overlays captions/branding.
 

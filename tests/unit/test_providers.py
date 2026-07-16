@@ -472,6 +472,46 @@ def test_tts_factory_builds_edge_and_piper(monkeypatch):
     assert build_tts_provider(get_settings()).name == "piper"
 
 
+def test_tts_factory_builds_chatterbox(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("TTS_PROVIDER", "chatterbox")
+    monkeypatch.setenv("TTS_REFERENCE_CLIP", "assets/voice_reference.wav")
+    reset_settings_cache()
+    tts = build_tts_provider(get_settings())
+    assert tts.name == "chatterbox"
+    assert tts.voice == "voice_reference"  # derived from the reference clip's file name
+
+
+def test_chatterbox_missing_reference_raises():
+    # The reference-clip guard fires BEFORE the model loads, so this needs no chatterbox install.
+    from content_foundry.errors import TTSError
+    from content_foundry.providers.tts import ChatterboxTTS
+
+    with pytest.raises(TTSError):
+        ChatterboxTTS("does_not_exist.wav").synthesize("hello")
+
+
+def test_chunk_for_tts_splits_long_text_without_dropping_words():
+    # Chatterbox truncates a single generate() past ~40s, so long scenes must be voiced in chunks.
+    from content_foundry.providers.tts import _chunk_for_tts
+
+    assert _chunk_for_tts("") == []
+    assert _chunk_for_tts("Short line. Two sentences.") == ["Short line. Two sentences."]
+
+    long = " ".join(f"This is sentence number {i}." for i in range(40))
+    chunks = _chunk_for_tts(long, max_chars=100)
+    assert len(chunks) > 1  # actually split
+    assert all(len(c) <= 100 for c in chunks)  # each chunk fits the budget
+    assert " ".join(chunks).split() == long.split()  # nothing truncated or duplicated
+
+    # a single sentence longer than the budget still gets broken on word boundaries
+    one_long = "word " * 60
+    pieces = _chunk_for_tts(one_long.strip(), max_chars=50)
+    assert len(pieces) > 1
+    assert " ".join(pieces).split() == one_long.split()
+
+
 def test_pick_voice_alternates_by_run_id_parity():
     from content_foundry.providers.tts import pick_voice
 

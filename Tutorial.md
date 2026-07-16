@@ -252,7 +252,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 | **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS`, `SEARCH_QUERY_COUNT`, `SEARCH_FACETS` (multi-query fan-out) |
 | **Research (Agent 1.5)** | `RESEARCH_ENABLED`, `RESEARCH_MAX_SOURCES`, `RESEARCH_MAX_POINTS`, `RESEARCH_MAX_CHARS_PER_SOURCE`, `RESEARCH_FETCH_TIMEOUT_SEC` |
 | **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MAX_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `BRAINSTORM_IDEA_COUNT`, `REQUIRE_SCRIPT_APPROVAL`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
-| **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**), `TTS_VOICE_ID`, `TTS_VOICE_MALE`/`TTS_VOICE_FEMALE` (alternate narrator by run-id parity), `PIPER_MODEL_PATH` |
+| **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**\|**chatterbox** free voice clone), `TTS_VOICE_ID`, `TTS_VOICE_MALE`/`TTS_VOICE_FEMALE` (alternate narrator by run-id parity), `PIPER_MODEL_PATH`, `TTS_REFERENCE_CLIP`/`TTS_CLONE_DEVICE` (clone) |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `PIXABAY_API_KEY` (2nd free B-roll source), `SCENES_PER_VIDEO` |
 | **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `VIDEO_SPEED`, `AVATAR_OVERLAY_ENABLED` |
 | **Scene polish** | `SCENE_TRANSITION` (fade/dissolve/…), `SCENE_TRANSITION_SEC`, `COLOR_WARMTH` (warm grade), `SUBSCRIBE_NUDGE_ENABLED` |
@@ -269,7 +269,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 
 Cheapest → most expensive:
 1. **Local LLM** — `PRIMARY_PROVIDER=local` (Ollama). Generation is free.
-2. **Free voice** — `TTS_PROVIDER=edge` (online, no key) or `piper` (offline). *(TTS is the biggest paid cost.)*
+2. **Free voice** — `TTS_PROVIDER=edge` (online, no key) or `piper` (offline), or `chatterbox` to clone your own voice (local, GPU-accelerated). *(TTS is the biggest paid cost.)*
 3. **Free visuals** — `IMAGE_PROVIDER=none` (polished cards) + a free Pexels key for real B-roll.
 4. **`--profile cheap`** — deterministic judge + cards + a single revision, in one flag.
 5. **Budget cap** — `ENFORCE_BUDGET_CAP=true` aborts a run once estimated month-to-date spend hits
@@ -282,7 +282,7 @@ Rough per-video cost: **~$0** fully local, **~$0.10** with cloud TTS, **~$2** on
 ## 11. Publishing to YouTube
 
 - **Always test first with `--dry-run`** — produces the full video locally, no upload.
-- For real uploads you need the one-time Google OAuth setup (see `Human_Tasks.txt` §4:
+- For real uploads you need the one-time Google OAuth setup (see `Human_Tasks.md` §4:
   create a Google Cloud project → enable YouTube Data API v3 → OAuth desktop credentials →
   `secrets/client_secrets.json`).
 - **Safety by default:** videos upload **Private** as a draft (`PUBLISH_MODE=draft`). A video can
@@ -323,7 +323,8 @@ approve drafts — the thin human layer. You're never in the writing loop.
 | **Repetitive / off-topic B-roll** | Add a free `PIXABAY_API_KEY` alongside Pexels so each scene draws from a bigger, mixed pool. Clips are pulled per keyword (per scene), **used at most once each** (never repeated anywhere — a hole is filled with a different fresh clip), and are seeded by the run id so different runs pick different clips. The LLM B-roll director (`BROLL_DIRECTOR_ENABLED`) rewrites each scene's queries to be literal and globally distinct. |
 | **Want sound effects** | Set `SFX_ENABLED=true`. The script author writes short `sfx` cues (whoosh, ding, cash register…) into scenes and the renderer mixes the matching clip from `data/sounds` in at each cue's moment. Add more clips to that folder or set `FREESOUND_API_KEY` to auto-download missing ones; tune loudness with `SFX_VOLUME_DB`. |
 | **Smoother look / branding** | `SCENE_TRANSITION=fade` crossfades between scenes (`fadewhite` = a light flash); `COLOR_WARMTH=0.25` warms the whole grade; `SUBSCRIBE_NUDGE_ENABLED=true` pops a small Subscribe badge at the midpoint. All three are render-only — apply them to an existing run with `content-foundry run --run-id <id> --from-stage render`. |
-| **Telegram 404 / notification error** | Harmless with placeholder tokens. Set `NOTIFY_ENABLED=false`, or add a real bot token (`Human_Tasks.txt` §5). |
+| **Captions out of sync / want subtitles** | Burned-in narration captions are **off by default** — YouTube auto-generates synced closed captions for free once your draft finishes processing. A burned track only stays in sync with a **timing-capable voice** (`elevenlabs`/`edge`); `chatterbox`/`piper` even-split and drift. Set `CAPTIONS_ENABLED=true` only with those voices. Source citations always show regardless. |
+| **Telegram 404 / notification error** | Harmless with placeholder tokens. Set `NOTIFY_ENABLED=false`, or add a real bot token (`Human_Tasks.md` §5). |
 | **Config won't load** | `content-foundry config check` prints the exact validation error. |
 | **Budget hit** | `ENFORCE_BUDGET_CAP=true` stopped the run. Raise `MONTHLY_BUDGET_USD` or set it false. |
 | **Duplicate/odd results** | Signals are cached for `SIGNAL_CACHE_TTL_MIN` (12h). Wait or lower the TTL to force a refetch. |

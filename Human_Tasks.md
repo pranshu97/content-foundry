@@ -11,7 +11,7 @@ Things a **human** must do to get this running from scratch. The agent can write
 - [ ] Windows 10/11 (these notes use PowerShell).
 - [ ] **Python 3.11** (3.11.x — *not* 3.12/3.13; some deps target 3.11). Easiest via [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
 - [ ] [Git for Windows](https://git-scm.com/download/win)
-- [ ] _(opt)_ A GPU (NVIDIA/Intel/AMD) for fast video encoding — see step 1.
+- [ ] _(opt)_ A GPU — **NVIDIA** (recommended) for fast video encoding **and** free local voice cloning (Chatterbox); Intel/AMD accelerate encoding only. See step 1 (encoding) and step 7 (voice cloning).
 
 ## 1. Install ffmpeg — required (all rendering runs through it)
 
@@ -76,6 +76,19 @@ Things a **human** must do to get this running from scratch. The agent can write
   ```
   The narrator alternates male/female by run number.
 - [ ] _(opt)_ Higher quality, paid: [ElevenLabs](https://elevenlabs.io) — `TTS_PROVIDER=elevenlabs`, `ELEVENLABS_API_KEY=...`, `TTS_VOICE_ID=Rachel`
+- [ ] _(opt)_ **Your own voice, free** — clone it locally with Chatterbox (MIT-licensed, safe to monetize):
+  ```ini
+  TTS_PROVIDER=chatterbox
+  TTS_REFERENCE_CLIP=assets/voice_reference.wav   # a ~20-30s clean WAV of you speaking
+  TTS_CLONE_DEVICE=cuda                            # cuda (NVIDIA GPU) | cpu
+  ```
+  - `pip install chatterbox-tts`
+  - **GPU — strongly recommended (~5x faster).** The default torch is CPU-only; for your NVIDIA GPU install the CUDA build:
+    ```powershell
+    pip uninstall -y torch torchaudio
+    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+    ```
+    Verify with `python -c "import torch; print(torch.cuda.is_available())"` → `True`. With `TTS_CLONE_DEVICE=cuda` the run hard-fails if the GPU isn't visible (so it never silently falls back to slow CPU).
 
 ## 8. YouTube publishing (only when you're ready to upload)
 
@@ -90,6 +103,18 @@ Things a **human** must do to get this running from scratch. The agent can write
   YOUTUBE_TOKEN_FILE=secrets/token_<channel>.json
   ```
 - [ ] Keep the **safe defaults** — `PUBLISH_MODE=draft`, `YOUTUBE_PRIVACY_STATUS=private` — so every video uploads Private for you to review before going public.
+
+### _(opt)_ Proven-idea mining — real outlier videos as pre-vetted ideas
+
+Uses a **read-only** YouTube Data API v3 **key** (separate from the OAuth publish creds above) to surface videos that beat their own channel's median views, tagged as proof in the idea picker.
+- [ ] Same Google Cloud project → **Credentials → Create credentials → API key**; restrict it to **YouTube Data API v3**.
+- [ ] In `.env`:
+  ```ini
+  IDEA_MINING_ENABLED=true
+  YOUTUBE_API_KEY=<your read-only Data-API key>
+  IDEA_MINING_OUTLIER_MULTIPLE=3   # a video qualifies at >= N x its channel's median views
+  ```
+  Leave `IDEA_MINING_CHANNELS` blank to search videos by your topic (most relevant), or pin `@handles` / URLs / `UC…` ids.
 
 ## 9. Notifications — Telegram _(opt, free)_
 

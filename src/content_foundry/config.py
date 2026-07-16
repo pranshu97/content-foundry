@@ -163,7 +163,7 @@ class Settings(BaseSettings):
     require_script_approval: bool = False
 
     # ---------- Voiceover (TTS) ----------
-    tts_provider: Literal["elevenlabs", "openai", "edge", "piper"] = "elevenlabs"
+    tts_provider: Literal["elevenlabs", "openai", "edge", "piper", "chatterbox"] = "elevenlabs"
     elevenlabs_api_key: str = ""
     tts_voice_id: str = "Rachel"
     # Alternate the narrator by run-id parity: male voice for ODD run ids, female for EVEN. Leave
@@ -175,6 +175,12 @@ class Settings(BaseSettings):
     # Free voices: edge = Microsoft neural (online, no key); piper = fully offline (needs a .onnx model).
     piper_model_path: str = ""
     piper_executable: str = "piper"
+    # Free zero-shot VOICE CLONING (chatterbox, MIT => safe for a monetized channel): point at a short
+    # (~15-30s) clean WAV of YOUR voice; cloned locally (GPU recommended). pip install chatterbox-tts.
+    tts_reference_clip: str = ""
+    tts_clone_device: str = "auto"  # auto | cuda | cpu
+    tts_clone_exaggeration: float = Field(0.5, ge=0.0, le=2.0)  # 0.5 neutral; higher = more expressive
+    tts_clone_cfg: float = Field(0.5, ge=0.0, le=1.0)  # lower (~0.3) = steadier, reference-paced speech
 
     # ---------- Visuals ----------
     image_provider: Literal["openai", "stability", "google", "pollinations", "none"] = "openai"
@@ -219,8 +225,11 @@ class Settings(BaseSettings):
     video_fps: int = 30
     # Play the whole output faster/slower (1.5 = 1.5x). Audio pitch is preserved; captions stay in sync.
     video_speed: float = Field(1.0, ge=0.25, le=4.0)
-    captions_enabled: bool = True
-    caption_aligner: Literal["tts", "whisper"] = "tts"
+    # Burn narration subtitles into the video. OFF by default: YouTube auto-generates closed captions
+    # (synced to the real audio, free, auto-translated), and a burned track only stays in sync when the
+    # TTS reports real word timings (ElevenLabs/Edge) — Chatterbox/Piper/OpenAI even-split and drift.
+    # Enable only with a timing-capable voice. Source citations are a separate track, always burned.
+    captions_enabled: bool = False
     # On-screen source citation (top strip): seconds it stays up from the moment the stat is spoken
     # before it disappears — a brief glance, not a permanent watermark.
     citation_seconds: float = Field(7.0, ge=3.0, le=15.0)
@@ -427,6 +436,11 @@ class Settings(BaseSettings):
 
         if self.tts_provider == "piper" and not self.piper_model_path:
             raise ValueError("TTS_PROVIDER=piper requires PIPER_MODEL_PATH (path to a .onnx voice)")
+
+        if self.tts_provider == "chatterbox" and not self.tts_reference_clip:
+            raise ValueError(
+                "TTS_PROVIDER=chatterbox requires TTS_REFERENCE_CLIP (a short WAV of your voice)"
+            )
 
         for _img in (self.image_provider, self.image_fallback_provider):
             if _img == "stability" and not self.stability_api_key:

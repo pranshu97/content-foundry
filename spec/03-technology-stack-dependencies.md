@@ -22,12 +22,13 @@
 | Rich CLI output | `rich` | Tables, progress, readable reports in terminal |
 | Date/time | stdlib `datetime` + `python-dateutil` | Parsing feed timestamps |
 | IDs | `python-ulid` | Sortable `attempt_id`/`artifact_id` (the `run_id` is a sequential 4-digit number) |
-| TTS narration | `elevenlabs` (primary), `openai` TTS (fallback) | Voiceover with word-level timings |
+| TTS narration | `elevenlabs`, `openai`, `edge-tts` (free), `piper-tts` (free offline) | Voiceover with word-level timings |
+| Voice cloning (TTS) | `chatterbox-tts` + `torch`/`torchaudio` | Free zero-shot cloning of your own voice (MIT); GPU via the CUDA `cu124` torch build |
+| Thumbnail face cutout | `rembg` | Background-remove your avatar PNG for the thumbnail composite |
 | Image generation | `openai` Images / `stability-sdk` | Thumbnail + per-scene visuals |
 | Stock B-roll | Pexels + Pixabay APIs via `httpx` | Free background footage (multi-source, aggregated for variety) |
 | Web search (data source) | `ddgs` (DuckDuckGo) + Tavily/Brave via `httpx` | Domain-agnostic topic research |
 | Sound effects mixing | `pydub` | Overlay SFX clips onto the narration |
-| Forced alignment (captions) | `faster-whisper` (fallback) | Word timings when TTS lacks them |
 | Image/text overlay | `Pillow` | Thumbnail composition |
 | Video assembly | `ffmpeg` via `ffmpeg-python` (primary), `moviepy` (optional) | Render slideshow/B-roll + captions |
 | YouTube upload | `google-api-python-client`, `google-auth-oauthlib` | OAuth + Data API v3 `videos.insert` |
@@ -59,7 +60,7 @@ All external data access goes through a `DataSource` protocol (`fetch() -> list[
 
 ### 3.5a Media & publishing abstractions
 Production agents depend only on these protocols, never on a concrete vendor:
-- **`TTSProvider`** → `ElevenLabsTTS` (primary), `OpenAITTS` (fallback). Returns audio bytes + optional word timings.
+- **`TTSProvider`** → `ElevenLabsTTS`, `OpenAITTS`, `EdgeTTS` (free), `PiperTTS` (free offline), `ChatterboxTTS` (free zero-shot **voice cloning**, MIT; local CPU/CUDA). Returns audio bytes + optional word timings.
 - **`ImageProvider`** → `OpenAIImage` / `StabilityImage` for thumbnail + scene art.
 - **`RenderBackend`** → `FfmpegBackend` (default faceless slideshow + B-roll + captions, plus scene crossfades, a warm colour grade, SFX mixing and a subscribe-nudge badge), with optional `MoviePyBackend` and `AvatarBackend` (HeyGen/D-ID), selected via `RENDER_BACKEND`.
 - **`BrollClient`** → `PexelsBrollClient` + `PixabayBrollClient` aggregated by `MultiBrollClient` (free stock video; more variety across videos); `NullBrollClient` when no key is set.
@@ -93,12 +94,13 @@ ddgs>=6.0
 elevenlabs>=1.5
 edge-tts>=6.1
 piper-tts>=1.2
+chatterbox-tts>=0.1   # optional (extra: clone) - free voice cloning; also needs torch+torchaudio (CUDA cu124 build for GPU)
 pydub>=0.25
 stability-sdk>=0.8
 Pillow>=10.4
+rembg>=2.0            # optional (extra: avatar) - cut the avatar background for the thumbnail
 ffmpeg-python>=0.2
 moviepy>=1.0.3
-faster-whisper>=1.0
 # publishing
 google-api-python-client>=2.140
 google-auth-oauthlib>=1.2
@@ -122,6 +124,7 @@ pre-commit>=3.8
 - Pexels API key (free stock B-roll; optional).
 - Stability API key (optional image backend).
 - Google OAuth client secrets (`client_secrets.json`) for the YouTube Data API v3.
+- YouTube Data API v3 **key** (read-only) — optional, for proven-idea mining (`YOUTUBE_API_KEY`; separate from the OAuth publish creds).
 All keys are supplied via environment variables (see [Chapter 6](06-environment-variables-configuration.md#6-environment-variables--configuration)); none are hard-coded.
 
 ---

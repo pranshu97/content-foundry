@@ -166,3 +166,31 @@ def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
     assert sel.generated == ["Idea A", "Idea B", "Idea C"]
     assert sel.chosen == "Idea C" and sel.chosen_index == 2
     assert sel.seed == "resume optimization" and sel.source == "brainstorm"
+
+
+def test_idea_chosen_index_is_correct_for_a_proven_pick(monkeypatch, data_brief, fakes):
+    # Regression: picking a PROVEN (proof-tagged) idea recorded chosen_index=-1 because the clean
+    # title isn't literally in `generated` (which holds the tagged display lines).
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.models import IdeaSelection, MinedIdea
+    from content_foundry.pipeline.artifacts import ensure_run_dirs, load_model, run_paths
+
+    monkeypatch.setenv("BRAINSTORM_ENABLED", "true")
+    reset_settings_cache()
+    settings = get_settings()
+    proven = MinedIdea(title="Proven One", channel_title="X", views=1_000_000, multiple=5.0)
+
+    orch = Orchestrator(
+        settings, notifier=NullNotifier(),
+        llm_provider=fakes.LLM(script_json=["Idea A", "Idea B"]),
+        idea_chooser=lambda ideas: ideas[0],  # pick the proven (tagged) line
+    )
+    monkeypatch.setattr(orch, "_mine_proven_ideas", lambda *a, **k: [proven])
+    paths = run_paths("9998", settings.output_dir)
+    ensure_run_dirs(paths)
+
+    idea = orch._resolve_idea("9998", paths, data_brief, "seed", [])
+    assert idea == "Proven One"  # committed to the CLEAN title, not the tagged display line
+    sel = load_model(IdeaSelection, paths.ideas, expected_stage="ideas")
+    assert sel.generated[0] == proven.display() and sel.chosen == "Proven One"
+    assert sel.chosen_index == 0  # points at the tagged line (was -1 before the fix)

@@ -69,9 +69,11 @@ _OFF_TOPIC_SUBJECTS = frozenset({
     "wine", "beer", "champagne",
     # romance / celebration clichés
     "wedding", "bride", "groom", "kiss", "kissing", "romantic", "romance", "honeymoon", "fireworks",
-    "confetti", "balloon", "balloons",
+    "confetti", "balloon", "balloons", "cupid", "engagement", "engaged", "proposal", "flirt",
+    "flirting", "cuddle", "cuddling", "hug", "hugging", "sweetheart", "affection",
     # love / valentine / holidays / greetings (stock "greeting-card" padding)
     "valentine", "valentines", "love", "heart", "hearts", "dating", "couple", "couples",
+    "girlfriend", "boyfriend",
     "christmas", "xmas", "santa", "halloween", "easter", "thanksgiving", "holiday", "holidays",
     "festive", "festival", "birthday", "party", "celebration", "celebrate", "anniversary",
     "gift", "gifts", "present", "greeting", "greetings",
@@ -111,8 +113,10 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
     """Keep a candidate clip only when it is NOT an off-topic stock subject the query never asked for
     AND — when we know this video's vocabulary (``vocab``) — its tags/slug actually touch that
     vocabulary. The second check is what stops holiday/greeting/unrelated clips that dodge the
-    denylist (e.g. a 'Happy Valentine's Day' clip in a software video). No tags/slug => keep (we only
-    drop on positive evidence)."""
+    denylist (e.g. a 'Happy Valentine's Day' clip in a software video). With NO vocabulary we can't
+    positively filter, so keep; but a clip with NO tags/slug while a vocabulary IS known is
+    unverifiable (a bare stock URL) and is DROPPED — that 'no evidence' gap is exactly how off-topic
+    padding sneaks past the denylist."""
     if _off_topic(query, meta):
         return False
     if not vocab:
@@ -121,7 +125,12 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
         meta = " ".join(str(m) for m in meta)
     meta_words = set(re.findall(r"[a-z]+", str(meta).lower()))
     if not meta_words:
-        return True
+        # A strong video vocabulary IS known, but this candidate carries no describable tags/slug to
+        # check against it (a bare stock URL). We can't confirm it is on-topic, and that gap is exactly
+        # how off-topic padding — the recurring Valentine's / greeting-card clip that dodges the
+        # denylist — sneaks in. Drop it: the candidate pool is large and the scene falls back to its
+        # card, so losing one unverifiable clip keeps junk out at no real cost.
+        return False
     return bool(meta_words & vocab)
 
 

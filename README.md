@@ -31,6 +31,9 @@ python scripts/init_db.py
 
 # 4. Smoke test (no upload, stops at the Judge)
 content-foundry run --niche "tech careers" --to-stage judge
+
+# Or produce a vertical YouTube Short instead of a long video (one switch):
+content-foundry run --niche "tech careers" --idea "your topic" --format short
 ```
 
 See [`spec/23-deployment-instructions.md`](spec/23-deployment-instructions.md) for full deployment,

@@ -74,9 +74,10 @@ def research_key_facts(research: ResearchBrief) -> list[KeyFact]:
 
 
 class Researcher:
-    def __init__(self, settings, llm_provider: LLMProvider):
+    def __init__(self, settings, llm_provider: LLMProvider, *, search_provider=None):
         self._settings = settings
         self._llm = llm_provider
+        self._search = search_provider  # optional: fresh web search for the CHOSEN idea (idea-match)
         self._log = get_logger(component="research")
 
     def run(self, run_id: str, brief: DataBrief, *, idea: str) -> ResearchBrief:
@@ -94,17 +95,26 @@ class Researcher:
         )
 
     def _gather_sources(self, brief: DataBrief, *, idea: str = "") -> list[tuple[str, str]]:
-        """Fetch the full text behind the brief's citation URLs (deduped). Over-fetches by
-        ``research_source_buffer`` extra candidates, then keeps the most ON-TOPIC
-        ``research_max_sources`` (ranked by how many of the idea/niche terms each page covers), so a
-        weak or paywalled fetch doesn't burn a slot. Falls back to the citation snippet for any page
-        that can't be fetched, so there is always something to read."""
+        """Fetch the full text behind the research sources (deduped). A fresh web search for the
+        CHOSEN idea comes FIRST — so the research (and its numbers) match the picked topic instead of
+        whatever the seed-built brief happened to contain (the salary-drift bug) — then the brief's own
+        citation URLs fill in. Over-fetches by ``research_source_buffer`` and keeps the most on-topic
+        ``research_max_sources`` (ranked by idea/niche term coverage); a page that can't be fetched
+        falls back to its search/citation snippet, so there is always something to read."""
         want = self._settings.research_max_sources
         limit = want + self._settings.research_source_buffer
+        # (url, fallback snippet) candidates: idea-search hits FIRST, then the brief's citation URLs.
+        candidates: list[tuple[str, str]] = [
+            *self._idea_search_candidates(idea),
+            *(
+                ((f.citation.url or "").strip(), (f.citation.snippet or f.statement or "").strip())
+                for f in brief.key_facts
+            ),
+        ]
         seen: set[str] = set()
         out: list[tuple[str, str]] = []
-        for fact in brief.key_facts:
-            url = (fact.citation.url or "").strip()
+        for url, snippet in candidates:
+            url = (url or "").strip()
             if not url or url.lower() in seen:
                 continue
             seen.add(url.lower())
@@ -112,9 +122,7 @@ class Researcher:
                 url,
                 max_chars=self._settings.research_max_chars_per_source,
                 timeout=self._settings.research_fetch_timeout_sec,
-            )
-            if not text:
-                text = (fact.citation.snippet or fact.statement or "").strip()
+            ) or snippet
             if text:
                 out.append((url, text))
             if len(out) >= limit:
@@ -128,6 +136,23 @@ class Researcher:
                 )
             out = out[:want]
         return out
+
+    def _idea_search_candidates(self, idea: str) -> list[tuple[str, str]]:
+        """Fresh web search for the CHOSEN idea -> (url, snippet) candidates, so the research is about
+        the picked topic, not the seed's brief. Best-effort: no provider, a blank idea, or any error
+        yields no extra candidates (the brief URLs still drive the research)."""
+        if self._search is None or not (idea or "").strip():
+            return []
+        try:
+            hits = self._search.search(idea.strip(), self._settings.search_max_results)
+        except Exception as exc:  # a flaky search must never break research
+            self._log.warning("research_idea_search_failed", error=str(exc))
+            return []
+        return [
+            ((h.url or "").strip(), (h.snippet or h.title or "").strip())
+            for h in hits
+            if getattr(h, "url", None)
+        ]
 
     def _synthesize(self, idea, niche, sources) -> tuple[list[ResearchPoint], str | None]:
         if not sources:

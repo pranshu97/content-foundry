@@ -60,6 +60,16 @@ def _probe_seconds(path: str) -> float:
         return 0.0
 
 
+def _scale_cover(stream, width, height):  # pragma: no cover - requires ffmpeg on PATH
+    """Scale to COVER the frame (aspect preserved) then centre-crop to exactly WxH — so 16:9 stock
+    fills a 9:16 Short (and any off-ratio clip fills a 16:9 frame) WITHOUT stretching or distortion.
+    Correct for both formats: for a same-ratio source the crop is a no-op."""
+    return (
+        stream.filter("scale", width, height, force_original_aspect_ratio="increase")
+        .filter("crop", width, height)
+    )
+
+
 _ENCODER_CACHE: dict[str, set[str]] = {}
 _WORKING_ENCODER_CACHE: dict[str, str | None] = {}
 # Preference order for automatic GPU encoder selection: NVIDIA NVENC, Intel Quick Sync, AMD AMF.
@@ -244,15 +254,15 @@ class FfmpegBackend:
                     if clen and clen + 0.05 < d:
                         v = v.filter("setpts", f"{d / clen:.6f}*PTS")
                     s = (
-                        v.filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
+                        _scale_cover(v, width, height).filter("setsar", "1").filter("fps", fps)
                         .filter("tpad", stop_mode="clone", stop_duration=d)
                         .trim(duration=d)
                         .filter("setpts", "PTS-STARTPTS")
                     )
                 else:
                     s = (
-                        ffmpeg.input(path, loop=1, t=d)
-                        .filter("scale", width, height).filter("setsar", "1").filter("fps", fps)
+                        _scale_cover(ffmpeg.input(path, loop=1, t=d), width, height)
+                        .filter("setsar", "1").filter("fps", fps)
                     )
                 substreams.append(s)
             seg_stream = (

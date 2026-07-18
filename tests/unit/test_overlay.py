@@ -35,6 +35,8 @@ def _settings(tmp_path, *, enabled=True, name="avatar.png", make=True, position=
         avatar_image_path=str(path),
         avatar_position=position,
         avatar_scale=0.18,
+        effective_avatar_scale=0.18,
+        effective_avatar_position=position,
         avatar_margin=24,
     )
 
@@ -58,6 +60,20 @@ def test_build_spec_when_enabled_and_present(tmp_path):
     assert spec is not None
     assert spec.position == "bottom-right"
     assert spec.image_path.endswith("avatar.png")
+
+
+def test_build_spec_uses_effective_avatar_scale(tmp_path):
+    # The renderer overlay must use the format-aware scale (Shorts = 1/2 of long), not avatar_scale.
+    s = _settings(tmp_path)
+    s.effective_avatar_scale = 0.1
+    assert build_overlay_spec(s).scale == 0.1
+
+
+def test_build_spec_uses_effective_avatar_position(tmp_path):
+    # The overlay must use the format-aware corner (Shorts pin TOP-RIGHT), not the raw avatar_position.
+    s = _settings(tmp_path, position="bottom-right")
+    s.effective_avatar_position = "top-right"
+    assert build_overlay_spec(s).position == "top-right"
 
 
 def test_build_spec_falls_back_on_bad_position(tmp_path):

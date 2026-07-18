@@ -123,3 +123,38 @@ def test_optimize_metadata_end_to_end(settings, good_script):
     assert meta.title == f"Best Career Advice ({year})"
     assert "tech careers" in meta.tags
     assert "Chapters:" in meta.description  # 3 scenes x 12s qualifies
+
+
+def test_channel_cta_block_reflects_config(monkeypatch):
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.production.seo import channel_cta_block
+
+    monkeypatch.setenv("CHANNEL_CTA_ENABLED", "true")
+    monkeypatch.setenv("CHANNEL_CTA_TEXT", "Subscribe for more.")
+    monkeypatch.setenv("YOUTUBE_CHANNEL_URL", "https://youtube.com/@x")
+    reset_settings_cache()
+    block = channel_cta_block(get_settings())
+    assert "Subscribe for more." in block and "https://youtube.com/@x" in block
+    monkeypatch.setenv("CHANNEL_CTA_ENABLED", "false")
+    reset_settings_cache()
+    assert channel_cta_block(get_settings()) == ""
+
+
+def test_optimize_description_adds_channel_cta_and_leads_with_shorts_hashtag():
+    desc = optimize_description(
+        "Body.", cta="", tags=["ml career"], chapters=[], add_chapters=False,
+        channel_cta="Subscribe for more.\n▶ https://youtube.com/@x", shorts_hashtag="#Shorts",
+    )
+    assert "Subscribe for more." in desc and "https://youtube.com/@x" in desc
+    assert desc.split("\n\n")[-1].startswith("#Shorts ")  # #Shorts leads the hashtag line
+
+
+def test_optimize_metadata_short_skips_chapters_and_tags_shorts(monkeypatch, good_script):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("CONTENT_FORMAT", "short")
+    reset_settings_cache()
+    good_script.title_options = ["A Punchy Short Idea"]
+    meta = optimize_metadata(good_script, _visuals(12.0), get_settings())
+    assert "Chapters:" not in meta.description  # chapters don't apply to a Short
+    assert "#Shorts" in meta.description

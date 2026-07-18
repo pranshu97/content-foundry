@@ -258,13 +258,15 @@ class ChatterboxTTS:
     name = "chatterbox"
 
     def __init__(self, reference_clip: str, *, device: str = "auto",
-                 exaggeration: float = 0.5, cfg_weight: float = 0.5) -> None:
+                 exaggeration: float = 0.5, cfg_weight: float = 0.5,
+                 silence_pad_ms: int = 150) -> None:
         from pathlib import Path
 
         self._reference = reference_clip or ""
         self._device = device or "auto"
         self._exaggeration = exaggeration
         self._cfg_weight = cfg_weight
+        self._silence_pad_ms = silence_pad_ms
         self.voice = Path(self._reference).stem if self._reference else "cloned"
         self.sample_rate = 24000
         self._model = None
@@ -312,12 +314,18 @@ class ChatterboxTTS:
     def synthesize(self, text: str) -> tuple[bytes, list[WordTiming] | None]:
         from pathlib import Path
 
+        from .text_normalize import speechify_numbers
+
         if not self._reference or not Path(self._reference).exists():
             raise TTSError(
                 f"Cloning reference clip not found at TTS_REFERENCE_CLIP={self._reference!r}. "
                 "Record a short (~15-30s) clean WAV of your voice and point this setting at it."
             )
         model = self._load()
+        # Expand numbers/currency to words so the voice says "two hundred two thousand", not a
+        # mangled "202,000" — Chatterbox's front-end mis-reads comma-grouped figures. Only the AUDIO
+        # input is normalized; the original digits stay in the script for captions/citations.
+        spoken = speechify_numbers(text)
         # Chatterbox generates at most ~1000 tokens (~40s) PER CALL, so a long scene voiced in one
         # shot is TRUNCATED mid-sentence and the video then cuts to the next scene before the line
         # finishes. Split into sentence-sized chunks that each sit well inside that window, then
@@ -325,7 +333,7 @@ class ChatterboxTTS:
         import torch
 
         pieces = []
-        for chunk in _chunk_for_tts(text):
+        for chunk in _chunk_for_tts(spoken):
             try:
                 wav = model.generate(
                     chunk, audio_prompt_path=self._reference,
@@ -335,7 +343,9 @@ class ChatterboxTTS:
                 raise TTSError(f"Chatterbox synthesis failed: {exc}") from exc
             if hasattr(wav, "dim") and wav.dim() == 1:
                 wav = wav.unsqueeze(0)
-            pieces.append(wav)
+            # Trim Chatterbox's leading/trailing silence per chunk so stitched sentences/scenes don't
+            # pile up long dead-air pauses (a small pad keeps a natural beat between sentences).
+            pieces.append(_trim_silence(wav, self.sample_rate, pad_ms=self._silence_pad_ms))
         if not pieces:
             raise TTSError("Chatterbox produced no audio (the scene narration was empty).")
         wav = torch.cat(pieces, dim=-1) if len(pieces) > 1 else pieces[0]
@@ -355,6 +365,27 @@ def _tensor_to_wav_bytes(wav, sample_rate: int) -> bytes:
     buf = io.BytesIO()
     torchaudio.save(buf, wav, sample_rate, format="wav")
     return buf.getvalue()
+
+
+def _trim_silence(wav, sample_rate: int, *, thresh: float = 0.015, pad_ms: int = 40):  # pragma: no cover - needs torch + real audio
+    """Trim leading/trailing near-silence from a Chatterbox waveform tensor (channels, samples),
+    keeping a small pad, so stitched chunks/scenes don't accumulate dead air. Returns the tensor
+    unchanged when it is all silence or the shape is unexpected."""
+    try:
+        import torch
+
+        amp = wav.abs()
+        if amp.dim() == 2:
+            amp = amp.mean(dim=0)
+        nz = torch.nonzero(amp > thresh).flatten()
+        if nz.numel() == 0:
+            return wav
+        pad = int(sample_rate * pad_ms / 1000)
+        start = max(0, int(nz[0]) - pad)
+        end = min(int(amp.shape[-1]), int(nz[-1]) + pad + 1)
+        return wav[..., start:end]
+    except Exception:
+        return wav
 
 
 def _wav_duration(wav_bytes: bytes) -> tuple[float, int]:

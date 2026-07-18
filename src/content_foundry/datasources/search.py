@@ -9,6 +9,7 @@ into a grounded, citation-ready fact with the result's URL and snippet.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple, Protocol, runtime_checkable
 
@@ -167,6 +168,29 @@ def _flatten_related(topics: list) -> list[dict]:
     return out
 
 
+_TOPIC_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "at", "is", "are", "be", "by",
+    "with", "from", "vs", "how", "what", "why", "who", "when", "which", "your", "you", "my", "our",
+    "best", "top", "guide", "complete", "ultimate", "list", "new", "trends", "trend", "tips",
+    "tricks", "things", "ways", "about", "into", "get", "make", "common", "mistakes", "requirements",
+})
+
+
+def _topic_terms(query: str) -> set[str]:
+    """Meaningful (non-stopword, non-year) words that define the run's topic."""
+    return {
+        w
+        for w in re.findall(r"[a-z0-9]+", (query or "").lower())
+        if len(w) >= 2 and not w.isdigit() and w not in _TOPIC_STOPWORDS
+    }
+
+
+def _shares_topic(result: SearchResult, terms: set[str]) -> bool:
+    """True when the hit's title/snippet shares at least one topic word (i.e. it's on-topic)."""
+    hay = re.findall(r"[a-z0-9]+", f"{result.title} {result.snippet}".lower())
+    return bool(terms.intersection(hay))
+
+
 class SearchSource:
     """A :class:`DataSource` that turns web-search hits into normalized signals.
 
@@ -187,11 +211,13 @@ class SearchSource:
         *,
         facets: Sequence[str] = (),
         max_results: int = 8,
+        filter_offtopic: bool = False,
     ) -> None:
         self._provider = provider
         self._query = (query or "").strip()
         self._facets = [f.strip() for f in facets if f and f.strip()]
         self._max = max_results
+        self._filter_offtopic = filter_offtopic
         self._log = get_logger(component="search_source")
 
     def _queries(self) -> list[str]:
@@ -215,6 +241,10 @@ class SearchSource:
         now = utcnow()
         signals: list[NormalizedSignal] = []
         seen_keys: set[str] = set()
+        # Anchor relevance on the base topic (not the facet suffixes), so a "trends 2026" angle can't
+        # justify an off-topic hit. Empty terms (e.g. a bare query) => keep everything.
+        terms = _topic_terms(self._query) if self._filter_offtopic else set()
+        dropped = 0
         failures = 0
         for query in queries:
             try:
@@ -230,6 +260,9 @@ class SearchSource:
                 continue
             for r in results:
                 if not r.title:
+                    continue
+                if terms and not _shares_topic(r, terms):  # off-topic junk -> drop it
+                    dropped += 1
                     continue
                 key = (r.url or r.title).strip().lower()
                 if key in seen_keys:  # same result surfaced by another angle — keep it once
@@ -252,6 +285,8 @@ class SearchSource:
                     )
                 )
 
+        if dropped:
+            self._log.info("search_offtopic_filtered", dropped=dropped, kept=len(signals))
         if not signals and failures == len(queries):  # every angle errored — the source is down
             raise DataSourceError(
                 f"Search ({self._provider.name}) failed for all {failures} queries."

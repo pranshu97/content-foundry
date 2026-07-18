@@ -142,6 +142,17 @@ def hashtags(tags: list[str], *, limit: int = 3) -> list[str]:
     return out
 
 
+def channel_cta_block(settings) -> str:
+    """A short 'subscribe + explore the channel' block appended to EVERY description (long and Short)
+    to turn a viewer into a subscriber who watches more. Empty when disabled."""
+    if not getattr(settings, "channel_cta_enabled", False):
+        return ""
+    text = (getattr(settings, "channel_cta_text", "") or "").strip()
+    url = (getattr(settings, "youtube_channel_url", "") or "").strip()
+    parts = [p for p in (text, f"▶ {url}" if url else "") if p]
+    return "\n".join(parts)
+
+
 def optimize_description(
     description: str,
     *,
@@ -149,15 +160,25 @@ def optimize_description(
     tags: list[str] | None = None,
     chapters: list[tuple[str, str]] | None = None,
     add_chapters: bool = True,
+    channel_cta: str = "",
+    shorts_hashtag: str = "",
 ) -> str:
-    """Compose a discoverable description (CTA + chapters + hashtags). Disclosure added downstream."""
+    """Compose a discoverable description (CTA + chapters + channel CTA + hashtags). Disclosure added
+    downstream. ``shorts_hashtag`` (e.g. #Shorts) leads the hashtag line so YouTube classifies the
+    upload as a Short."""
     blocks = [(description or "").strip()]
     if cta and cta.strip() and cta.strip().lower() not in blocks[0].lower():
         blocks.append(cta.strip())
     if add_chapters and chapters:
         lines = "\n".join(f"{ts} {label}" for ts, label in chapters)
         blocks.append(f"Chapters:\n{lines}")
-    tag_line = " ".join(hashtags(tags or [], limit=5))
+    if channel_cta and channel_cta.strip():
+        blocks.append(channel_cta.strip())
+    tag_parts = hashtags(tags or [], limit=5)
+    hashtag = (shorts_hashtag or "").strip()
+    if hashtag and hashtag not in tag_parts:
+        tag_parts = [hashtag, *tag_parts]
+    tag_line = " ".join(tag_parts)
     if tag_line:
         blocks.append(tag_line)
     return "\n\n".join(b for b in blocks if b)
@@ -188,12 +209,16 @@ def optimize_metadata(script: Script, visuals: VisualPackage, settings) -> Optim
         (durations.get(scene.index, 0.0), scene.on_screen_text or scene.narration)
         for scene in sorted(script.scenes, key=lambda s: s.index)
     ]
-    chapters = build_chapters(items) if settings.seo_add_chapters else []
+    # Chapters don't apply to a Short (one continuous <60s clip) — skip them there.
+    add_chapters = settings.seo_add_chapters and not settings.is_short
+    chapters = build_chapters(items) if add_chapters else []
     description = optimize_description(
         script.description,
         cta=script.cta,
         tags=tags,
         chapters=chapters,
-        add_chapters=settings.seo_add_chapters,
+        add_chapters=add_chapters,
+        channel_cta=channel_cta_block(settings),
+        shorts_hashtag=settings.shorts_hashtag if settings.is_short else "",
     )
     return OptimizedMetadata(title=title, description=description, tags=tags)

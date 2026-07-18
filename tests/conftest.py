@@ -53,10 +53,14 @@ _BASE_ENV = {
     "RESEARCH_ENABLED": "false",
     # Off so the visuals stage's B-roll director doesn't add an LLM call to the fake call sequence.
     "BROLL_DIRECTOR_ENABLED": "false",
+    # Off so the visuals stage's thumbnail director doesn't add an LLM call to the fake call sequence.
+    "THUMBNAIL_DIRECTOR_ENABLED": "false",
     # Off by default so the fake (non-mp3) TTS output isn't fed to the pydub mixer; enabled per-test.
     "SFX_ENABLED": "false",
     # Off so the deterministic canned scripts keep their exact narration; the fixed intro is tested on its own.
     "INTRO_ENABLED": "false",
+    # Long-form by default so existing tests exercise the unchanged 16:9 pipeline; Shorts tested on their own.
+    "CONTENT_FORMAT": "long",
     # Off so the thumbnail avatar composite (and its optional rembg background-removal) never runs in
     # the hermetic suite — rembg would download a model + do slow inference on the operator's avatar.
     "THUMBNAIL_USE_AVATAR": "false",

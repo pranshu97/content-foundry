@@ -65,6 +65,31 @@ def test_researcher_synthesizes_points_from_fetched_sources(settings, data_brief
     assert research.source_urls  # pages were gathered from the brief's citations
 
 
+def test_researcher_fresh_searches_the_chosen_idea(settings, data_brief, fakes):
+    from content_foundry.datasources.search import SearchResult
+
+    class _FakeSearch:
+        name = "fake"
+
+        def __init__(self):
+            self.queries: list[str] = []
+
+        def search(self, query, max_results):
+            self.queries.append(query)
+            return [SearchResult("AI vs ML", "https://idea.example/1",
+                                 "AI Engineers earn 210,000 in machine learning careers")]
+
+    search = _FakeSearch()
+    r = Researcher(settings, fakes.LLM(script_json={"points": []}), search_provider=search)
+    # The picked idea drives a FRESH web search whose hits become the first (idea-matched) candidates,
+    # so research grounds on the chosen topic instead of the seed-built brief (the drift fix).
+    cands = r._idea_search_candidates("AI vs ML Engineer")
+    assert search.queries == ["AI vs ML Engineer"]
+    assert cands[0][0] == "https://idea.example/1" and "210,000" in cands[0][1]
+    # No provider (the hermetic default) => no fresh search; the brief URLs drive research as before.
+    assert Researcher(settings, fakes.LLM())._idea_search_candidates("x") == []
+
+
 def test_researcher_falls_back_to_snippets_when_llm_yields_no_points(settings, data_brief, fakes,
                                                                      monkeypatch):
     monkeypatch.setattr(

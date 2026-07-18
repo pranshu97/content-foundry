@@ -5,7 +5,7 @@ A `typer` app (`cli.py`, exposed as `content-foundry`). All commands are thin wr
 ### 17.1 Commands
 | Command | Purpose | Key options |
 |---------|---------|-------------|
-| `content-foundry run` | Run the full pipeline end-to-end | `--niche`, `--topic`, `--template`, `--from-stage`, `--to-stage`, `--input`, `--run-id`, `--force`, `--dry-run` |
+| `content-foundry run` | Run the pipeline; by default stops at **render** (a finished, unpublished video) | `--niche`, `--topic`, `--template`, `--from-stage`, `--to-stage`, `--publish`, `--input`, `--run-id`, `--force`, `--dry-run` |
 | `content-foundry fetch` | Stage 1 only → `data_brief.json` | `--niche`, `--topic`, `--run-id` |
 | `content-foundry generate` | Stage 2 only (needs a brief) | `--input data_brief.json`, `--template`, `--run-id` |
 | `content-foundry judge` | Stage 3 only (needs a script) | `--input script.json`, `--run-id` |
@@ -51,6 +51,7 @@ content-foundry generate --input my_brief.json --template myth_vs_reality
 - Every command prints the `run_id` and the artifact path(s) it wrote.
 - Stage commands validate the input artifact's `schema_version` and fail with a precise message if it is stale or malformed.
 - `--dry-run` threads through to the publisher (and optionally the LLM via a canned-response provider) for safe end-to-end rehearsals.
+- `content-foundry run` **stops at `render`** by default (a finished, UNPUBLISHED video). Pass `--publish` to also upload after rendering, or publish later with `content-foundry publish --run-id <id>`.
 
 ---
 

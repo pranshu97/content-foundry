@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     # SEARCH_FACETS is the ordered pool of angle suffixes to draw from.
     search_query_count: int = Field(4, ge=1, le=10)
     search_facets: str = "statistics,salary,trends 2026,common mistakes,requirements,tips"
+    # Drop web-search hits that share NO meaningful word with the run's topic. A generic angle like
+    # "trends 2026" can otherwise pull "Fashion Trends Tokyo 2026" or "Blox Fruits Values 2026" into
+    # the brief and weaken the script. Deterministic keyword-overlap filter (no LLM). Off => keep all.
+    search_relevance_filter: bool = True
 
     # ---------- Research (Agent 1.5) ----------
     # After the idea is chosen, an LLM reads the real pages behind the brief's sources and synthesizes
@@ -181,6 +185,10 @@ class Settings(BaseSettings):
     tts_clone_device: str = "auto"  # auto | cuda | cpu
     tts_clone_exaggeration: float = Field(0.5, ge=0.0, le=2.0)  # 0.5 neutral; higher = more expressive
     tts_clone_cfg: float = Field(0.5, ge=0.0, le=1.0)  # lower (~0.3) = steadier, reference-paced speech
+    # Silence kept on EACH side of a synthesized chunk when trimming Chatterbox's dead air. Too small
+    # and sentence-to-sentence transitions feel abrupt/clipped; ~150 ms leaves a natural breath so the
+    # stitched narration flows instead of jump-cutting between sentences.
+    tts_silence_pad_ms: int = Field(150, ge=0, le=1000)
 
     # ---------- Visuals ----------
     image_provider: Literal["openai", "stability", "google", "pollinations", "none"] = "openai"
@@ -207,9 +215,58 @@ class Settings(BaseSettings):
     # falls back to the generator's keywords on any failure.
     broll_director_enabled: bool = True
     broll_director_max_queries: int = Field(8, ge=1, le=12)
+    # THUMBNAIL DIRECTOR (Agent 5.6): an LLM writes a rich, per-video thumbnail image-generation prompt
+    # from the script's concept/title/niche (quality over the generic static template), with a hard
+    # NO-TEXT instruction so the image model stops baking in gibberish "hieroglyph" lettering.
+    # Best-effort: falls back to the built-in template on any failure. Default ON (quality); the prompt
+    # is saved to assets/thumbnail_prompt.txt so you can edit it and re-run `content-foundry thumbnail`.
+    thumbnail_director_enabled: bool = True
     visual_style: str = "clean infographic, high-contrast, bold text"
     scenes_per_video: int = 10
     thumbnail_size: str = "1280x720"
+    shorts_thumbnail_size: str = "1080x1920"  # vertical 9:16 thumbnail for a Short (matches the frame)
+    # ---------- Face-identity thumbnail (option B: YOUR face, generated not pasted) ----------
+    # Generate the thumbnail WITH the operator's own face + the prompt's emotion in one local model
+    # pass (SD1.5 + IP-Adapter-FaceID on the GPU) instead of compositing a cut-out. OFF by default; it
+    # needs a one-time install (see providers/faceid.py) and falls back to the composited thumbnail
+    # whenever the model/deps are unavailable, so nothing ever breaks.
+    thumbnail_face_id_enabled: bool = False
+    # HOW to put your face in. "swap" (recommended): generate a rich scene with a LONG prompt via the
+    # normal image provider (Pollinations/Imagen — NO 77-token limit, so it follows the scene
+    # instructions), then swap YOUR real face onto the person with insightface's inswapper (high
+    # identity fidelity). "generate": the older SD1.5 + IP-Adapter-FaceID single pass (bound by CLIP's
+    # 77 tokens, weaker instruction-following). Either falls back to the composited thumbnail if its
+    # models are unavailable, so nothing ever breaks.
+    thumbnail_face_method: Literal["swap", "generate"] = "swap"
+    faceswap_model_path: str = ""  # inswapper_128.onnx path; blank => auto-locate/download (~530 MB)
+    faceid_base_model: str = "SG161222/Realistic_Vision_V5.1_noVAE"  # any photoreal SD1.5 checkpoint
+    faceid_ip_repo: str = "h94/IP-Adapter-FaceID"
+    faceid_ip_weight: str = "ip-adapter-faceid_sd15.bin"
+    faceid_scale: float = Field(0.6, ge=0.0, le=1.5)  # identity strength (higher = more like you)
+    faceid_steps: int = Field(30, ge=10, le=60)
+    faceid_guidance: float = Field(7.5, ge=1.0, le=15.0)
+    faceid_gen_size: str = "768x448"  # SD-friendly generation size, upscaled to THUMBNAIL_SIZE
+    faceid_device: str = "auto"  # auto | cuda | cpu
+    faceid_negative_prompt: str = "multiple people, two people, extra person, crowd, text, watermark, logo, extra fingers, deformed, blurry, low quality"
+
+    # ---------- Content format (long-form video vs vertical Shorts) ----------
+    # ONE switch selects the whole output shape. "long" = the standard 16:9 long-form video (every
+    # long-form field is used exactly as before, so existing runs are unaffected). "short" = a vertical
+    # 9:16 YouTube Short built end-to-end by the SAME pipeline: one tight ~50s idea with big burned-in
+    # captions. Format-specific values live in the SHORTS_* fields and are chosen by the effective_*
+    # properties, so switching back to "long" restores the exact prior behaviour.
+    content_format: Literal["long", "short"] = "long"
+    shorts_resolution: str = "1080x1920"  # vertical 9:16 (portrait)
+    shorts_target_words: int = Field(100, ge=40, le=600)  # ~35-45s of narration (Shorts retain best short)
+    shorts_scenes: int = Field(4, ge=2, le=12)
+    shorts_max_duration_sec: float = Field(50.0, ge=15.0, le=180.0)  # target ceiling (hard max is 3 min)
+    shorts_burn_captions: bool = True  # captions are near-mandatory on muted, fast-scrolled Shorts
+    shorts_intro_enabled: bool = False  # skip the fixed tagline; a Short must hook in the first second
+    shorts_scene_transition: Literal[
+        "none", "fade", "fadewhite", "fadeblack", "dissolve",
+        "smoothleft", "smoothright", "circleopen", "radial", "wipeleft", "slideleft",
+    ] = "none"  # fast hard cuts read better than slow blends on a Short
+    shorts_hashtag: str = "#Shorts"  # appended to the description so YouTube classifies it as a Short
 
     # ---------- Render ----------
     render_backend: Literal["ffmpeg", "moviepy", "avatar"] = "ffmpeg"
@@ -285,7 +342,7 @@ class Settings(BaseSettings):
     # Composite the avatar image (your face) into the THUMBNAIL as the human element instead of an
     # AI-generated face — a consistent real face lifts click-through. Skipped when the file is absent.
     thumbnail_use_avatar: bool = True
-    thumbnail_avatar_scale: float = Field(0.5, ge=0.15, le=1.0)  # avatar height as a fraction of the thumb
+    thumbnail_avatar_scale: float = Field(0.9, ge=0.15, le=1.0)  # face height as a fraction of the thumb (big = main-region reaction, flush right)
 
     # ---------- Publishing (YouTube) ----------
     youtube_client_secrets_file: str = "secrets/client_secrets.json"
@@ -294,7 +351,20 @@ class Settings(BaseSettings):
     youtube_privacy_status: Literal["private", "unlisted", "public"] = "private"
     youtube_category_id: str = "22"
     youtube_default_language: str = "en"
+    # Optional: auto-add each upload to this playlist (a niche SERIES boosts session watch time, a top
+    # ranking signal). Create it once in YouTube Studio and paste its id (starts "PL..."). Blank => skip.
+    youtube_playlist_id: str = ""
     require_manual_disclosure_before_public: bool = True
+    # Pull viewers deeper into the channel. When enabled, a short CTA block (subscribe + a link to
+    # explore the rest of the channel) is appended to EVERY description (long and Short). Set
+    # YOUTUBE_CHANNEL_URL to your channel/handle URL; blank => a generic subscribe line.
+    channel_cta_enabled: bool = True
+    youtube_channel_url: str = ""  # e.g. https://www.youtube.com/@YourHandle
+    channel_cta_text: str = "Subscribe for more, and explore the channel for the full deep-dive videos."
+    # Best-effort: post ONE top-level comment (the channel CTA) on each upload via the Data API. Needs
+    # the youtube.force-ssl scope, so turning this ON requires deleting the OAuth token to re-consent
+    # (see Human_Tasks). The API cannot PIN a comment — pin it manually in Studio. Default off.
+    publish_top_comment: bool = False
 
     # ---------- Proven-idea mining (optional; read-only YouTube Data API v3, no scraping) ----------
     # Surfaces REAL outlier videos (views far above a channel's median) as pre-vetted idea options.
@@ -335,7 +405,10 @@ class Settings(BaseSettings):
     content_year: int = Field(0, ge=0)  # 0 => current UTC year
     seo_optimize_enabled: bool = True
     seo_max_tags: int = Field(15, ge=0)
-    seo_title_max_chars: int = Field(70, ge=10)
+    seo_title_max_chars: int = Field(60, ge=10)
+    # Hard cap on THUMBNAIL overlay words (scannability at arm's length). The generator aims for 2-4;
+    # this trims any overflow so the thumbnail never turns into an unreadable sentence.
+    thumbnail_max_words: int = Field(5, ge=2, le=8)
     seo_add_chapters: bool = True
     channel_keywords: str = ""  # comma list of evergreen channel tags (optional)
 
@@ -380,9 +453,73 @@ class Settings(BaseSettings):
         return int(w), int(h)
 
     @property
-    def resolution_wh(self) -> tuple[int, int]:
-        w, _, h = self.video_resolution.partition("x")
+    def effective_thumbnail_size(self) -> str:
+        """Thumbnail canvas for the format: vertical 9:16 for a Short (so it matches the frame instead
+        of being letter-boxed from a 16:9 image), the normal 16:9 thumbnail for long-form."""
+        return self.shorts_thumbnail_size if self.is_short else self.thumbnail_size
+
+    @property
+    def effective_thumbnail_wh(self) -> tuple[int, int]:
+        w, _, h = self.effective_thumbnail_size.partition("x")
         return int(w), int(h)
+
+    @property
+    def is_short(self) -> bool:
+        """True when producing a vertical YouTube Short (``CONTENT_FORMAT=short``)."""
+        return self.content_format == "short"
+
+    @property
+    def effective_resolution(self) -> str:
+        """Output resolution for the selected content format (vertical for Shorts)."""
+        return self.shorts_resolution if self.is_short else self.video_resolution
+
+    @property
+    def resolution_wh(self) -> tuple[int, int]:
+        w, _, h = self.effective_resolution.partition("x")
+        return int(w), int(h)
+
+    @property
+    def effective_target_words(self) -> int:
+        """Script word target for the format (Shorts are far shorter than long-form)."""
+        return self.shorts_target_words if self.is_short else self.script_target_words
+
+    @property
+    def effective_scenes(self) -> int:
+        """Scene count target for the format."""
+        return self.shorts_scenes if self.is_short else self.scenes_per_video
+
+    @property
+    def effective_min_scenes(self) -> int:
+        """Completeness floor never exceeds the format's own scene count (a short Short is valid)."""
+        return min(self.min_scenes, self.effective_scenes)
+
+    @property
+    def effective_captions_enabled(self) -> bool:
+        """Burn captions? Shorts default ON (watched muted); long-form uses CAPTIONS_ENABLED."""
+        return self.shorts_burn_captions if self.is_short else self.captions_enabled
+
+    @property
+    def effective_scene_transition(self) -> str:
+        """Scene transition for the format (Shorts favour fast hard cuts)."""
+        return self.shorts_scene_transition if self.is_short else self.scene_transition
+
+    @property
+    def effective_intro_enabled(self) -> bool:
+        """Prepend the fixed channel intro tagline? Skipped for Shorts (no time to warm up)."""
+        return self.shorts_intro_enabled if self.is_short else self.intro_enabled
+
+    @property
+    def effective_avatar_scale(self) -> float:
+        """On-frame avatar height as a fraction of the video height. Shorts use HALF the long-form
+        scale — the vertical frame is much narrower, so the same fraction looks oversized."""
+        return round(self.avatar_scale * 1 / 2, 3) if self.is_short else self.avatar_scale
+
+    @property
+    def effective_avatar_position(self) -> str:
+        """Corner the avatar sits in. Shorts pin it TOP-RIGHT (the lower third of a vertical frame is
+        taken up by captions and the platform UI); long-form keeps the configured corner
+        (bottom-right by default)."""
+        return "top-right" if self.is_short else self.avatar_position
 
     @property
     def heavy_model(self) -> str:
@@ -471,6 +608,13 @@ class Settings(BaseSettings):
                 "NOTIFY_ENABLED=true with NOTIFIER=telegram requires "
                 "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
             )
+
+        for _res in (self.video_resolution, self.shorts_resolution):
+            parts = (_res or "").lower().split("x")
+            if len(parts) != 2 or not all(p.strip().isdigit() for p in parts):
+                raise ValueError(
+                    f"Resolution must be WIDTHxHEIGHT (e.g. 1920x1080 or 1080x1920), got {_res!r}"
+                )
 
         _ = self.notify_events_list  # validate parse
         return self

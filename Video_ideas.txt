@@ -1,0 +1,18 @@
+
+Interviews
+    How to Pass the Amazon Applied Scientist Interview
+    The ML System Design Interview: A Step-by-Step Blueprint
+    Leetcode vs ML: What FAANG ML Interviews Really Ask
+
+
+Getting hired
+    How to Get an ML Engineer Job at FAANG With No PhD
+    Machine Learning Resume Mistakes That Get You Auto-Rejected
+    How FAANG Screens ML Resumes (What the ATS + Recruiter See)
+    Why Your ML Side Projects Aren't Getting You Interviews
+    The ML Portfolio Projects That Actually Get You Hired (Not Kaggle)
+
+
+Skills & strategy
+    From Software Engineer to ML Engineer: The Fastest Path
+    What "Cracked" FAANG Engineers Do Differently (Habits + Systems)

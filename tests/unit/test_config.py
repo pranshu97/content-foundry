@@ -23,6 +23,54 @@ def test_thumbnail_and_resolution_parse(settings):
     assert settings.resolution_wh == (1920, 1080)
 
 
+def test_content_format_long_is_the_default(settings):
+    # Long-form default: every effective_* value mirrors the long-form field, so nothing changes.
+    assert settings.is_short is False
+    assert settings.effective_resolution == settings.video_resolution
+    assert settings.resolution_wh == (1920, 1080)
+    assert settings.effective_target_words == settings.script_target_words
+    assert settings.effective_scenes == settings.scenes_per_video
+    assert settings.effective_captions_enabled == settings.captions_enabled
+    assert settings.effective_scene_transition == settings.scene_transition
+    assert settings.effective_intro_enabled == settings.intro_enabled
+    assert settings.effective_thumbnail_size == settings.thumbnail_size
+    assert settings.effective_thumbnail_wh == (1280, 720)
+    assert settings.effective_avatar_position == settings.avatar_position
+
+
+def test_content_format_short_switches_effective_values(monkeypatch):
+    monkeypatch.setenv("CONTENT_FORMAT", "short")
+    reset_settings_cache()
+    s = get_settings()
+    assert s.is_short is True
+    assert s.effective_resolution == "1080x1920"
+    assert s.resolution_wh == (1080, 1920)  # vertical 9:16
+    assert s.effective_target_words == s.shorts_target_words
+    assert s.effective_scenes == s.shorts_scenes
+    assert s.effective_captions_enabled is True  # Shorts burn captions by default
+    assert s.effective_intro_enabled is False  # Shorts skip the fixed intro tagline
+    assert s.effective_min_scenes == min(s.min_scenes, s.shorts_scenes)
+    assert s.effective_thumbnail_size == "1080x1920"  # vertical thumbnail matches the frame
+    assert s.effective_thumbnail_wh == (1080, 1920)
+    assert s.effective_avatar_position == "top-right"  # Shorts pin the avatar top-right
+
+
+def test_effective_avatar_scale_is_half_for_short(monkeypatch):
+    reset_settings_cache()
+    assert get_settings().effective_avatar_scale == get_settings().avatar_scale  # long: unchanged
+    monkeypatch.setenv("CONTENT_FORMAT", "short")
+    monkeypatch.setenv("AVATAR_SCALE", "0.15")
+    reset_settings_cache()
+    assert get_settings().effective_avatar_scale == 0.075  # half of 0.15
+
+
+def test_bad_resolution_raises(monkeypatch):
+    monkeypatch.setenv("SHORTS_RESOLUTION", "tall")
+    reset_settings_cache()
+    with pytest.raises(ConfigError):
+        get_settings()
+
+
 def test_bad_source_raises(monkeypatch):
     monkeypatch.setenv("ENABLED_SOURCES", "adzuna,bogus")
     reset_settings_cache()

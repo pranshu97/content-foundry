@@ -82,9 +82,17 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
     ]
     if bio:
         parts.append(
-            "- NARRATION: at most once or twice in the whole script, lean on the presenter's real "
-            "background for authority, phrased naturally and humbly ('from what I've seen building "
-            f"these', 'having worked on this') — NEVER a resume brag or title-drop. Background: {bio}."
+            "- NARRATION: DO lean on the presenter's real background once or twice for authority — it is "
+            "a genuine credibility signal that makes the advice land (this channel's edge is that the "
+            f"advice comes from someone with this background). Background: {bio}. Speak it at the "
+            "GENERAL level it is written ('as someone who's worked as an AI scientist in big tech', "
+            "'from years inside FAANG AI teams', 'having been on the hiring side'), naturally and "
+            "humbly — never a resume brag or title-drop. HARD LINE: use ONLY what that background line "
+            "literally states; do NOT invent SPECIFIC, checkable details it does not give — no named "
+            "project, product, system, team, metric, dollar figure, or dated event, and no 'the time I "
+            "personally did X' story (e.g. from 'AI Scientist at Amazon' you MAY say 'from my time in "
+            "big-tech AI' but you may NOT fabricate 'when I rebuilt Amazon's SageMaker pipeline'). The "
+            "true, general credential is valuable; invented specifics are obvious fakes and a hard REJECT."
         )
     tag = (
         f'"{title_tag}"' if title_tag else
@@ -97,6 +105,35 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
         "and never clunky; skip the tag when it doesn't fit. Never fabricate a credential."
     )
     return "\n".join(parts)
+
+
+def _format_context(settings) -> str:
+    """Short-form override block, injected ONLY when producing a vertical Short (empty for long-form
+    so the shipped prompt stays generic). Recasts the long-form guidance into the fast, hook-first,
+    caption-led pacing a ~50s vertical video needs."""
+    if not getattr(settings, "is_short", False):
+        return ""
+    seconds = int(settings.shorts_max_duration_sec)
+    return (
+        "<format>\n"
+        f"THIS IS A VERTICAL YOUTUBE SHORT (about {seconds} seconds, 9:16). Recast the rules above for "
+        "short form:\n"
+        "- ONE tight idea only: pick the single most surprising, useful point and cut everything else. "
+        "No setup, no background, no 'in this video'.\n"
+        f"- HARD LENGTH CAP (this OVERRIDES the 'longer is better' length rule above): the ENTIRE "
+        f"script must stay UNDER about {seconds} seconds of speech — roughly "
+        f"{int(settings.shorts_target_words)} words TOTAL across all {int(settings.effective_scenes)} "
+        "scenes. A Short that runs long gets buried; cut hard and NEVER pad to reach a length.\n"
+        "- HOOK IN THE FIRST SPOKEN LINE: open on a bold claim, a striking number, or a sharp question "
+        "that stops the scroll. No greeting or throat-clearing.\n"
+        "- FAST PACING: short, punchy spoken sentences. Every sentence adds a NEW beat; if it doesn't, "
+        "delete it.\n"
+        "- CAPTION-LED: each scene's on_screen_text is a SHORT bold caption (2-5 words) that echoes the "
+        "spoken line, because most viewers watch muted.\n"
+        "- Still grounded and still witty, but ONE line that lands beats three that try; stay specific.\n"
+        "- Close with a quick, natural nudge to follow for more, in a single short line.\n"
+        "</format>"
+    )
 
 
 _ENDING_FALLBACK_CTA = "If this helped, subscribe so the next one finds you."
@@ -169,9 +206,11 @@ class ScriptGenerator:
         creator_context = _creator_context(
             self._settings.creator_bio, self._settings.creator_title_tag
         )
-        floor = int(self._settings.min_script_word_ratio * self._settings.script_target_words)
+        floor = int(self._settings.min_script_word_ratio * self._settings.effective_target_words)
+        eff_words = self._settings.effective_target_words
+        eff_scenes = self._settings.effective_scenes
         per_scene = max(
-            40, round(self._settings.script_target_words / max(self._settings.scenes_per_video, 1))
+            20 if self._settings.is_short else 40, round(eff_words / max(eff_scenes, 1))
         )
         idea_focus = (
             "THIS VIDEO'S TOPIC — the single most important instruction. The whole script must "
@@ -182,8 +221,8 @@ class ScriptGenerator:
         )
         return render_prompt(
             load_prompt("script_generator.system"),
-            target_words=self._settings.script_target_words,
-            scenes=self._settings.scenes_per_video,
+            target_words=eff_words,
+            scenes=eff_scenes,
             min_words=floor,
             words_per_scene=per_scene,
             idea_focus=idea_focus,
@@ -195,6 +234,7 @@ class ScriptGenerator:
             revision_clause=revision,
             time_context=time_context,
             creator_context=creator_context,
+            format_context=_format_context(self._settings),
             research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
         )
@@ -339,21 +379,23 @@ class ScriptGenerator:
         """Local models often under-produce. If a draft falls short of the Judge's completeness floor
         (``min_scenes`` / ``min_script_word_ratio`` × target), ask once more for the full-length
         script and keep whichever draft is longer — so the generator targets what the gate enforces."""
-        floor = int(self._settings.min_script_word_ratio * self._settings.script_target_words)
-        if len(script.scenes) >= self._settings.min_scenes and script.word_count >= floor:
+        floor = int(self._settings.min_script_word_ratio * self._settings.effective_target_words)
+        if len(script.scenes) >= self._settings.effective_min_scenes and script.word_count >= floor:
             return script
         self._log.warning(
             "script_too_short", words=script.word_count, scenes=len(script.scenes)
         )
+        eff_words = self._settings.effective_target_words
+        eff_scenes = self._settings.effective_scenes
         per_scene = max(
-            40, round(self._settings.script_target_words / max(self._settings.scenes_per_video, 1))
+            20 if self._settings.is_short else 40, round(eff_words / max(eff_scenes, 1))
         )
         boost = (
             f"Your previous draft was only {script.word_count} words in {len(script.scenes)} scene(s) — "
             f"the required minimum is {floor} words. Rewrite it MUCH longer: exactly "
-            f"{self._settings.scenes_per_video} scenes, each at least {per_scene} spoken words (4-6 full "
+            f"{eff_scenes} scenes, each at least {per_scene} spoken words (4-6 full "
             f"sentences of real narration with concrete detail and examples). Total at least {floor} "
-            f"words (aim for ~{self._settings.script_target_words}). Return ONLY the JSON."
+            f"words (aim for ~{eff_words}). Return ONLY the JSON."
         )
         try:
             resp = self._llm.complete(
@@ -417,7 +459,7 @@ class ScriptGenerator:
         the first scene so it is the FIRST thing spoken. Guaranteed in code, topic-agnostic, and
         idempotent (never doubled — even when a revision lightly REWORDED an already-introed draft).
         A no-op when disabled or the tagline is blank."""
-        if not self._settings.intro_enabled or not script.scenes:
+        if not self._settings.effective_intro_enabled or not script.scenes:
             return script
         tagline = _replace_em_dashes((self._settings.intro_tagline or "").strip())
         if not tagline:

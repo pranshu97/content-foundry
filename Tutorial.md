@@ -150,6 +150,7 @@ Global flags go **before** the command: `content-foundry --profile cheap --dry-r
 | `judge --input script.json` | Stage 3 only |
 | `voiceover --run-id <id>` | Stage 4 |
 | `visuals --run-id <id>` | Stage 5 |
+| `thumbnail --run-id <id> [--prompt "..."] [--reset] [--no-face-id] [--scale 0.7]` | Regenerate ONLY the thumbnail; the exact prompt is saved to `assets/thumbnail_prompt.txt` — edit it and re-run to control the look |
 | `render --run-id <id> [--backend ffmpeg]` | Stage 6 |
 | `publish --run-id <id> [--dry-run] [--privacy private] [--mode draft]` | Stage 7 |
 | `resume --run-id <id> [--to-stage publish]` | **Continue a run from its next stage automatically** |
@@ -162,10 +163,12 @@ Global flags go **before** the command: `content-foundry --profile cheap --dry-r
 | `notify-test` | Send a sample of each alert to verify your bot |
 | `schedule [--cron "0 9 * * MON"]` | Run on a schedule |
 
-Key `run` options: `--niche`, `--topic`, `--idea`, `--template`, `--from-stage`, `--to-stage`, `--run-id`,
-`--input`, `--force`, `--dry-run`. `--idea "resume optimization"` **focuses** the brainstormer on your
-concept — it proposes a few specific angles and (in a terminal) asks you to pick one, or choose `0` to
-type your own idea instead, before writing.
+Key `run` options: `--niche`, `--topic`, `--idea`, `--template`, `--format` (long\|short), `--from-stage`,
+`--to-stage`, `--run-id`, `--input`, `--force`, `--dry-run`. `--idea "resume optimization"` **focuses**
+the brainstormer on your concept — it proposes a few specific angles and (in a terminal) asks you to
+pick one, or choose `0` to type your own idea instead, before writing. `--format short` produces a
+**vertical 9:16 YouTube Short** (~50s, big burned captions) instead of the long video — the same as
+setting `CONTENT_FORMAT=short` in `.env`.
 
 ---
 
@@ -255,6 +258,7 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 | **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**\|**chatterbox** free voice clone), `TTS_VOICE_ID`, `TTS_VOICE_MALE`/`TTS_VOICE_FEMALE` (alternate narrator by run-id parity), `PIPER_MODEL_PATH`, `TTS_REFERENCE_CLIP`/`TTS_CLONE_DEVICE` (clone) |
 | **Visuals** | `IMAGE_PROVIDER` (openai\|stability\|**none**), `PEXELS_API_KEY`, `PIXABAY_API_KEY` (2nd free B-roll source), `SCENES_PER_VIDEO` |
 | **Render** | `RENDER_BACKEND`, `FFMPEG_PATH` (blank = auto-discover), `VIDEO_RESOLUTION`, `VIDEO_SPEED`, `AVATAR_OVERLAY_ENABLED` |
+| **Content format** | `CONTENT_FORMAT` (long\|**short** vertical Short), `SHORTS_RESOLUTION`, `SHORTS_TARGET_WORDS`, `SHORTS_SCENES`, `SHORTS_BURN_CAPTIONS`, `SHORTS_SCENE_TRANSITION`, `SHORTS_HASHTAG` |
 | **Scene polish** | `SCENE_TRANSITION` (fade/dissolve/…), `SCENE_TRANSITION_SEC`, `COLOR_WARMTH` (warm grade), `SUBSCRIBE_NUDGE_ENABLED` |
 | **Sound FX** | `SFX_ENABLED`, `SFX_DIR` (local clip library), `FREESOUND_API_KEY` (optional), `SFX_VOLUME_DB` |
 | **Publish** | `PUBLISH_MODE` (draft\|auto), `YOUTUBE_PRIVACY_STATUS`, `REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC` |

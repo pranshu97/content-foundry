@@ -62,6 +62,13 @@ whisper = ["faster-whisper>=1.0"]
 dashboard = ["streamlit>=1.37"]
 avatar = ["rembg>=2.0"]
 clone = ["chatterbox-tts>=0.1"]
+faceid = [
+    # Pinned to coexist with chatterbox-tts, which needs diffusers==0.29.0: a newer transformers or
+    # numpy>=2 breaks diffusers 0.29's Stable Diffusion import. See providers/faceid.py.
+    "diffusers==0.29.0", "transformers==4.44.2", "numpy<2.0.0", "safetensors==0.5.3",
+    # onnxruntime-gpu pinned to the CUDA 12 line (matches torch cu124); 1.23+ needs CUDA 13 libs this env lacks.
+    "accelerate>=0.28", "insightface>=0.7", "onnxruntime-gpu>=1.19,<1.23", "opencv-python-headless>=4.9",
+]
 all = [
     "elevenlabs>=1.5", "piper-tts>=1.2", "stability-sdk>=0.8", "moviepy>=1.0.3",
     "faster-whisper>=1.0", "streamlit>=1.37", "rembg>=2.0",

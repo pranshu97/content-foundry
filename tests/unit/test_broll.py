@@ -80,8 +80,9 @@ def test_clip_ok_positive_context_drops_unrelated():
     assert _clip_ok("woman at computer", "office, computer, business", vocab) is True
     # No vocabulary known (context off) -> only the denylist applies, unrelated tags pass:
     assert _clip_ok("woman at computer", "pottery, ceramics", set()) is True
-    # No tags at all -> keep (we only drop on positive evidence):
-    assert _clip_ok("woman at computer", "", vocab) is True
+    # No tags at all while a vocabulary IS known -> unverifiable bare-URL clip, dropped (this is the
+    # 'no evidence' gap that let off-topic Valentine's/greeting padding sneak past the denylist):
+    assert _clip_ok("woman at computer", "", vocab) is False
 
 
 @respx.mock

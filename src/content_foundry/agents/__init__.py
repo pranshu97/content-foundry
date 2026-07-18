@@ -11,6 +11,7 @@ from .publisher import Publisher
 from .renderer import Renderer
 from .research import Researcher
 from .script_generator import ScriptGenerator
+from .thumbnail_director import ThumbnailDirector
 from .visuals import Visuals, build_image_prompt
 from .voiceover import Voiceover
 
@@ -21,6 +22,7 @@ __all__ = [
     "Researcher",
     "BrollDirector",
     "ScriptGenerator",
+    "ThumbnailDirector",
     "Judge",
     "Voiceover",
     "Visuals",

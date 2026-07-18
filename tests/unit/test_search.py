@@ -64,6 +64,26 @@ def test_search_source_shapes_signals():
     assert sigs[1].raw["snippet"] == "Second result"  # no snippet -> falls back to the title
 
 
+def test_search_source_filters_offtopic_when_enabled():
+    provider = _FakeProvider([
+        SearchResult("ML Engineer Career Path 2026", "https://x/1", "salary and roles at FAANG"),
+        SearchResult("Blox Fruits Values List 2026", "https://x/2", "all fruit and gamepass prices"),
+        SearchResult("Fashion Trends Tokyo 2026", "https://x/3", "what people are wearing"),
+        SearchResult("Applied Scientist vs Research", "https://x/4", "machine learning interview"),
+    ])
+    on = SearchSource(
+        provider, "machine learning career at FAANG", max_results=8, filter_offtopic=True
+    ).fetch()
+    titles = [s.title for s in on]
+    assert "ML Engineer Career Path 2026" in titles           # shares "career"/"faang"
+    assert "Applied Scientist vs Research" in titles           # shares "machine"/"learning"
+    assert "Blox Fruits Values List 2026" not in titles        # zero topic overlap -> dropped
+    assert "Fashion Trends Tokyo 2026" not in titles           # zero topic overlap -> dropped
+    # Gated: with the filter OFF (default) the junk is kept, proving it's opt-in.
+    off = SearchSource(provider, "machine learning career at FAANG", max_results=8).fetch()
+    assert "Blox Fruits Values List 2026" in [s.title for s in off]
+
+
 def test_search_source_empty_query_returns_nothing():
     assert SearchSource(_FakeProvider([SearchResult("x", "u", "s")]), "   ").fetch() == []
 

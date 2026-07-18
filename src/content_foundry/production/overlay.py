@@ -51,10 +51,10 @@ def build_overlay_spec(settings) -> OverlaySpec | None:
     path = Path(raw)
     if not path.exists():
         return None
-    position = settings.avatar_position if settings.avatar_position in _POSITIONS else "bottom-right"
+    position = settings.effective_avatar_position if settings.effective_avatar_position in _POSITIONS else "bottom-right"
     return OverlaySpec(
         image_path=str(path.resolve()),
         position=position,
-        scale=float(settings.avatar_scale),
+        scale=float(settings.effective_avatar_scale),
         margin=int(settings.avatar_margin),
     )

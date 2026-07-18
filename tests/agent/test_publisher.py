@@ -112,3 +112,22 @@ def test_seo_disabled_uses_raw_metadata(monkeypatch, good_script):
     assert kwargs["title"] == good_script.title_options[0]  # untouched
     assert kwargs["tags"] == good_script.tags
     assert kwargs["description"] == good_script.description  # raw, unmodified (no disclaimer added)
+
+
+def test_top_comment_posted_when_enabled(monkeypatch, good_script):
+    # Opt-in: a best-effort channel-CTA comment is posted after upload (DryRun records it).
+    monkeypatch.setenv("PUBLISH_TOP_COMMENT", "true")
+    monkeypatch.setenv("CHANNEL_CTA_ENABLED", "true")
+    monkeypatch.setenv("YOUTUBE_CHANNEL_URL", "https://youtube.com/@x")
+    reset_settings_cache()
+    pub = DryRunPublisher()
+    Publisher(get_settings(), pub).run("R", _video(), good_script, _visuals(), run_root=Path("."))
+    comments = [kw for name, kw in pub.calls if name == "add_comment"]
+    assert comments and "https://youtube.com/@x" in comments[0]["text"]
+
+
+def test_no_top_comment_when_disabled(settings, good_script):
+    # Default off: no comment call even though DryRunPublisher supports add_comment.
+    pub = DryRunPublisher()
+    Publisher(settings, pub).run("R", _video(), good_script, _visuals(), run_root=Path("."))
+    assert not [c for c in pub.calls if c[0] == "add_comment"]

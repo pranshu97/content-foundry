@@ -157,18 +157,20 @@ class Judge:
 
         # ---- gate relief: a genuinely excellent draft earns a little slack on the *quality/quantity*
         # floors (insight & length) — NEVER on grounding, compliance, or anti-repetition. ----
-        strict_floor = int(s.min_script_word_ratio * s.script_target_words)
+        strict_floor = int(s.min_script_word_ratio * s.effective_target_words)
         relief = s.gate_relief_ratio if weighted_total >= s.gate_relief_score else 0.0
         factor = 1.0 - relief
         word_floor = int(strict_floor * factor)
-        min_scenes_eff = max(2, round(s.min_scenes * factor))
+        min_scenes_eff = max(2, round(s.effective_min_scenes * factor))
         completeness_ok = (
             len(script.scenes) >= min_scenes_eff and script.word_count >= word_floor
         )
         insight_ok = ins >= s.insight_min * factor
         wittiness_ok = wit >= s.wittiness_min * factor
         ending_ok = end5 >= s.ending_min
-        strict_complete = len(script.scenes) >= s.min_scenes and script.word_count >= strict_floor
+        strict_complete = (
+            len(script.scenes) >= s.effective_min_scenes and script.word_count >= strict_floor
+        )
         gates_relaxed = relief > 0.0 and (
             (completeness_ok and not strict_complete)
             or (insight_ok and ins < s.insight_min)
@@ -191,12 +193,15 @@ class Judge:
         length_note = None
         if not completeness_ok:
             shortfall = max(0, word_floor - script.word_count)
-            per_scene = max(40, round(s.script_target_words / max(s.scenes_per_video, 1)))
+            per_scene = max(
+                20 if s.is_short else 40,
+                round(s.effective_target_words / max(s.effective_scenes, 1)),
+            )
             length_note = (
                 f"LENGTH — HARD FAIL (this is why it did not pass): your draft is only "
                 f"{script.word_count} words in {len(script.scenes)} scene(s); the REQUIRED minimum is "
-                f"{word_floor} words (target ~{s.script_target_words}). You are ~{shortfall} words short. "
-                f"Do NOT delete anything — EXPAND: write {s.scenes_per_video} scenes, each at least "
+                f"{word_floor} words (target ~{s.effective_target_words}). You are ~{shortfall} words short. "
+                f"Do NOT delete anything — EXPAND: write {s.effective_scenes} scenes, each at least "
                 f"{per_scene} words (4-6 full sentences), adding concrete detail, examples, and the data "
                 f"to every scene. Any script under {word_floor} words is automatically rejected."
             )

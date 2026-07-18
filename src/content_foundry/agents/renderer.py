@@ -46,7 +46,7 @@ class Renderer:
             for seg in segments
         ]
         audio_real = str(run_root / voiceover.audio_path)
-        _, _, frame_h = self._settings.video_resolution.partition("x")
+        _, _, frame_h = self._settings.effective_resolution.partition("x")
         subscribe = build_subscribe_spec(
             self._settings, run_root=run_root,
             total_duration=voiceover.duration_sec, frame_height=int(frame_h or 0) or 1080,
@@ -63,7 +63,8 @@ class Renderer:
                 ):
                     audio_real = str(mixed)
         captions_real = (
-            str(run_root / visuals.captions_path) if self._settings.captions_enabled else None
+            str(run_root / visuals.captions_path)
+            if self._settings.effective_captions_enabled else None
         )
         citations_rel = "assets/citations.srt"
         # Each source citation appears the instant its statistic is spoken and clears after a brief
@@ -93,12 +94,12 @@ class Renderer:
             captions_path=captions_real,
             citations_path=citations_real,
             output_path=str(out_real),
-            resolution=self._settings.video_resolution,
+            resolution=self._settings.effective_resolution,
             fps=self._settings.video_fps,
-            burn_captions=self._settings.captions_enabled,
+            burn_captions=self._settings.effective_captions_enabled,
             overlay=overlay,
             speed=self._settings.video_speed,
-            transition=self._settings.scene_transition,
+            transition=self._settings.effective_scene_transition,
             transition_sec=self._settings.scene_transition_sec,
             color_warmth=self._settings.color_warmth,
             subscribe=subscribe,
@@ -109,10 +110,10 @@ class Renderer:
             run_id=run_id,
             video_path=_VIDEO_REL,
             duration_sec=round(voiceover.duration_sec / (self._settings.video_speed or 1.0), 3),
-            resolution=self._settings.video_resolution,
+            resolution=self._settings.effective_resolution,
             fps=self._settings.video_fps,
             backend=getattr(self._backend, "name", self._settings.render_backend),
-            has_captions=self._settings.captions_enabled,
+            has_captions=self._settings.effective_captions_enabled,
             has_avatar=overlay is not None,
             file_size_bytes=size,
             provenance=Provenance(

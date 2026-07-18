@@ -110,6 +110,7 @@ def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSP
             device=settings.tts_clone_device,
             exaggeration=settings.tts_clone_exaggeration,
             cfg_weight=settings.tts_clone_cfg,
+            silence_pad_ms=settings.tts_silence_pad_ms,
         )
     from .tts import OpenAITTS
 
@@ -221,7 +222,10 @@ def build_publisher(settings: Settings, *, dry_run: bool = False) -> Publisher:
         return DryRunPublisher()
     from .youtube import YouTubePublisher
 
-    return YouTubePublisher(settings.youtube_client_secrets_file, settings.youtube_token_file)
+    return YouTubePublisher(
+        settings.youtube_client_secrets_file, settings.youtube_token_file,
+        comment_enabled=settings.publish_top_comment,
+    )
 
 
 def build_youtube_data_client(settings: Settings) -> YouTubeDataClient:

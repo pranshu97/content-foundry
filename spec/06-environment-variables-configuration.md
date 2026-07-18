@@ -77,6 +77,7 @@ TTS_REFERENCE_CLIP=                         # path to your reference clip (requi
 TTS_CLONE_DEVICE=auto                       # auto | cuda | cpu (cuda hard-fails if the GPU isn't visible)
 TTS_CLONE_EXAGGERATION=0.5                  # 0.5 neutral; higher = more expressive
 TTS_CLONE_CFG=0.5                           # lower (~0.3) = steadier pacing
+TTS_SILENCE_PAD_MS=150                       # silence kept each side of a chunk when trimming dead air; higher = softer, less abrupt sentence transitions
 
 # ---------- Visuals ----------
 IMAGE_PROVIDER=openai                        # openai | stability | none (none = B-roll/Pillow cards only)
@@ -88,6 +89,21 @@ SCENES_PER_VIDEO=10                          # target number of distinct visuals
 THUMBNAIL_SIZE=1280x720
 THUMBNAIL_USE_AVATAR=true                     # composite your avatar face into the thumbnail (needs assets/avatar.png)
 THUMBNAIL_AVATAR_SCALE=0.5                    # avatar height as a fraction of the thumbnail (needs a transparent PNG or `pip install rembg`)
+THUMBNAIL_DIRECTOR_ENABLED=true              # LLM writes a rich per-video thumbnail image prompt (quality; hard no-text rule kills baked-in gibberish); falls back to the template
+
+# ---------- Content format: long-form video vs vertical Shorts ----------
+# ONE switch selects the whole output shape. "long" = the standard 16:9 video (nothing else changes).
+# "short" = a vertical 9:16 YouTube Short from the SAME pipeline. Per-run override: run --format short.
+CONTENT_FORMAT=long                           # long | short
+SHORTS_RESOLUTION=1080x1920                    # vertical 9:16
+SHORTS_THUMBNAIL_SIZE=1080x1920                # vertical 9:16 thumbnail (matches the frame)
+SHORTS_TARGET_WORDS=100                        # ~35-45s of narration (Shorts retain best when short)
+SHORTS_SCENES=4
+SHORTS_MAX_DURATION_SEC=50                     # target ceiling (hard max is 3 min)
+SHORTS_BURN_CAPTIONS=true                      # big captions on (Shorts are watched muted)
+SHORTS_INTRO_ENABLED=false                     # skip the fixed tagline; a Short hooks in the first second
+SHORTS_SCENE_TRANSITION=none                   # fast hard cuts read better than slow blends
+SHORTS_HASHTAG=#Shorts                         # appended to the description so YouTube classifies it
 
 # ---------- Render ----------
 RENDER_BACKEND=ffmpeg                         # ffmpeg | moviepy | avatar
@@ -121,6 +137,11 @@ YOUTUBE_PRIVACY_STATUS=private                # private | unlisted | public
 YOUTUBE_CATEGORY_ID=22                        # 22 = People & Blogs
 YOUTUBE_DEFAULT_LANGUAGE=en
 REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC=true  # hard gate: never auto-publish public without disclosure
+# Viewer pull: append a subscribe + explore CTA to EVERY description (long and Short); opt-in comment.
+CHANNEL_CTA_ENABLED=true                       # append the CTA block to every description
+YOUTUBE_CHANNEL_URL=                           # your channel/handle URL (blank => generic subscribe line)
+CHANNEL_CTA_TEXT=Subscribe for more, and explore the channel for the full deep-dive videos.
+PUBLISH_TOP_COMMENT=false                      # also post the CTA as a top comment (needs force-ssl scope; re-consent)
 
 # ---------- Proven-idea mining (optional; read-only YouTube Data API v3) ----------
 # Surfaces REAL outlier videos (views far above a channel's own median) as proof-tagged options in the

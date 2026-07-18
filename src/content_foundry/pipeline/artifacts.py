@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from dataclasses import dataclass
@@ -51,6 +52,11 @@ class RunPaths:
         """Sidecar research report from Agent 1.5 (not a pipeline stage)."""
         return self.root / "research.json"
 
+    @property
+    def meta(self) -> Path:
+        """Sidecar of run-level facts (e.g. content_format) so a re-run keeps the run's shape."""
+        return self.root / "run_meta.json"
+
 
 def run_paths(run_id: str, output_dir: str) -> RunPaths:
     root = Path(output_dir) / run_id
@@ -72,6 +78,39 @@ def next_run_id(output_dir: str) -> str:
 
 def ensure_run_dirs(paths: RunPaths) -> None:
     paths.scenes.mkdir(parents=True, exist_ok=True)
+
+
+def save_run_format(paths: RunPaths, content_format: str) -> None:
+    """Persist the run's content_format ('long'/'short') so a later re-run or thumbnail refinement
+    stays in the SAME shape regardless of the current CONTENT_FORMAT default. Best-effort."""
+    with contextlib.suppress(OSError):
+        paths.meta.write_text(
+            json.dumps({"content_format": content_format}, indent=2), encoding="utf-8"
+        )
+
+
+def load_run_format(run_id: str, output_dir: str) -> str | None:
+    """The persisted content_format for an EXISTING run ('long'/'short'), or ``None`` when unknown.
+    Falls back to the rendered video's resolution for runs made before ``run_meta.json`` existed
+    (portrait => short)."""
+    paths = run_paths(run_id, output_dir)
+    if paths.meta.exists():
+        try:
+            fmt = json.loads(paths.meta.read_text(encoding="utf-8")).get("content_format")
+            if fmt in ("long", "short"):
+                return fmt
+        except (json.JSONDecodeError, OSError):
+            pass
+    video = paths.artifact("video")  # older runs: infer from the rendered resolution
+    if video.exists():
+        try:
+            res = str(json.loads(video.read_text(encoding="utf-8")).get("resolution", ""))
+            w, _, h = res.partition("x")
+            if w.isdigit() and h.isdigit():
+                return "short" if int(h) > int(w) else "long"
+        except (json.JSONDecodeError, OSError, ValueError):
+            pass
+    return None
 
 
 def sha256_bytes(data: bytes) -> str:

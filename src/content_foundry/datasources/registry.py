@@ -50,6 +50,7 @@ def build_sources(
                 focus,
                 facets=facets,
                 max_results=settings.search_max_results,
+                filter_offtopic=settings.search_relevance_filter,
             )
         )
 

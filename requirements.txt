@@ -17,13 +17,36 @@ python-dateutil>=2.9
 python-ulid>=2.7
 # media / production
 elevenlabs>=1.5
-pydub>=0.25            # overlay sound effects onto the narration (SFX)
+pydub>=0.25            # overlay SFX onto narration + decode/concat the per-scene voiceover
 edge-tts>=6.1          # free online neural TTS (no API key)
 piper-tts>=1.2         # free fully-offline neural TTS (needs a downloaded .onnx voice)
 stability-sdk>=0.8
 Pillow>=10.4
 ffmpeg-python>=0.2
 moviepy>=1.0.3
+num2words>=0.5         # expand numbers to words for TTS ("202,000" -> "two hundred two thousand")
+
+# ---------- local ML: free voice clone (Chatterbox) + FaceID thumbnail (SD1.5 + IP-Adapter) ----------
+# GPU strongly recommended. INSTALL CUDA TORCH FIRST — a plain `pip install` pulls the CPU-only wheel,
+# and the packages below would drag it in too. Run this BEFORE `pip install -r requirements.txt`:
+#   pip uninstall -y torch torchaudio
+#   pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# (torch 2.6.0 / torchaudio 2.6.0 + CUDA 12.4 are the versions this project is verified on.)
+chatterbox-tts==0.1.7   # zero-shot voice cloning (MIT, safe to monetize)
+# FaceID thumbnail — these versions COEXIST with chatterbox's diffusers==0.29.0; do NOT bump
+# transformers/numpy or diffusers 0.29's Stable Diffusion import breaks (see providers/faceid.py):
+diffusers==0.29.0
+transformers==4.44.2
+numpy<2.0.0
+safetensors==0.5.3
+accelerate>=0.28
+insightface>=0.7
+# CUDA 12 build only (matches torch cu124 / cuDNN 9). 1.23+ moved to CUDA 13 libs this env lacks; the
+# CUDA EP reuses torch's bundled libs via providers/faceid._prime_onnx_cuda_dlls (verified on 1.22.0).
+onnxruntime-gpu>=1.19,<1.23
+opencv-python-headless>=4.9
+rembg>=2.0              # avatar background cutout for the composited-thumbnail fallback
+
 # publishing
 google-api-python-client>=2.140
 google-auth-oauthlib>=1.2

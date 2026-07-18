@@ -26,7 +26,7 @@ config_app = typer.Typer(help="Configuration utilities.")
 app.add_typer(config_app, name="config")
 console = Console()
 
-_STATE = {"dry_run": False}
+_STATE = {"dry_run": False, "format_explicit": False}
 
 _NEXT_STAGE = {
     "CREATED": "fetch",
@@ -163,9 +163,25 @@ def _make_idea_chooser(reporter: _RunReporter):
     return _choose
 
 
+def _apply_run_format(run_id: str | None) -> None:
+    """Pin CONTENT_FORMAT to an EXISTING run's own format so a re-run / thumbnail refinement stays the
+    same shape (a Short stays a Short) regardless of the .env default. An explicit --format this
+    invocation wins; a brand-new run is unaffected. Older runs (no run_meta.json) infer from the
+    rendered resolution."""
+    if not run_id or _STATE.get("format_explicit"):
+        return
+    from .pipeline.artifacts import load_run_format
+
+    fmt = load_run_format(run_id, get_settings().output_dir)
+    if fmt and fmt != get_settings().content_format:
+        os.environ["CONTENT_FORMAT"] = fmt
+        reset_settings_cache()
+
+
 def _run(**kwargs):
     from .pipeline.orchestrator import run_pipeline
 
+    _apply_run_format(kwargs.get("run_id"))
     kwargs.setdefault("dry_run", _STATE["dry_run"])
     reporter = _RunReporter(console)
     if kwargs.pop("interactive_idea", False) and sys.stdin.isatty():
@@ -204,14 +220,25 @@ def run(
     topic: str | None = typer.Option(None),
     idea: str | None = typer.Option(None, "--idea", help="Focus the brainstormer on your concept (it proposes angles you pick from)"),
     template: str | None = typer.Option(None),
+    fmt: str | None = typer.Option(None, "--format", help="long | short (a vertical YouTube Short); overrides CONTENT_FORMAT"),
     from_stage: str = typer.Option("fetch", "--from-stage"),
-    to_stage: str = typer.Option("publish", "--to-stage"),
+    to_stage: str = typer.Option("render", "--to-stage", help="Last stage to run; defaults to 'render' (a finished, UNPUBLISHED video)"),
+    publish: bool = typer.Option(False, "--publish", help="Also publish to YouTube after rendering (off by default; the run otherwise stops at a finished video — publish later with 'content-foundry publish --run-id ...')"),
     input: str | None = typer.Option(None),
     run_id: str | None = typer.Option(None, "--run-id"),
     force: bool = typer.Option(False),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
-    """Run the pipeline end-to-end (or a slice via --from-stage/--to-stage)."""
+    """Run the pipeline end-to-end (or a slice via --from-stage/--to-stage). By default it stops at a
+    finished, UNPUBLISHED video; pass --publish (or run `content-foundry publish` later) to upload."""
+    if fmt:
+        if fmt not in ("long", "short"):
+            raise typer.BadParameter("--format must be 'long' or 'short'")
+        os.environ["CONTENT_FORMAT"] = fmt
+        _STATE["format_explicit"] = True  # an explicit --format wins over the run's persisted format
+        reset_settings_cache()
+    if publish:
+        to_stage = "publish"
     _run(
         run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input,
         template_id=template, force=force, dry_run=dry_run or _STATE["dry_run"],
@@ -262,6 +289,60 @@ def voiceover(
 def visuals(run_id: str = typer.Option(..., "--run-id")) -> None:
     """Stage 5."""
     _run(run_id=run_id, from_stage="visuals", to_stage="visuals", force=True)
+
+
+@app.command()
+def thumbnail(
+    run_id: str = typer.Option(..., "--run-id"),
+    face_id: bool | None = typer.Option(
+        None, "--face-id/--no-face-id", help="Override THUMBNAIL_FACE_ID_ENABLED just for this regen"
+    ),
+    scale: float | None = typer.Option(
+        None, "--scale", help="Override FACEID_SCALE (identity strength 0-1.5; lower = more scene, less face)"
+    ),
+    prompt: str | None = typer.Option(
+        None, "--prompt", help="Use this EXACT image prompt (overrides the saved/auto prompt) and save it"
+    ),
+    reset: bool = typer.Option(
+        False, "--reset", help="Rebuild the prompt from the script's thumbnail_concept, discarding saved edits"
+    ),
+) -> None:
+    """Regenerate ONLY the thumbnail for a run — fast iteration without re-running the whole visuals
+    stage. The exact image prompt is saved to assets/thumbnail_prompt.txt: EDIT that file and re-run
+    this to control the thumbnail, pass --prompt to override it directly, or --reset to rebuild it
+    from the script's thumbnail_concept."""
+    from .agents.visuals import Visuals
+    from .models import Script
+    from .pipeline.artifacts import run_paths
+    from .providers import build_image_provider, build_llm_provider
+
+    if face_id is not None:
+        os.environ["THUMBNAIL_FACE_ID_ENABLED"] = "true" if face_id else "false"
+    if scale is not None:
+        os.environ["FACEID_SCALE"] = str(scale)
+    if face_id is not None or scale is not None:
+        reset_settings_cache()
+
+    _apply_run_format(run_id)  # a Short's thumbnail stays vertical on a refinement, without --format
+    settings = get_settings()
+    paths = run_paths(run_id, settings.output_dir)
+    script_path = paths.artifact("script")
+    if not script_path.exists():
+        raise typer.BadParameter(f"No script.json for run {run_id!r} at {script_path}")
+    script = Script.model_validate_json(script_path.read_text(encoding="utf-8"))
+
+    prompt_file = paths.root / "assets" / "thumbnail_prompt.txt"
+    if reset and prompt_file.exists():
+        prompt_file.unlink()  # discard saved edits -> render rebuilds from the concept
+    try:
+        llm = build_llm_provider(settings)
+    except Exception:
+        llm = None  # the thumbnail director is optional; without an LLM the built-in template is used
+    Visuals(settings, build_image_provider(settings), None, llm).render_thumbnail(
+        script, run_root=paths.root, prompt=prompt,
+    )
+    typer.echo(f"Thumbnail regenerated: {paths.root / 'assets' / 'thumbnail.png'}")
+    typer.echo(f"Edit this to tweak the look, then re-run: {prompt_file}")
 
 
 @app.command()

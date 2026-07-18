@@ -31,7 +31,11 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
 - STAY ON THE CHOSEN TOPIC (do not drift): this video is ONLY about the topic stated at the very top,
   inside the "{niche}" niche. Do NOT wander into a different, broader, or merely adjacent subject just
   because a fact or source mentions it in passing. If a fact is not about the chosen topic, do NOT
-  build a scene on it. Every scene must move the viewer forward on THE chosen topic, and the title
+  build a scene on it. The GROUNDING facts and RESEARCH SERVE the chosen topic, never the other way
+  around: if the strongest numbers happen to compare a DIFFERENT pair of things (an adjacent role,
+  angle, or comparison), hold the line on the chosen topic — never let a stray figure quietly rename
+  the video (a topic chosen as "X vs Y" must NOT become "X vs Z" just because the salary or count
+  numbers compare X and Z). Every scene must move the viewer forward on THE chosen topic, and the title
   options must be about THAT topic too (you MAY frame them with a bolder, curiosity-driven angle —
   see TITLE OPTIONS — but never switch to a different subject).
 - GO DEEP, EXPLAIN THE MECHANISM (this is what earns Insight — a reviewer scores it and REJECTS
@@ -115,14 +119,22 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   state, set THAT scene's "fact_ref" to the fact it came from, so the system can stamp the on-screen
   source. On-screen source citations appear ONLY for scenes that state a number, so a script with no
   figures shows no sources at all. Never invent a number; use only the facts above (you need not use
-  them all), and a video with zero figures is a fail.
+  them all). PREFER the numbers that fit the chosen topic — the RESEARCH facts are already on-topic, so
+  reach for THOSE first; if a figure is really about a different comparison or angle than the chosen
+  topic, leave it out rather than reshaping the video around it (an on-topic script with one fitting
+  figure beats an off-topic one with three). A video with zero figures is a fail.
 - SOURCES ARE ON-SCREEN ONLY (never spoken): the system automatically stamps each cited stat's
   source onto that scene's on_screen_text for you. So do NOT speak or write a source anywhere — no
   "Source: X", "according to X", "per X", "X reports", or "data from X". State the fact naturally;
   the on-screen citation is added for you and is enough.
 
 ## NARRATION HYGIENE
-- HOOK: the hook (first ~10s) must open a curiosity gap with a concrete, specific claim.
+- HOOK, DELIVER A PAYOFF IN THE FIRST 15 SECONDS (retention is make-or-break: a viewer who isn't
+  given a reason to stay within ~15s leaves, and the video dies): scene 1's opening sentence must land
+  a SPECIFIC, concrete payoff or promise immediately, a hard number, a surprising claim, or the exact
+  question the title asks. NO slow, literary, mood-setting or second-person scene-painting ("You are
+  staring at the job boards, your eyes glazed over...") — that is dead air that bleeds viewers. Open
+  ON the substance, not the runway to it.
 - OPEN COLD, NO THROAT-CLEARING: the video's signature opening line is added for you by the system, so
   scene 1 must jump STRAIGHT into the first real point. Never open with a greeting or channel intro
   ("hey guys", "welcome back", "in this video", "today we're going to", "in this one we'll") — that
@@ -141,6 +153,17 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   "companies like Amazon", "recruiters at firms such as X"). NEVER use "we", "us", "our", or "here at
   <company>" to speak for or as a named company, and never imply you work at, represent, or are
   endorsed by any of them. (Viewer-inclusive "we all know the feeling" is fine; a company "we" is not.)
+- NO INVENTED PERSONAL SPECIFICS (a real background is GOOD to use, fake stories are not): if a CREATOR
+  CREDIBILITY background is given below, you SHOULD draw on it at the GENERAL level it states ("as
+  someone who's worked in big-tech AI", "from years on the hiring side") — that authority is exactly
+  what makes this channel worth watching, so use it once or twice. What is BANNED is inventing SPECIFIC,
+  checkable details the background does NOT give: no made-up named project, product, system, employer
+  anecdote, team, metric, dollar figure, dated event, or "the time I personally did X" story (e.g.
+  never "when I rebuilt Amazon's SageMaker pipeline"). If NO background is given, do not claim any
+  specific personal career history at all. Generic, relatable asides for humor are always fine ("we've
+  all rage-refreshed the job board at 2 a.m."). A concrete, invented first-person claim is an obvious
+  fake and a hard REJECT — teach from the real background (kept general), the GROUNDING facts, and the
+  mechanism.
 
 ## PRODUCTION FIELDS (per scene)
 - B-ROLL SHOTS (ordered, one per beat): "b_roll_keywords" is an ORDERED list of 2-4 SHORT search
@@ -175,20 +198,24 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   seconds and promises the payoff. A viewer who reads the title, glances at the thumbnail, and hears
   your first line must feel ONE consistent promise — never a bait-and-switch, and the opening must
   deliver exactly what the title and thumbnail promised.
-- TITLE OPTIONS (this wins the click): give several. They do NOT have to restate the topic literally —
-  lead with the most curiosity-provoking ANGLE, hook, or surprising implication the viewer actually
-  cares about (e.g. for recommendation engines: "Your Phone Is Listening (Sort Of)" or "How Netflix
-  Reads Your Mind"), as long as the title is ACCURATE and the video truly delivers on it. Use a
-  curiosity gap, a bold-but-true claim, "you/your", a number, or a mild pattern-interrupt. NEVER
-  promise something the script doesn't pay off, and never fabricate. Keep each under ~70 characters
-  and vary the angle across options.
+- TITLE OPTIONS (this wins the click AND gets you found in SEARCH): a new/small channel lives on
+  search, so titles must match what people literally TYPE. For EACH option, lead with the ONE core
+  searchable keyword or phrase of the topic in the FIRST ~3 words (the role, skill, company, or exact
+  question someone would search), then add the curiosity angle AFTER it. Be SPECIFIC over clever:
+  concrete and unmistakable beats vague-but-witty (prefer "ML Engineer vs Applied Scientist: Which
+  FAANG Role Pays More?" over "The AI Job Nobody Understands"). You MAY use a curiosity gap, a
+  bold-but-true claim, "you/your", or a number, but only AFTER the keyword, and NEVER promise
+  something the script doesn't pay off. Keep each UNDER 60 characters (YouTube truncates longer
+  titles in search). Vary the angle across options, but at least the first two must be plainly
+  search-matched.
 - DESCRIPTION (SEO — this helps the video get recommended): 2-4 sentences. Put the MAIN keyword and
   the viewer's payoff in the FIRST sentence (YouTube weights the opening lines and shows them in
   search), then naturally work in the specific terms someone would search for this topic. Accurate,
   benefit-led prose — no keyword-stuffing and no hashtags (those are added automatically).
 - THUMBNAIL CONCEPT (this drives the click): thumbnail_concept is a vivid VISUAL scene fed to an image
   generator, NOT a caption or the title. Describe ONE bold, emotional, curiosity-provoking moment in
-  concrete nouns: a striking subject, an exaggerated facial expression or reaction, a clear symbol of
+  concrete nouns: a striking subject, an exaggerated facial expression or reaction (name the emotion
+  in ONE plain word: shocked, excited, worried, angry, amazed, curious, ...), a clear symbol of
   the payoff or the conflict, dramatic lighting, bold contrasting colors. Aim for high-CTR YouTube
   energy: one instantly-readable focal subject, a little over-the-top. Describe ONLY what the camera
   sees, with NO words or letters in the image (the thumbnail_text below is overlaid for you). Example
@@ -216,6 +243,7 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
 {revision_clause}
 {time_context}
 {creator_context}
+{format_context}
 
 <output_format>
 Return ONLY valid JSON matching this shape:

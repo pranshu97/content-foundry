@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..logging import get_logger
 from ..models import Provenance, PublishResult, Script, VideoAsset, VisualPackage, utcnow
-from ..production.seo import optimize_metadata
+from ..production.seo import channel_cta_block, optimize_metadata
 from ..safeguards.disclosure import resolve_publish_outcome
 
 
@@ -50,6 +50,25 @@ class Publisher:
             self._pub.set_thumbnail(video_id, thumb_real)
         except Exception as exc:  # a thumbnail failure must not abort the upload
             self._log.warning("thumbnail_failed", error=str(exc))
+
+        # Best-effort: file the upload into a series playlist (session watch time). Only when it's
+        # configured AND the publisher supports it (the null/fake publishers don't) — never fatal.
+        playlist_id = (s.youtube_playlist_id or "").strip()
+        if playlist_id and hasattr(self._pub, "add_to_playlist"):
+            try:
+                self._pub.add_to_playlist(video_id, playlist_id)
+            except Exception as exc:  # a playlist-add failure must not abort the upload
+                self._log.warning("playlist_add_failed", error=str(exc))
+
+        # Best-effort: post a top comment nudging viewers to subscribe/explore (a soft channel pin;
+        # opt-in via PUBLISH_TOP_COMMENT, needs the force-ssl scope). Never fatal to the upload.
+        if s.publish_top_comment and hasattr(self._pub, "add_comment"):
+            comment = (channel_cta_block(s) or s.channel_cta_text or "").strip()
+            if comment:
+                try:
+                    self._pub.add_comment(video_id, comment)
+                except Exception as exc:  # a comment failure must not abort the upload
+                    self._log.warning("comment_failed", error=str(exc))
 
         disclosure_set = bool(self._pub.try_set_disclosure(video_id))
         effective_privacy, upload_status = resolve_publish_outcome(

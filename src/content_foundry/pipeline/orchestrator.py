@@ -59,6 +59,7 @@ from .artifacts import (
     next_run_id,
     run_paths,
     save_model,
+    save_run_format,
     sha256_file,
 )
 from .package import build_package_md
@@ -157,6 +158,7 @@ class Orchestrator:
         run_id = self._ensure_run(run_id, topic_seed)
         paths = run_paths(run_id, self.s.output_dir)
         ensure_run_dirs(paths)
+        save_run_format(paths, self.s.content_format)  # so a re-run/thumbnail keeps this run's shape
         self.log.info("run_start", run_id=run_id, from_stage=from_stage, to_stage=to_stage)
         self._emit("start", run_id=run_id, from_stage=from_stage, to_stage=to_stage, niche=niche)
 
@@ -269,19 +271,19 @@ class Orchestrator:
             return None
         s = self.s
         factor = 1.0 - (s.gate_relief_ratio if report.weighted_total >= s.gate_relief_score else 0.0)
-        floor = int(s.min_script_word_ratio * s.script_target_words * factor)
-        min_scenes = max(2, round(s.min_scenes * factor))
+        floor = int(s.min_script_word_ratio * s.effective_target_words * factor)
+        min_scenes = max(2, round(s.effective_min_scenes * factor))
         bits: list[str] = []
         if len(script.scenes) < min_scenes or script.word_count < floor:
             bits.append(
                 f"too short ({script.word_count} words, need {floor}+ for target "
-                f"{s.script_target_words}, {len(script.scenes)} scenes)"
+                f"{s.effective_target_words}, {len(script.scenes)} scenes)"
             )
         if not redundancy_report(script, threshold=s.max_scene_similarity)[0]:
             bits.append("duplicate scenes")
         for d in report.scores:
             if not d.passed and d.minimum is not None:
-                bits.append(f"{d.dimension} {d.score:.1f}<{d.minimum:.0f}")
+                bits.append(f"{d.dimension} {d.score:.1f}<{d.minimum:.1f}")
         if report.template_fatigue:
             bits.append("template fatigue")
         return "; ".join(bits) or f"score {report.weighted_total:.2f} < {self.s.pass_threshold}"
@@ -316,7 +318,13 @@ class Orchestrator:
         picked = (self._idea_chooser(offered) if self._idea_chooser else offered[0]) or offered[0]
         chosen = display_to_idea.get(picked, picked)  # map a tagged line back to its clean title
         source = "brainstorm" if chosen in display_to_idea.values() else "custom"
-        self._record_idea(run_id, paths, seed=seed, generated=offered, chosen=chosen, source=source)
+        # Index of the PICKED display line (proven ideas carry a proof tag, so the clean `chosen`
+        # title is not itself in `offered` — matching the tagged line is what makes the index right).
+        chosen_index = offered.index(picked) if picked in offered else -1
+        self._record_idea(
+            run_id, paths, seed=seed, generated=offered, chosen=chosen, source=source,
+            chosen_index=chosen_index,
+        )
         self._emit("done", label="Idea", detail=chosen[:80])
         return chosen
 
@@ -353,7 +361,9 @@ class Orchestrator:
             self.log.warning("idea_mining_unavailable", error=str(exc))
             return []
 
-    def _record_idea(self, run_id, paths, *, seed, generated, chosen, source) -> None:
+    def _record_idea(
+        self, run_id, paths, *, seed, generated, chosen, source, chosen_index=-1
+    ) -> None:
         """Persist the brainstormed ideas + the exact pick to ``ideas.json`` for later inspection."""
         selection = IdeaSelection(
             run_id=run_id,
@@ -362,7 +372,7 @@ class Orchestrator:
             source=source,
             generated=list(generated),
             chosen=chosen,
-            chosen_index=(generated.index(chosen) if chosen in generated else -1),
+            chosen_index=chosen_index,
         )
         save_model(selection, paths.ideas)
 
@@ -385,7 +395,9 @@ class Orchestrator:
                 return cached
         self._emit("step", label="Researching the topic")
         try:
-            research = Researcher(self.s, self._llm_provider()).run(run_id, brief, idea=idea)
+            research = Researcher(
+                self.s, self._llm_provider(), search_provider=self._search_provider()
+            ).run(run_id, brief, idea=idea)
         except Exception as exc:  # never fatal
             self.log.warning("research_failed", run_id=run_id, error=str(exc))
             return None
@@ -394,6 +406,17 @@ class Orchestrator:
             self.credit.record(research.used_model, 3000, 400)
         self._emit("done", label="Research", detail=f"{len(research.points)} points")
         return research
+
+    def _search_provider(self):
+        """Web-search provider for the Researcher's idea-focused fetch (built per generate stage,
+        best-effort). None on failure, so research simply falls back to the brief's own URLs."""
+        try:
+            from ..datasources.search import build_search_provider
+
+            return build_search_provider(self.s)
+        except Exception as exc:
+            self.log.warning("search_provider_unavailable", error=str(exc))
+            return None
 
     def _augment_brief(self, brief: DataBrief, research: ResearchBrief | None) -> DataBrief:
         """Fold the Researcher's idea-relevant findings into the brief's CITABLE key_facts (prepended,
@@ -619,9 +642,9 @@ class Orchestrator:
             script = self._need(produced, "script", paths)
             script = self._direct_broll(script)
             vo = self._need(produced, "voiceover", paths)
-            vis = Visuals(self.s, self._image_provider(), self._broll_client()).run(
-                run_id, script, vo, run_root=run_root
-            )
+            vis = Visuals(
+                self.s, self._image_provider(), self._broll_client(), self._llm_provider()
+            ).run(run_id, script, vo, run_root=run_root)
             self._persist(run_id, "visuals", vis, paths, produced, hashes, None,
                           {"voiceover": hashes.get("voiceover", "")})
             self.repo.update_run(run_id, state=RunState.VISUALIZED.value)

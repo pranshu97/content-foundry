@@ -103,6 +103,13 @@ Things a **human** must do to get this running from scratch. The agent can write
   YOUTUBE_TOKEN_FILE=secrets/token_<channel>.json
   ```
 - [ ] Keep the **safe defaults** — `PUBLISH_MODE=draft`, `YOUTUBE_PRIVACY_STATUS=private` — so every video uploads Private for you to review before going public.
+- [ ] _(opt)_ **Pull viewers to your channel.** Set `YOUTUBE_CHANNEL_URL=https://www.youtube.com/@YourHandle` so the subscribe/explore CTA appended to every description links to your channel (`CHANNEL_CTA_ENABLED=true` by default).
+- [ ] _(opt)_ **Auto top comment.** `PUBLISH_TOP_COMMENT=true` posts the CTA as a comment after upload. It needs the broader `youtube.force-ssl` scope, so **delete your `YOUTUBE_TOKEN_FILE` (e.g. `secrets/youtube_token.json`) and re-run a publish to re-consent** with the new scope. The API can't *pin* a comment — pin it once in YouTube Studio.
+
+### _(opt)_ Vertical YouTube Shorts
+
+Flip `CONTENT_FORMAT=short` in `.env` (or add `--format short` to a `run`) to produce a vertical 9:16
+~50s Short instead of a long video — same pipeline, same commands, no extra setup.
 
 ### _(opt)_ Proven-idea mining — real outlier videos as pre-vetted ideas
 

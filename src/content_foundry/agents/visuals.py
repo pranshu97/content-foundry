@@ -14,6 +14,7 @@ from ..production.timebox import timebox_title
 
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
+_THUMB_PROMPT_REL = "assets/thumbnail_prompt.txt"  # the editable image prompt used for the thumbnail
 _MIN_SHOT_SEC = 2.0  # each B-roll beat runs at least this long, to avoid choppiness
 # More, shorter beats per scene: slicing a long scene into up to 8 clips (not a few long ones) stops
 # any single clip lingering or being slowed to fill the gap — more distinct footage, less stretching.
@@ -43,9 +44,31 @@ def build_image_prompt(
     """Deterministic per-scene image prompt (Ch. 11.5) — a pure function of its inputs (no LLM)."""
     keywords = ", ".join(b_roll_keywords)
     return (
-        f"{visual_style}; {keywords}; on-screen text '{on_screen_text or ''}'; "
-        "no logos, no real people"
+        f"{visual_style}; cinematic editorial photograph of {keywords}; dramatic directional "
+        "lighting, shallow depth of field, rich saturated color grade, sharp detail, professional "
+        f"composition with clean negative space; subtle on-screen text '{on_screen_text or ''}'; "
+        "no logos, no watermark, no real people"
     )
+
+
+def _cap_words(text: str, max_words: int) -> str:
+    """Keep at most ``max_words`` words so the thumbnail overlay stays scannable at a glance."""
+    words = (text or "").split()
+    return " ".join(words[:max_words]) if len(words) > max_words else (text or "").strip()
+
+
+_EMOTION_KEYWORDS = (
+    "shocked", "stunned", "surprised", "amazed", "excited", "thrilled", "happy", "smiling",
+    "angry", "furious", "serious", "confident", "smug", "worried", "anxious", "confused",
+    "curious", "disgusted", "crying", "laughing",
+)
+
+
+def _detect_emotion(concept: str) -> str:
+    """Pick the emotion the thumbnail concept describes so a matching avatar variant
+    (``avatar_<emotion>.png``) can be chosen. Empty when none is named (base avatar is used)."""
+    low = (concept or "").lower()
+    return next((w for w in _EMOTION_KEYWORDS if w in low), "")
 
 
 def _fallback_thumb_text(title: str) -> str:
@@ -67,19 +90,39 @@ def _thumbnail_prompt(concept: str, *, no_person: bool = False) -> str:
     concept = (concept or "a shocked person reacting to a glowing screen").strip().rstrip(".")
     if no_person:
         return (
-            f"Ultra eye-catching YouTube thumbnail BACKGROUND, 16:9, cinematic. A dynamic scene "
-            f"related to: {concept}. NO people, no faces, no person at all (a presenter is composited "
-            "in separately) — just objects, symbols, setting and dramatic lighting. Punchy saturated "
-            "contrasting colors, high contrast, glossy photo-real render, subtle vignette. Keep the "
-            "LEFT side clean and simple for a big title overlay. No text, words, letters, watermark, "
-            "logos, or real/famous people."
+            f"Professional high-CTR YouTube thumbnail BACKGROUND, 16:9, about: {concept}. NO people, "
+            "no faces, no person at all (a presenter is composited in separately). Design a BOLD, "
+            "SIMPLE backdrop rather than a busy scene: ONE striking symbolic object or setting for the "
+            "topic, a strong saturated palette with a punchy complementary accent, dramatic cinematic "
+            "lighting, soft depth-of-field bokeh, a gentle vignette, and a subtle radial glow where the "
+            "subject will sit. Keep the LEFT HALF clean, simple and slightly darker for a large title "
+            "overlay, and leave the RIGHT side open for a person. Crisp, glossy, photo-real, high "
+            "dynamic range. Absolutely no text, letters, numbers, watermark, logos, UI, or real/famous "
+            "people."
         )
     return (
-        f"Ultra eye-catching YouTube thumbnail, 16:9, cinematic. Bold central focus: {concept}. "
-        "Exaggerated emotion and energy, dramatic rim lighting, punchy saturated contrasting colors, "
-        "high contrast, crisp depth of field, glossy professional photo-real render, subtle vignette. "
-        "Keep one side as a clean simple background for a big title overlay. "
-        "No text, no words, no letters, no watermark, no logos, no real or famous people."
+        f"Professional high-CTR YouTube thumbnail, 16:9, about: {concept}. ONE bold subject as the "
+        "clear focal point with an instantly-readable facial expression and body "
+        "language, framed chest-up and pushed to one side. Dramatic rim and key lighting, punchy "
+        "saturated complementary colors, strong subject-to-background separation, shallow depth of "
+        "field, glossy photo-real render, subtle vignette and rim glow so the subject pops. Keep the "
+        "opposite side a clean, simple, slightly darker area for a large title overlay. Absolutely no "
+        "text, letters, numbers, watermark, logos, UI, or real/famous people."
+    )
+
+
+def _faceid_prompt(concept: str) -> str:
+    """Build the FaceID image prompt from the script's per-video ``thumbnail_concept`` — high-CTR
+    YouTube style, with the CONCEPT driving the scene (that is the dynamic, per-video part). Kept
+    within CLIP's ~77-token budget (the SD1.5 text encoder truncates beyond it, so the concept leads).
+    No baked-in text (the title is overlaid; the negative prompt drops stray text). To take full
+    control, edit ``assets/thumbnail_prompt.txt`` and re-run ``content-foundry thumbnail``."""
+    words = (concept or "a person reacting to a glowing screen").strip().rstrip(".").split()
+    concept = " ".join(words[:26])  # the concept leads; ~26 words leaves room under CLIP's 77 tokens
+    return (
+        f"high-CTR YouTube thumbnail, {concept}, one prominent person with an exaggerated, "
+        "instantly-readable expression, dramatic rim lighting, bold saturated colors, high contrast, "
+        "glossy photo-real"
     )
 
 
@@ -176,10 +219,11 @@ class _BrollPicker:
 
 
 class Visuals:
-    def __init__(self, settings, image_provider=None, broll_client=None):
+    def __init__(self, settings, image_provider=None, broll_client=None, llm_provider=None):
         self._settings = settings
         self._image = image_provider
         self._broll = broll_client
+        self._llm = llm_provider
         self._relevance_context = ""
         self._log = get_logger(component="visuals")
 
@@ -215,15 +259,8 @@ class Visuals:
         captions_path = run_root / _CAPTIONS_REL
         write_srt(captions_path, voiceover.word_timings)
 
-        # Thumbnail. The overlay text is its OWN punchy line (decoupled from the title); fall back to
-        # the first title option when the writer didn't supply one.
-        thumbnail_text = (script.thumbnail_text or "").strip() or _fallback_thumb_text(
-            (script.title_options or [script.thumbnail_concept or "Career Advice"])[0]
-        )
-        # Year-stamp the thumbnail too, but only when the writer flagged the topic time-sensitive.
-        if self._settings.time_box_enabled and script.time_sensitive:
-            thumbnail_text = timebox_title(thumbnail_text, self._settings.effective_content_year)
-        self._compose_thumbnail(script.thumbnail_concept, thumbnail_text, run_root / _THUMB_REL)
+        # Thumbnail (also exposed as the standalone `thumbnail` command for quick regeneration).
+        thumbnail_text = self.render_thumbnail(script, run_root=run_root)
 
         return VisualPackage(
             run_id=run_id,
@@ -236,6 +273,35 @@ class Visuals:
                 produced_by="visuals", model=None, config_hash=self._settings.config_hash
             ),
         )
+
+    def render_thumbnail(self, script: Script, *, run_root: Path, prompt: str | None = None) -> str:
+        """Compose ONLY the thumbnail and return its overlay text. Shared by the visuals stage and the
+        standalone `thumbnail` command. The IMAGE prompt actually used is saved to
+        ``assets/thumbnail_prompt.txt`` (human-editable) so you can tweak it and regenerate. Resolution
+        order for the prompt: an explicit ``prompt`` argument > a saved (edited) prompt file > the
+        auto-built prompt from the script's thumbnail_concept."""
+        # The overlay text is its OWN punchy line (decoupled from the title); fall back to the first
+        # title option when the writer didn't supply one.
+        thumbnail_text = (script.thumbnail_text or "").strip() or _fallback_thumb_text(
+            (script.title_options or [script.thumbnail_concept or "Career Advice"])[0]
+        )
+        # Hard cap the overlay to a few big words so it stays readable at thumbnail size (a wall of
+        # text is the #1 thumbnail-CTR killer), THEN optionally year-stamp when time-sensitive.
+        thumbnail_text = _cap_words(thumbnail_text, self._settings.thumbnail_max_words)
+        if self._settings.time_box_enabled and script.time_sensitive:
+            thumbnail_text = timebox_title(thumbnail_text, self._settings.effective_content_year)
+        prompt_path = run_root / _THUMB_PROMPT_REL
+        image_prompt = prompt
+        if image_prompt is None and prompt_path.exists():
+            image_prompt = prompt_path.read_text(encoding="utf-8").strip() or None
+        used = self._compose_thumbnail(
+            script.thumbnail_concept, thumbnail_text, run_root / _THUMB_REL,
+            override_prompt=image_prompt, title=(script.title_options or [""])[0],
+        )
+        if used:  # persist the exact prompt used, so it can be inspected and edited for a re-run
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            prompt_path.write_text(used, encoding="utf-8")
+        return thumbnail_text
 
     # ------------------------------------------------------------------ scene
     def _broll_candidates(self, keywords: list[str]) -> list[str]:
@@ -307,10 +373,10 @@ class Visuals:
         rel = f"assets/scenes/scene_{scene.index}.png"
         target = run_root / rel
         if self._image is not None:
-            # Scene backgrounds fill the video frame, so generate at the VIDEO resolution (not the
-            # smaller thumbnail size) — otherwise every scene image is upscaled from 720p and looks
-            # soft. The card fallback below already renders at the full video resolution.
-            data = self._image.generate(prompt, size=self._settings.video_resolution)
+            # Scene backgrounds fill the video frame, so generate at the EFFECTIVE video resolution
+            # (vertical for a Short, 16:9 for long-form) — not the smaller thumbnail size — otherwise
+            # every scene image is upscaled and looks soft. The card fallback renders at the same size.
+            data = self._image.generate(prompt, size=self._settings.effective_resolution)
             target.write_bytes(data)
             source = getattr(self._image, "name", self._settings.image_provider)
         else:
@@ -328,34 +394,97 @@ class Visuals:
         )
 
     # -------------------------------------------------------------- thumbnail
-    def _avatar_thumbnail_path(self) -> Path | None:
-        """The operator's avatar image for the thumbnail, or None when disabled/absent."""
+    def _avatar_thumbnail_path(self, emotion: str = "") -> Path | None:
+        """The operator's avatar image for the thumbnail, or None when disabled/absent. Prefers an
+        emotion-matched variant (``assets/avatar_<emotion>.png``) when one exists so the face's
+        reaction fits the video, else falls back to the single base avatar."""
         if not self._settings.thumbnail_use_avatar:
             return None
         raw = (self._settings.avatar_image_path or "").strip()
         if not raw:
             return None
-        path = Path(raw)
-        return path if path.exists() else None
+        base = Path(raw)
+        if emotion:
+            variant = base.with_name(f"{base.stem}_{emotion}{base.suffix}")
+            if variant.exists():
+                return variant
+        return base if base.exists() else None
 
-    def _compose_thumbnail(self, concept: str, text: str, target: Path) -> None:
-        size = self._settings.thumbnail_wh
-        avatar = self._avatar_thumbnail_path()
-        if avatar is not None:
-            avatar = self._prepare_avatar(avatar)  # cut the background out (transparent, cached)
-        base: bytes | None = None
-        if self._image is not None:
-            try:
-                base = self._image.generate(
-                    _thumbnail_prompt(concept, no_person=avatar is not None),
-                    size=self._settings.thumbnail_size,
+    def _compose_thumbnail(
+        self, concept: str, text: str, target: Path, *, override_prompt: str | None = None,
+        title: str = "",
+    ) -> str | None:
+        """Render the thumbnail and RETURN the image prompt actually used (so the caller can persist it
+        to an editable file), or ``None`` when only the text card was drawn. ``override_prompt`` — a
+        saved/edited prompt — is fed verbatim to the image model instead of the auto-built one, giving
+        full manual control over the thumbnail."""
+        size = self._settings.effective_thumbnail_wh
+        avatar = self._avatar_thumbnail_path(_detect_emotion(concept))
+        if avatar is not None and self._settings.thumbnail_face_id_enabled:
+            if self._settings.thumbnail_face_method == "swap":
+                # Two-stage: a rich scene WITH a person from the normal image provider (LONG prompt, no
+                # 77-token limit, so it follows the scene), then swap the operator's real face onto it.
+                prompt = override_prompt or self._scene_prompt(concept, title, no_person=False)
+                scene = self._generate_image(prompt)
+                if scene:
+                    from ..providers.faceswap import swap_face
+
+                    swapped = swap_face(self._settings, scene_png=scene, face_path=str(avatar))
+                    if swapped:
+                        _write_card(text, size, target, base_png=swapped, punchy=True)
+                        return prompt
+                self._log.warning("faceswap_thumbnail_fell_back")
+            else:
+                # "generate": SD1.5 + IP-Adapter-FaceID in one local pass (bound by CLIP's 77 tokens).
+                from ..providers.faceid import generate_face_image
+
+                prompt = override_prompt or _faceid_prompt(concept)
+                face_png = generate_face_image(
+                    self._settings, prompt=prompt, face_path=str(avatar),
+                    size=self._settings.effective_thumbnail_size,
                 )
-            except Exception as exc:  # a thumbnail image failure must never crash the run
-                self._log.warning("thumbnail_image_failed", error=str(exc))
+                if face_png:
+                    _write_card(text, size, target, base_png=face_png, punchy=True)
+                    return prompt
+                self._log.warning("faceid_thumbnail_fell_back")
+        # Fallback: generic background image + composited avatar cut-out (the default path).
+        prepared = self._prepare_avatar(avatar) if avatar is not None else None
+        prompt = override_prompt or self._scene_prompt(concept, title, no_person=prepared is not None)
+        base = self._generate_image(prompt)
         _write_card(
             text, size, target, base_png=base, punchy=True,
-            avatar_path=avatar, avatar_scale=self._settings.thumbnail_avatar_scale,
+            avatar_path=prepared, avatar_scale=self._settings.thumbnail_avatar_scale,
         )
+        return prompt if base is not None else None
+
+    def _generate_image(self, prompt: str) -> bytes | None:
+        """Generate a thumbnail-sized image from the configured provider; ``None`` if there is no
+        provider or it fails (a thumbnail image failure must never crash the run)."""
+        if self._image is None:
+            return None
+        try:
+            return self._image.generate(prompt, size=self._settings.effective_thumbnail_size)
+        except Exception as exc:
+            self._log.warning("thumbnail_image_failed", error=str(exc))
+            return None
+
+    def _scene_prompt(self, concept: str, title: str, *, no_person: bool) -> str:
+        """The thumbnail SCENE image prompt. When the thumbnail director is enabled and an LLM is
+        available, an LLM writes a rich, per-video creative prompt (with a hard no-text rule);
+        otherwise the built-in template is used. An explicit/saved prompt bypasses this upstream."""
+        if self._llm is not None and self._settings.thumbnail_director_enabled:
+            try:
+                from .thumbnail_director import ThumbnailDirector
+
+                directed = ThumbnailDirector(self._settings, self._llm).compose(
+                    concept, title=title, niche=self._settings.target_niche, no_person=no_person
+                )
+            except Exception as exc:  # a thumbnail-prompt failure must never crash the run
+                self._log.warning("thumbnail_director_skipped", error=str(exc))
+                directed = None
+            if directed:
+                return directed
+        return _thumbnail_prompt(concept, no_person=no_person)
 
     def _prepare_avatar(self, path: Path) -> Path:
         """Return a TRANSPARENT-background avatar for the thumbnail. If the source already has real
@@ -388,25 +517,28 @@ class Visuals:
 
 
 # --------------------------------------------------------------------- Pillow
-def _paste_avatar(img, avatar_path: Path, size_wh: tuple[int, int], scale: float = 0.5) -> None:
-    """Composite the operator's avatar (their face) SMALL in the bottom-right, leaving the rest clear
-    for the title. Uses the image's alpha when present (a transparent PNG cuts out cleanly); a broken
-    file is skipped so a thumbnail never fails on it. ``scale`` = avatar height as a fraction of the
-    frame (kept modest so the face never dominates)."""
+def _paste_avatar(img, avatar_path: Path, size_wh: tuple[int, int], scale: float = 0.9) -> float:
+    """Composite the operator's face as a LARGE reaction figure flush to the RIGHT edge and bottom-
+    anchored — the high-CTR "face on one side, text on the other" thumbnail layout (not a tiny corner
+    badge). Uses the image's alpha when present (a transparent PNG cuts out cleanly); a broken file is
+    skipped so a thumbnail never fails on it. ``scale`` = the face height as a fraction of the frame.
+    Returns the fraction of the WIDTH the face occupies so the title can reserve the opposite side
+    (0.0 when the image can't be loaded)."""
     from PIL import Image
 
     width, height = size_wh
     try:
         av = Image.open(avatar_path).convert("RGBA")
     except Exception:
-        return
-    target_h = int(height * min(max(scale, 0.15), 1.0))
+        return 0.0
+    target_h = int(height * min(max(scale, 0.3), 1.0))
     target_w = int(av.width * target_h / max(av.height, 1))
-    max_w = int(width * 0.42)  # never let the face eat more than ~40% of the width
+    max_w = int(width * 0.55)  # the face may own up to ~55% of the width, never the whole frame
     if target_w > max_w:
         target_w, target_h = max_w, int(av.height * max_w / max(av.width, 1))
     av = av.resize((max(1, target_w), max(1, target_h)))
     img.paste(av, (width - target_w, height - target_h), av)  # flush bottom-right
+    return target_w / width
 
 
 def _write_card(
@@ -428,11 +560,12 @@ def _write_card(
     else:
         img = _gradient_bg(size_wh)
 
+    occupied = 0.0
     if avatar_path is not None:
-        _paste_avatar(img, avatar_path, size_wh, avatar_scale)
+        occupied = _paste_avatar(img, avatar_path, size_wh, avatar_scale)
 
     if punchy:
-        _draw_punchy_title(img, text or "", size_wh)
+        _draw_punchy_title(img, text or "", size_wh, reserve_right=occupied)
         img.save(target, format="PNG")
         return
 
@@ -463,16 +596,21 @@ def _write_card(
 _THUMB_ACCENT = (253, 224, 71)  # bright yellow — the number / power-word highlight
 
 
-def _draw_punchy_title(img, text: str, size_wh: tuple[int, int]) -> None:
+def _draw_punchy_title(
+    img, text: str, size_wh: tuple[int, int], *, reserve_right: float = 0.0
+) -> None:
     """High-CTR thumbnail text: big bold UPPERCASE, bottom-anchored over a dark scrim, a drop shadow
-    + heavy outline, and the numbers (or the single strongest word) in a punchy accent color."""
+    + heavy outline, and the numbers (or the single strongest word) in a punchy accent color.
+    ``reserve_right`` keeps the words clear of a face/figure occupying that fraction of the right."""
     from PIL import ImageDraw
 
     width, height = size_wh
     draw = ImageDraw.Draw(img, "RGBA")
     title = " ".join((text or "").upper().split()) or "WATCH THIS"
     margin = int(width * 0.06)
-    box_w = width - 2 * margin
+    # Reserve the right side (where the face sits) so the words never overlap it.
+    text_w = int(width * (1.0 - min(max(reserve_right, 0.0), 0.7)))
+    box_w = max(int(width * 0.25), text_w - 2 * margin)
 
     # Auto-fit: shrink the bold face until the title fits in <= 3 lines within the box and ~60% height.
     size = int(height * 0.11)

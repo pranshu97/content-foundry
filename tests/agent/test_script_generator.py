@@ -16,6 +16,38 @@ def test_generate_good_script(settings, data_brief, fakes):
     assert script.synthetic_disclosure is True
 
 
+def test_format_context_empty_for_long_populated_for_short(monkeypatch):
+    from content_foundry.agents.script_generator import _format_context
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    reset_settings_cache()
+    assert _format_context(get_settings()) == ""  # long-form => generic prompt, no override block
+    monkeypatch.setenv("CONTENT_FORMAT", "short")
+    reset_settings_cache()
+    ctx = _format_context(get_settings())
+    assert "VERTICAL YOUTUBE SHORT" in ctx and "HOOK IN THE FIRST" in ctx
+    assert "HARD LENGTH CAP" in ctx  # Shorts get an explicit upper bound so they stop running long
+    assert "judge" not in ctx.lower()  # FakeLLM routes on 'judge'; it must never be in this prompt
+
+
+def test_short_format_injects_directive_and_scene_count(monkeypatch, data_brief):
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("CONTENT_FORMAT", "short")
+    monkeypatch.setenv("SHORTS_SCENES", "5")
+    reset_settings_cache()
+
+    class _NoLLM:
+        def complete(self, *a, **k):
+            raise AssertionError("building the prompt must not call the LLM")
+
+    system = ScriptGenerator(get_settings(), _NoLLM())._build_prompt(
+        data_brief, get_template("contrarian"), "", None
+    )
+    assert "VERTICAL YOUTUBE SHORT" in system
+    assert "5 full scenes" in system  # LENGTH rule uses the effective (Shorts) scene count
+
+
 def test_revision_embeds_previous_draft_for_surgical_edit(settings, data_brief, fakes):
     # A revision must hand the model its OWN previous draft to EDIT — not regenerate from scratch,
     # which is what made the loop lose a good ending/wit between attempts.

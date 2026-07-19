@@ -8,6 +8,7 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, VideoAsset, VisualPackage, VoiceoverAsset
 from ..production.captions import citation_label, write_scene_srt
+from ..production.like_nudge import build_like_spec
 from ..production.overlay import build_overlay_spec
 from ..production.sound_design import mix_sfx
 from ..production.subscribe import build_subscribe_spec
@@ -48,6 +49,10 @@ class Renderer:
         audio_real = str(run_root / voiceover.audio_path)
         _, _, frame_h = self._settings.effective_resolution.partition("x")
         subscribe = build_subscribe_spec(
+            self._settings, run_root=run_root,
+            total_duration=voiceover.duration_sec, frame_height=int(frame_h or 0) or 1080,
+        )
+        like = build_like_spec(
             self._settings, run_root=run_root,
             total_duration=voiceover.duration_sec, frame_height=int(frame_h or 0) or 1080,
         )
@@ -103,6 +108,7 @@ class Renderer:
             transition_sec=self._settings.scene_transition_sec,
             color_warmth=self._settings.color_warmth,
             subscribe=subscribe,
+            like=like,
         )
 
         size = Path(path).stat().st_size if Path(path).exists() else 0

@@ -102,7 +102,7 @@ Things a **human** must do to get this running from scratch. The agent can write
   ```ini
   YOUTUBE_TOKEN_FILE=secrets/token_<channel>.json
   ```
-- [ ] Keep the **safe defaults** — `PUBLISH_MODE=draft`, `YOUTUBE_PRIVACY_STATUS=private` — so every video uploads Private for you to review before going public.
+- [ ] Keep the **safe defaults** — `PUBLISH_MODE=draft`, and `YOUTUBE_PRIVACY_STATUS=unlisted` (or `private`) — so every video uploads as unlisted (link-only, not surfaced publicly) for you to review before going public. The disclosure gate still hard-blocks *public* until you set "Altered or synthetic content" in Studio.
 - [ ] _(opt)_ **Pull viewers to your channel.** Set `YOUTUBE_CHANNEL_URL=https://www.youtube.com/@YourHandle` so the subscribe/explore CTA appended to every description links to your channel (`CHANNEL_CTA_ENABLED=true` by default).
 - [ ] _(opt)_ **Auto top comment.** `PUBLISH_TOP_COMMENT=true` posts the CTA as a comment after upload. It needs the broader `youtube.force-ssl` scope, so **delete your `YOUTUBE_TOKEN_FILE` (e.g. `secrets/youtube_token.json`) and re-run a publish to re-consent** with the new scope. The API can't *pin* a comment — pin it once in YouTube Studio.
 
@@ -163,3 +163,34 @@ Uses a **read-only** YouTube Data API v3 **key** (separate from the OAuth publis
   ```powershell
   streamlit run dashboard/app.py
   ```
+
+## 13. Affiliate links _(opt, monetization)_
+
+Off by default. When on, topic-relevant resource links + a disclosure are appended to every
+description (and the top comment). You paste ONLY your referral link/tag per platform — the pipeline
+picks which to show per video (no per-video product curation). Blank platforms are skipped.
+
+- [ ] **Amazon Associates** (books/gear): join at `affiliate-program.amazon.com` → copy your tracking
+  tag (looks like `yourname-20`) → `AMAZON_ASSOC_TAG=yourname-20`. Note: Amazon needs **3 qualifying
+  sales within 180 days** to keep the account (and to unlock the Product Advertising API later); until
+  then the pipeline finds products via web search and appends your tag.
+- [ ] **AlgoExpert** (`algoexpert.io`): apply to their affiliate / student-ambassador program → paste
+  your referral link → `AFFILIATE_ALGOEXPERT_URL=`.
+- [ ] **Exponent** (`tryexponent.com`): join their affiliate/partner program (their Partners page, often
+  via Impact) → `AFFILIATE_EXPONENT_URL=`.
+- [ ] **LeetCode**: no public affiliate program at time of writing — if you have a referral/creator
+  link set `AFFILIATE_LEETCODE_URL=`, otherwise leave blank (it's skipped).
+- [ ] **Coursera** (`coursera.org`): join via the **Impact** network → generate your tracking/deep link
+  → `AFFILIATE_COURSERA_URL=`.
+- [ ] **Udemy**: join Udemy Affiliate (via Impact / other networks) → `AFFILIATE_UDEMY_URL=`.
+- [ ] **Educative** (`educative.io`): join their affiliate program → `AFFILIATE_EDUCATIVE_URL=`.
+- [ ] Turn it on: `AFFILIATE_ENABLED=true` (tune `AFFILIATE_MAX_LINKS`, `AFFILIATE_IN_COMMENT`).
+- [ ] **Comment + pin:** set `PUBLISH_TOP_COMMENT=true` to post the resources as a comment (needs the
+  `youtube.force-ssl` scope — delete your `YOUTUBE_TOKEN_FILE` once to re-consent). The Data API
+  **cannot pin** a comment; pin it with one click in Studio (Comments → ⋮ → Pin).
+- [ ] **Disclosure:** the description/comment already include an affiliate-disclosure line (kept for
+  FTC + Amazon's terms). For any *paid sponsorship* (not plain affiliate links) also tick **"Includes
+  paid promotion"** in Studio.
+
+_The script may also SAY "link in the description" for a resource that fits the video (higher CTR), but
+it will never claim to have personally used a product._

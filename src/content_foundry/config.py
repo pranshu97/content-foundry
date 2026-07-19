@@ -311,6 +311,19 @@ class Settings(BaseSettings):
     # any file in sfx_dir ("bell" -> bell.mp3), or disable it to show the badge silently.
     subscribe_bell_enabled: bool = True
     subscribe_bell_sound: str = "bell"
+    # A small, softly GLOWING "Like" badge (blue thumbs-up) that fades in once early in the video —
+    # a gentle nudge to hit like. Independent of the Subscribe badge (shown at a different moment).
+    like_nudge_enabled: bool = False
+    like_nudge_sec: float = Field(4.0, ge=1.0, le=12.0)
+    like_nudge_position: Literal[
+        "top-left", "top-right", "bottom-left", "bottom-right", "top-center", "bottom-center"
+    ] = "bottom-center"
+    # Where in the runtime the badge appears, as a fraction (0.25 = a quarter in) — kept clear of the
+    # midpoint Subscribe badge.
+    like_nudge_at: float = Field(0.25, ge=0.05, le=0.9)
+    # Bake a neon glow halo behind the badge and let it gently "breathe" (a size pulse) while visible.
+    like_nudge_glow: bool = True
+    like_nudge_pulse: float = Field(0.06, ge=0.0, le=0.4)  # size-pulse amplitude (0 = steady)
 
     # A fixed, channel-signature opening line the narrator always says first. Prepended to the first
     # scene in code so every video opens the same way on ANY topic — set it to your own catchphrase,
@@ -351,10 +364,20 @@ class Settings(BaseSettings):
     youtube_privacy_status: Literal["private", "unlisted", "public"] = "private"
     youtube_category_id: str = "22"
     youtube_default_language: str = "en"
+    # Buffer (seconds) to wait AFTER the upload finishes BEFORE setting the custom thumbnail. A
+    # just-uploaded video is still processing and YouTube rejects thumbnails.set for a while, so this
+    # head start (plus an automatic retry-with-backoff) makes the thumbnail reliably stick. Raise it
+    # if your videos take longer to process; 0 = attempt immediately and rely on the retry only.
+    publish_thumbnail_delay_sec: float = Field(15.0, ge=0, le=300)
     # Optional: auto-add each upload to this playlist (a niche SERIES boosts session watch time, a top
     # ranking signal). Create it once in YouTube Studio and paste its id (starts "PL..."). Blank => skip.
     youtube_playlist_id: str = ""
     require_manual_disclosure_before_public: bool = True
+    # For every published video, write end_screen.json listing the N most topically-related PRIOR
+    # videos (name + link) so you can set the 1+1 end screen manually — the Data API can't set end
+    # screens. The candidate pool is your local run history (so unlisted uploads count too).
+    end_screen_enabled: bool = True
+    end_screen_count: int = Field(2, ge=1, le=4)
     # Pull viewers deeper into the channel. When enabled, a short CTA block (subscribe + a link to
     # explore the rest of the channel) is appended to EVERY description (long and Short). Set
     # YOUTUBE_CHANNEL_URL to your channel/handle URL; blank => a generic subscribe line.
@@ -365,6 +388,28 @@ class Settings(BaseSettings):
     # the youtube.force-ssl scope, so turning this ON requires deleting the OAuth token to re-consent
     # (see Human_Tasks). The API cannot PIN a comment — pin it manually in Studio. Default off.
     publish_top_comment: bool = False
+    # ---------- Affiliate links (optional monetization) ----------
+    # OFF by default. When on, topic-relevant resource links + a required disclosure are appended to
+    # every description (and, when PUBLISH_TOP_COMMENT is on, the comment). The platform catalog (what
+    # each is good for + its topics) is built in; you paste ONLY your referral URL / tag per platform
+    # below (blank => that platform is skipped) — no per-video product curation. See Human_Tasks for
+    # how to get each program's link. Amazon products are found via the real search provider (a genuine
+    # product URL + your associate tag), never invented.
+    affiliate_enabled: bool = False
+    amazon_assoc_tag: str = ""  # Amazon Associates tag, e.g. "yourtag-20" (appended to a real product URL)
+    affiliate_algoexpert_url: str = ""   # your AlgoExpert referral link
+    affiliate_exponent_url: str = ""     # your Exponent referral link
+    affiliate_leetcode_url: str = ""     # your LeetCode referral link (if available)
+    affiliate_coursera_url: str = ""     # your Coursera affiliate/deep link (usually via Impact)
+    affiliate_udemy_url: str = ""        # your Udemy affiliate/deep link
+    affiliate_educative_url: str = ""    # your Educative referral link
+    affiliate_max_links: int = Field(4, ge=1, le=10)
+    affiliate_in_comment: bool = True    # also include the resources block in the top comment
+    affiliate_header: str = "\U0001f4da Resources & tools (some are affiliate links):"
+    affiliate_disclosure: str = (
+        "As an affiliate I may earn a small commission from qualifying purchases through the links "
+        "above, at no extra cost to you. Thanks for supporting the channel!"
+    )
 
     # ---------- Proven-idea mining (optional; read-only YouTube Data API v3, no scraping) ----------
     # Surfaces REAL outlier videos (views far above a channel's median) as pre-vetted idea options.

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from ..errors import RenderError
 
 if TYPE_CHECKING:
+    from ..production.like_nudge import LikeSpec
     from ..production.overlay import OverlaySpec
     from ..production.subscribe import SubscribeSpec
     from ..production.timeline import RenderSegment
@@ -190,6 +191,7 @@ class RenderBackend(Protocol):
         transition_sec: float = 0.5,
         color_warmth: float = 0.0,
         subscribe: SubscribeSpec | None = None,
+        like: LikeSpec | None = None,
     ) -> str:
         """Assemble the final mp4 and return its path."""
         ...
@@ -221,6 +223,7 @@ class FfmpegBackend:
         transition_sec: float = 0.5,
         color_warmth: float = 0.0,
         subscribe: SubscribeSpec | None = None,
+        like: LikeSpec | None = None,
     ) -> str:
         exe = resolve_ffmpeg(self._ffmpeg)
         if exe is None:
@@ -322,6 +325,28 @@ class FfmpegBackend:
             video = ffmpeg.overlay(
                 video, badge, x=bx, y=by,
                 enable=f"between(t,{subscribe.start},{subscribe.end})",
+            )
+        if like is not None:  # pragma: no cover - requires ffmpeg on PATH
+            # A softly glowing "Like" badge that fades in once early on, optionally "breathing" (a
+            # gentle size pulse) so it reads as glowing; anchored via overlay_w/h so it stays put.
+            like_badge = ffmpeg.input(
+                like.image_path, loop=1, t=like.end + 1.0, framerate=fps
+            ).filter("format", "rgba")
+            if like.pulse and like.pulse > 1e-3:
+                grow = f"1+{min(max(like.pulse, 0.0), 0.4):.3f}*sin(2*PI*t)"
+                like_badge = like_badge.filter(
+                    "scale", w=f"iw*({grow})", h=f"ih*({grow})", eval="frame"
+                )
+            like_badge = like_badge.filter(
+                "fade", type="in", start_time=like.start, duration=like.fade, alpha=1
+            ).filter(
+                "fade", type="out",
+                start_time=max(like.start, like.end - like.fade), duration=like.fade, alpha=1,
+            )
+            lx, ly = like.ffmpeg_xy()
+            video = ffmpeg.overlay(
+                video, like_badge, x=lx, y=ly,
+                enable=f"between(t,{like.start},{like.end})",
             )
         audio = ffmpeg.input(audio_path)
         if speed and abs(speed - 1.0) > 1e-3:  # pragma: no cover - requires ffmpeg on PATH

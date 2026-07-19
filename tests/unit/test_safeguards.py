@@ -66,6 +66,10 @@ def test_disclosure_detection_and_injection():
         ("draft", "private", True, True, ("private", "uploaded")),
         ("draft", "unlisted", True, True, ("unlisted", "uploaded")),
         ("draft", "private", False, True, ("private", "pending_manual_disclosure")),
+        # Undisclosed UNLISTED is honored — the gate blocks only public, and unlisted is link-only
+        # (never surfaced), so it needs no synthetic-content confirmation to upload.
+        ("draft", "unlisted", False, True, ("unlisted", "pending_manual_disclosure")),
+        ("auto", "unlisted", False, True, ("unlisted", "pending_manual_disclosure")),
     ],
 )
 def test_resolve_publish_outcome(publish_mode, requested, disclosure, require_gate, expected):

@@ -8,6 +8,7 @@ import re
 from ..errors import LLMError, SchemaValidationError
 from ..logging import get_logger
 from ..models import DataBrief, Provenance, ResearchBrief, SceneCue, Script
+from ..production.affiliate import affiliate_context
 from ..production.timebox import build_time_context
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
@@ -235,6 +236,7 @@ class ScriptGenerator:
             time_context=time_context,
             creator_context=creator_context,
             format_context=_format_context(self._settings),
+            affiliate_context=affiliate_context(self._settings, niche=brief.niche, topic=idea),
             research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
         )

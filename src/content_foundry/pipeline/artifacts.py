@@ -57,6 +57,11 @@ class RunPaths:
         """Sidecar of run-level facts (e.g. content_format) so a re-run keeps the run's shape."""
         return self.root / "run_meta.json"
 
+    @property
+    def end_screen(self) -> Path:
+        """Sidecar: the two topically-related prior videos (name + link) for the manual end screen."""
+        return self.root / "end_screen.json"
+
 
 def run_paths(run_id: str, output_dir: str) -> RunPaths:
     root = Path(output_dir) / run_id

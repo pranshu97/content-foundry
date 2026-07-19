@@ -33,7 +33,9 @@ def resolve_publish_outcome(
     """The non-negotiable disclosure gate (Ch. 13.4).
 
     Returns ``(effective_privacy_status, upload_status)``. A video can **never** become
-    ``public`` while ``disclosure_set`` is False and the manual-disclosure gate is on.
+    ``public`` while ``disclosure_set`` is False and the manual-disclosure gate is on. ``unlisted``
+    and ``private`` are BOTH honored even before disclosure is confirmed — neither is surfaced in
+    search, feeds, or recommendations, so only ``public`` is gated.
     """
     if disclosure_set:
         if publish_mode == "auto":
@@ -41,9 +43,10 @@ def resolve_publish_outcome(
         privacy = requested_privacy if requested_privacy in ("private", "unlisted") else "private"
         return privacy, "uploaded"
 
-    # Disclosure unconfirmed.
-    wants_public = publish_mode == "auto" and requested_privacy == "public"
-    if require_manual_disclosure_before_public or wants_public:
+    # Disclosure unconfirmed: the ONLY hard rule is the video must not go PUBLIC. private/unlisted are
+    # both non-public (link/owner-only), so honor whichever the operator requested.
+    requested_public = requested_privacy == "public"
+    if requested_public and (require_manual_disclosure_before_public or publish_mode == "auto"):
         return "private", "pending_manual_disclosure"
     privacy = requested_privacy if requested_privacy in ("private", "unlisted") else "private"
     return privacy, "pending_manual_disclosure"

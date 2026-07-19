@@ -90,11 +90,13 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   stays exact). Dry, corporate, "LinkedIn-influencer" narration is an automatic REJECT.
 - STICK THE LANDING (#1 PRIORITY — a reviewer scores the ending and REJECTS an abrupt or flat close):
   the FINAL scene must close like a great stand-up closer. In its narration: (1) pay off the core idea
-  with your single wittiest, most memorable line, (2) give ONE natural, non-desperate nudge to like
-  and subscribe tied to the value they just got (e.g. "if this saved you one awkward salary chat,
-  subscribe so the next one finds you"), and (3) sign off warmly with a "see you in the next one"
-  style send-off. It MUST contain BOTH a subscribe/follow nudge AND a sign-off — an ending missing
-  either is REJECTED. Keep it to a few punchy spoken sentences INSIDE the last scene's narration.
+  with your single wittiest, most memorable line, (2) give ONE natural, non-desperate nudge that
+  EXPLICITLY asks them to drop a like and subscribe, tied to the value they just got (e.g. "if this
+  saved you one awkward salary chat, drop a like and subscribe so the next one finds you") — name the
+  LIKE out loud, keep it light and earned, never begging, and (3) sign off warmly with a "see you in
+  the next one" style send-off. It MUST contain BOTH a like + subscribe nudge AND a sign-off — an
+  ending missing either is REJECTED. Keep it to a few punchy spoken sentences INSIDE the last scene's
+  narration.
 
 ## LENGTH & STRUCTURE
 - LENGTH (STRICT — an automated reviewer REJECTS anything shorter): write EXACTLY {scenes} full scenes.
@@ -244,6 +246,7 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
 {time_context}
 {creator_context}
 {format_context}
+{affiliate_context}
 
 <output_format>
 Return ONLY valid JSON matching this shape:

@@ -1,18 +1,31 @@
-
 Interviews
-    How to Pass the Amazon Applied Scientist Interview
-    The ML System Design Interview: A Step-by-Step Blueprint
-    Leetcode vs ML: What FAANG ML Interviews Really Ask
+    [LONG]  How to Pass the Amazon Applied Scientist Interview
+    [SHORT] Leetcode vs ML: What FAANG ML Interviews Really Ask
+    [LONG]  The ML System Design Interview: A Step-by-Step Blueprint
+    [SHORT] 3 ML Interview Questions I Bet You Can't Answer
+    [SHORT] "Tell Me About a Time..." The Behavioral Answer That Lands Offers
 
 
 Getting hired
-    How to Get an ML Engineer Job at FAANG With No PhD
-    Machine Learning Resume Mistakes That Get You Auto-Rejected
-    How FAANG Screens ML Resumes (What the ATS + Recruiter See)
-    Why Your ML Side Projects Aren't Getting You Interviews
-    The ML Portfolio Projects That Actually Get You Hired (Not Kaggle)
+    [LONG]  How to Get an ML Engineer Job at FAANG With No PhD
+    [SHORT] Machine Learning Resume Mistakes That Get You Auto-Rejected
+    [LONG]  How FAANG Screens ML Resumes (What the ATS + Recruiter See)
+    [SHORT] Why Your ML Side Projects Aren't Getting You Interviews
+    [LONG]  The ML Portfolio Projects That Actually Get You Hired (Not Kaggle)
+    [LONG]  The 30-Day Plan to Land Your First ML Interview
+    [SHORT] The Cold Email That Got Me a FAANG Referral
+    [SHORT] MLE vs Applied Scientist vs Research Engineer: Which Pays More?
 
 
 Skills & strategy
-    From Software Engineer to ML Engineer: The Fastest Path
-    What "Cracked" FAANG Engineers Do Differently (Habits + Systems)
+    [LONG]  What "Cracked" FAANG Engineers Do Differently (Habits + Systems)
+    [LONG]  How I'd Learn ML in 2026 If I Started Over
+    [LONG]  Build an ML Portfolio Project in a Weekend (Full Walkthrough)
+    [SHORT] The One Math Topic That Unlocks ML Interviews
+    [SHORT] Read One Paper a Week: The System That Made Me "Cracked"
+
+
+Offers & negotiation
+    [LONG]  How to Negotiate a FAANG ML Offer (With Real Numbers)
+    [SHORT] Don't Say The Number First: The ML Salary Negotiation Rule
+    [SHORT] Competing Offers

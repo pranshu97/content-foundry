@@ -44,6 +44,12 @@ existing fields untouched; Short overrides only the handful of values that diffe
 so a short Short is never rejected by the completeness floor. Extra Short-only knobs:
 `shorts_max_duration_sec` (guard) and `shorts_hashtag` (`#Shorts`).
 
+**Format is persisted per run.** The chosen `content_format` is written to `run_meta.json` when the run
+is created, and any later re-run, `visuals`, or `thumbnail` on an existing run id pins `CONTENT_FORMAT`
+back to it (falling back to the rendered `video.json` resolution for runs made before the sidecar
+existed) — so refining a Short stays a Short without repeating `--format short`. A brand-new run uses
+`--format`/the `.env` default; an explicit `--format` on a re-run still wins.
+
 This keeps the format logic in one place (config), makes every downstream change a one-line swap
 (`video_resolution` → `effective_resolution`, etc.), and is trivially unit-testable.
 

@@ -663,7 +663,7 @@ class Orchestrator:
             video = self._need(produced, "video", paths)
             script = self._need(produced, "script", paths)
             vis = self._need(produced, "visuals", paths)
-            pub = Publisher(self.s, self._publisher_obj()).run(
+            pub = Publisher(self.s, self._publisher_obj(), self._search_provider()).run(
                 run_id, video, script, vis, run_root=run_root
             )
             self._persist(run_id, "publish", pub, paths, produced, hashes, None,
@@ -676,9 +676,30 @@ class Orchestrator:
                 published_at=pub.published_at.isoformat() if pub.published_at else None,
             )
             self.repo.update_run(run_id, state=RunState.PUBLISHED.value)
+            self._write_end_screen(run_id, script, pub, paths)
             self._publish_notifications(run_id, pub)
 
         self._emit("done", label=label)
+
+    def _write_end_screen(self, run_id: str, script, pub: PublishResult, paths) -> None:
+        """Best-effort sidecar: record the 2 most related prior videos (name + link) for the manual
+        end screen. The Data API can't set end screens, so we hand the operator the picks."""
+        if not self.s.end_screen_enabled:
+            return
+        try:
+            from ..production.end_screen import build_end_screen, write_end_screen
+
+            payload = build_end_screen(
+                paths.root.parent, run_id=run_id, title=pub.chosen_title,
+                tags=list(getattr(script, "tags", []) or []), niche=self.s.target_niche,
+                count=self.s.end_screen_count,
+            )
+            write_end_screen(paths.end_screen, payload)
+            self.log.info(
+                "end_screen_written", run_id=run_id, picks=len(payload["recommendations"])
+            )
+        except Exception as exc:  # never break a publish over a sidecar
+            self.log.warning("end_screen_failed", run_id=run_id, error=str(exc))
 
     def _publish_notifications(self, run_id, pub: PublishResult) -> None:
         if pub.upload_status in ("uploaded", "pending_manual_disclosure"):

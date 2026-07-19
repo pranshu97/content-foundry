@@ -64,6 +64,8 @@ _BASE_ENV = {
     # Off so the thumbnail avatar composite (and its optional rembg background-removal) never runs in
     # the hermetic suite — rembg would download a model + do slow inference on the operator's avatar.
     "THUMBNAIL_USE_AVATAR": "false",
+    # 0 so the publisher's post-upload thumbnail buffer never sleeps in the suite.
+    "PUBLISH_THUMBNAIL_DELAY_SEC": "0",
     "LOG_LEVEL": "ERROR",
     "LOG_FORMAT": "console",
 }
@@ -304,10 +306,12 @@ class FakeRenderBackend:
         self.last_transition_sec = 0.5
         self.last_warmth = 0.0
         self.last_subscribe = None
+        self.last_like = None
 
     def render(self, *, segments, audio_path, captions_path, output_path, resolution, fps,
                burn_captions=True, overlay=None, citations_path=None, speed=1.0,
-               transition="none", transition_sec=0.5, color_warmth=0.0, subscribe=None) -> str:
+               transition="none", transition_sec=0.5, color_warmth=0.0, subscribe=None,
+               like=None) -> str:
         self.calls += 1
         self.last_overlay = overlay
         self.last_citations_path = citations_path
@@ -317,6 +321,7 @@ class FakeRenderBackend:
         self.last_transition_sec = transition_sec
         self.last_warmth = color_warmth
         self.last_subscribe = subscribe
+        self.last_like = like
         from pathlib import Path
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)

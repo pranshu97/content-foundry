@@ -301,7 +301,30 @@ class Visuals:
         if used:  # persist the exact prompt used, so it can be inspected and edited for a re-run
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
             prompt_path.write_text(used, encoding="utf-8")
+        self._cap_thumbnail_bytes(run_root / _THUMB_REL)
         return thumbnail_text
+
+    def _cap_thumbnail_bytes(self, path: Path, *, max_bytes: int = 1_900_000) -> None:
+        """Keep the thumbnail under YouTube's 2 MB custom-thumbnail limit. A photo-real 9:16 PNG can
+        exceed it, and then ``thumbnails.set`` fails silently (best-effort) so the video publishes with
+        NO custom thumbnail. Re-save optimized; if still too big, downscale in steps until it fits.
+        Best-effort, PNG in place."""
+        try:
+            if not path.exists() or path.stat().st_size <= max_bytes:
+                return
+            from PIL import Image
+
+            img = Image.open(path)
+            img.load()
+            img.save(path, format="PNG", optimize=True)
+            w, h = img.size
+            while path.stat().st_size > max_bytes and min(w, h) > 320:
+                w, h = int(w * 0.85), int(h * 0.85)
+                img = img.resize((w, h), Image.LANCZOS)
+                img.save(path, format="PNG", optimize=True)
+            self._log.info("thumbnail_capped", bytes=path.stat().st_size, dims=f"{w}x{h}")
+        except Exception as exc:  # best-effort: an oversize thumb beats crashing the visuals stage
+            self._log.warning("thumbnail_cap_failed", error=str(exc))
 
     # ------------------------------------------------------------------ scene
     def _broll_candidates(self, keywords: list[str]) -> list[str]:

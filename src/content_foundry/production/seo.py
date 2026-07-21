@@ -157,18 +157,22 @@ def optimize_description(
     description: str,
     *,
     cta: str = "",
+    affiliate: str = "",
     tags: list[str] | None = None,
     chapters: list[tuple[str, str]] | None = None,
     add_chapters: bool = True,
     channel_cta: str = "",
     shorts_hashtag: str = "",
 ) -> str:
-    """Compose a discoverable description (CTA + chapters + channel CTA + hashtags). Disclosure added
-    downstream. ``shorts_hashtag`` (e.g. #Shorts) leads the hashtag line so YouTube classifies the
+    """Compose a discoverable description (CTA + resources + chapters + channel CTA + hashtags).
+    Disclosure added downstream. ``affiliate`` (resources + disclosure) sits ABOVE the chapters so it
+    isn't buried. ``shorts_hashtag`` (e.g. #Shorts) leads the hashtag line so YouTube classifies the
     upload as a Short."""
     blocks = [(description or "").strip()]
     if cta and cta.strip() and cta.strip().lower() not in blocks[0].lower():
         blocks.append(cta.strip())
+    if affiliate and affiliate.strip():
+        blocks.append(affiliate.strip())  # resources + disclosure, ABOVE the chapters
     if add_chapters and chapters:
         lines = "\n".join(f"{ts} {label}" for ts, label in chapters)
         blocks.append(f"Chapters:\n{lines}")
@@ -189,7 +193,9 @@ def _scene_durations(visuals: VisualPackage) -> dict[int, float]:
     return {sv.scene_index: float(sv.duration_sec) for sv in visuals.scenes}
 
 
-def optimize_metadata(script: Script, visuals: VisualPackage, settings) -> OptimizedMetadata:
+def optimize_metadata(
+    script: Script, visuals: VisualPackage, settings, *, affiliate_block: str = ""
+) -> OptimizedMetadata:
     """Full deterministic metadata pass for the Publisher."""
     title = optimize_title(
         script.title_options,
@@ -215,6 +221,7 @@ def optimize_metadata(script: Script, visuals: VisualPackage, settings) -> Optim
     description = optimize_description(
         script.description,
         cta=script.cta,
+        affiliate=affiliate_block,
         tags=tags,
         chapters=chapters,
         add_chapters=add_chapters,

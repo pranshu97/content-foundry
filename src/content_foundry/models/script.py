@@ -31,6 +31,10 @@ class Script(BaseModel):
     cta: str = ""
     description: str = ""
     tags: list[str] = Field(default_factory=list)
+    # Resolved-BEFORE-generation resource links the finished script actually referenced (name + real
+    # url + blurb + mention). Stamped in a post-pass so the description can never promise a missing
+    # link. [{"label", "url", "blurb", "mention"}].
+    affiliate_links: list[dict] = Field(default_factory=list)
     thumbnail_concept: str = ""
     thumbnail_text: str = ""  # dedicated punchy overlay TEXT for the thumbnail (may differ from title)
     word_count: int = 0

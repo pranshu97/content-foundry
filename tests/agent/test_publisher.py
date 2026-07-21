@@ -131,3 +131,47 @@ def test_no_top_comment_when_disabled(settings, good_script):
     pub = DryRunPublisher()
     Publisher(settings, pub).run("R", _video(), good_script, _visuals(), run_root=Path("."))
     assert not [c for c in pub.calls if c[0] == "add_comment"]
+
+
+def test_recommendation_comment_links_related_videos(monkeypatch, tmp_path, good_script):
+    # "Watch next" links to the most related PRIOR channel videos are posted right after publishing —
+    # on their OWN, even when PUBLISH_TOP_COMMENT is off. Works the same for Shorts and long-form.
+    import json
+
+    runs = tmp_path / "runs"
+    prior = runs / "0001"
+    prior.mkdir(parents=True, exist_ok=True)
+    (prior / "publish_result.json").write_text(
+        json.dumps({"chosen_title": "System Design Interview Guide",
+                    "youtube_video_id": "PRIOR123", "privacy_status": "public"}),
+        encoding="utf-8",
+    )
+    (prior / "script.json").write_text(
+        json.dumps({"tags": list(good_script.tags)}), encoding="utf-8"
+    )
+    (runs / "0002").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("RECOMMEND_COMMENT_ENABLED", "true")
+    monkeypatch.setenv("PUBLISH_TOP_COMMENT", "false")  # recommendations post independently
+    reset_settings_cache()
+    pub = DryRunPublisher()
+    Publisher(get_settings(), pub).run(
+        "0002", _video(), good_script, _visuals(), run_root=runs / "0002"
+    )
+    comments = [kw["text"] for name, kw in pub.calls if name == "add_comment"]
+    assert comments and "https://youtu.be/PRIOR123" in comments[0]
+    assert "System Design Interview Guide" in comments[0]
+
+
+def test_recommendation_comment_skipped_when_no_prior_videos(monkeypatch, tmp_path, good_script):
+    # A brand-new channel (no prior uploads) posts NO empty comment.
+    (tmp_path / "runs" / "0001").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("RECOMMEND_COMMENT_ENABLED", "true")
+    monkeypatch.setenv("PUBLISH_TOP_COMMENT", "false")
+    reset_settings_cache()
+    pub = DryRunPublisher()
+    Publisher(get_settings(), pub).run(
+        "0001", _video(), good_script, _visuals(), run_root=tmp_path / "runs" / "0001"
+    )
+    assert not [c for c in pub.calls if c[0] == "add_comment"]
+

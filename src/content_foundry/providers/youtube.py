@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from ..errors import PublishError
+from ..logging import get_logger
+
+_log = get_logger(component="youtube")
 
 
 @runtime_checkable
@@ -89,6 +92,7 @@ class YouTubePublisher:
     def _build_service(self):
         import os
 
+        from google.auth.exceptions import RefreshError
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow
@@ -98,9 +102,25 @@ class YouTubePublisher:
         if os.path.exists(self._token_file):
             creds = Credentials.from_authorized_user_file(self._token_file, self._scopes)
         if not creds or not creds.valid:
+            refreshed = False
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
+                try:
+                    creds.refresh(Request())
+                    refreshed = True
+                except RefreshError as exc:
+                    # The refresh TOKEN itself expired or was revoked (invalid_grant) — common when the
+                    # Google OAuth consent screen is still in "Testing" (refresh tokens die after 7
+                    # days). Drop the stale token and fall through to a fresh consent so the run
+                    # self-heals with a one-time browser prompt instead of hard-crashing.
+                    _log.warning(
+                        "youtube_token_expired_reconsenting",
+                        error=str(exc)[:200],
+                        token_file=self._token_file,
+                        hint="set the OAuth consent screen to 'In production' so refresh tokens stop "
+                        "expiring after 7 days — see Human_Tasks.md",
+                    )
+                    creds = None
+            if not refreshed:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self._client_secrets_file, self._scopes
                 )

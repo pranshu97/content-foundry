@@ -1,9 +1,8 @@
 Interviews
     [LONG]  How to Pass the Amazon Applied Scientist Interview
-    [SHORT] Leetcode vs ML: What FAANG ML Interviews Really Ask
+    [LONG]  Leetcode vs ML: What FAANG ML Interviews Really Ask
     [LONG]  The ML System Design Interview: A Step-by-Step Blueprint
     [SHORT] 3 ML Interview Questions I Bet You Can't Answer
-    [SHORT] "Tell Me About a Time..." The Behavioral Answer That Lands Offers
 
 
 Getting hired

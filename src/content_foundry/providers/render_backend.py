@@ -424,6 +424,72 @@ def _apply_atempo(audio, speed: float):  # pragma: no cover - requires ffmpeg on
     return audio
 
 
+def prepend_image_intro(
+    *,
+    video_path: str,
+    image_path: str,
+    seconds: float,
+    resolution: str,
+    fps: int,
+    ffmpeg_path: str = "",
+    video_encoder: str = "auto",
+) -> bool:
+    """Prepend ``image_path`` as a ``seconds``-long FROZEN opening frame (with matching silent audio)
+    to ``video_path``, re-encoding it in place. This turns a designed thumbnail into an actual video
+    FRAME — the only way to control a YouTube Short's thumbnail (Shorts ignore a custom uploaded
+    thumbnail). Best-effort: returns ``False`` on any problem and leaves the original untouched."""
+    exe = resolve_ffmpeg(ffmpeg_path)
+    if (
+        exe is None
+        or seconds <= 0
+        or not os.path.exists(video_path)
+        or not os.path.exists(image_path)
+    ):
+        return False
+    return _run_intro(
+        exe, video_path, image_path, float(seconds), resolution, int(fps), video_encoder
+    )
+
+
+def _run_intro(  # pragma: no cover - requires ffmpeg
+    exe, video_path, image_path, seconds, resolution, fps, video_encoder
+) -> bool:
+    import contextlib
+
+    import ffmpeg
+
+    width, _, height = resolution.partition("x")
+    tmp = f"{video_path}.intro.mp4"
+    encoders = [_select_encoder(exe, video_encoder)]
+    if encoders[0] != "libx264":
+        encoders.append("libx264")  # CPU fallback if the GPU encoder rejects the concat
+    for enc in encoders:
+        try:
+            intro_v = (
+                _scale_cover(
+                    ffmpeg.input(image_path, loop=1, t=seconds, framerate=fps), width, height
+                )
+                .filter("setsar", "1").filter("fps", fps).filter("format", "yuv420p")
+            )
+            main = ffmpeg.input(video_path)
+            silent = ffmpeg.input("anullsrc=r=44100:cl=stereo", f="lavfi", t=seconds).audio
+            main_a = main.audio.filter("aresample", 44100)
+            video = ffmpeg.concat(intro_v, main.video, v=1, n=2)
+            audio = ffmpeg.concat(silent, main_a, v=0, a=1, n=2)
+            stream = ffmpeg.output(
+                video, audio, tmp, vcodec=enc, acodec="aac", pix_fmt="yuv420p", r=fps,
+                **_encoder_opts(enc),
+            ).overwrite_output()
+            _run_ffmpeg(stream, exe, tmp)
+            os.replace(tmp, video_path)
+            return True
+        except Exception:
+            if os.path.exists(tmp):
+                with contextlib.suppress(OSError):
+                    os.remove(tmp)
+    return False
+
+
 class MoviePyBackend:  # pragma: no cover - optional heavy backend
     name = "moviepy"
 

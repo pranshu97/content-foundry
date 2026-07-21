@@ -111,11 +111,29 @@ class Renderer:
             like=like,
         )
 
+        # SHORTS: bake the designed thumbnail as a brief FROZEN opening frame so it becomes a real
+        # video frame — the only way to control a Short's thumbnail (YouTube ignores a custom one).
+        intro_extra = 0.0
+        intro_sec = float(getattr(self._settings, "shorts_thumbnail_intro_sec", 0.0) or 0.0)
+        if self._settings.is_short and intro_sec > 0 and visuals.thumbnail_path:
+            from ..providers.render_backend import prepend_image_intro
+
+            thumb = run_root / visuals.thumbnail_path
+            applied = bool(thumb.exists()) and prepend_image_intro(
+                video_path=path, image_path=str(thumb), seconds=intro_sec,
+                resolution=self._settings.effective_resolution, fps=self._settings.video_fps,
+                ffmpeg_path=self._settings.ffmpeg_path, video_encoder=self._settings.video_encoder,
+            )
+            self._log.info("shorts_thumbnail_intro", seconds=intro_sec, applied=bool(applied))
+            intro_extra = intro_sec if applied else 0.0
+
         size = Path(path).stat().st_size if Path(path).exists() else 0
         return VideoAsset(
             run_id=run_id,
             video_path=_VIDEO_REL,
-            duration_sec=round(voiceover.duration_sec / (self._settings.video_speed or 1.0), 3),
+            duration_sec=round(
+                voiceover.duration_sec / (self._settings.video_speed or 1.0) + intro_extra, 3
+            ),
             resolution=self._settings.effective_resolution,
             fps=self._settings.video_fps,
             backend=getattr(self._backend, "name", self._settings.render_backend),

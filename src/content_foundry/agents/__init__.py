@@ -10,6 +10,7 @@ from .judge import Judge
 from .publisher import Publisher
 from .renderer import Renderer
 from .research import Researcher
+from .scene_image_director import SceneImageDirector
 from .script_generator import ScriptGenerator
 from .thumbnail_director import ThumbnailDirector
 from .visuals import Visuals, build_image_prompt
@@ -23,6 +24,7 @@ __all__ = [
     "BrollDirector",
     "ScriptGenerator",
     "ThumbnailDirector",
+    "SceneImageDirector",
     "Judge",
     "Voiceover",
     "Visuals",

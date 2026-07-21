@@ -13,16 +13,34 @@ OVERLAY TEXT that gets added LATER, on top of the finished image (do NOT draw it
 </video>
 
 <what_to_write>
-Write ONE English paragraph of roughly 45-90 words describing a SINGLE photographic thumbnail image.
-Be concrete, specific and cinematic, and make a deliberate creative choice for ALL of these:
-- SUBJECT & EMOTION: the one focal subject and, if it is a person, a big, instantly-readable
-  expression (name it: shocked, thrilled, worried, smug, amazed, ...) with matching body language.
-- SETTING & STORY PROP: one clear, on-topic symbol of the payoff or the conflict that makes the idea
-  legible in a quarter of a second.
-- LIGHT & COLOR: dramatic directional lighting (rim/key light, glow, soft bokeh) and a bold,
-  saturated, high-contrast complementary palette with strong subject-to-background separation.
-- LENS & FINISH: the framing, a shallow depth of field, a subtle vignette, a crisp glossy photo-real
-  render, and high dynamic range.
+Write ONE English paragraph of roughly 55-95 words describing a SINGLE photographic thumbnail that
+does THREE jobs at once: it SIGNALS THE TOPIC in a quarter-second, looks like a stunning REAL photo,
+and stops the scroll. Make a deliberate creative choice for ALL of these:
+- SHOW THE TOPIC (relevance — do this FIRST and never skip it): stage the shot in a real, specific
+  SETTING with concrete PROPS pulled straight from the TITLE / CONCEPT / NICHE, so a stranger could
+  guess the video from the picture alone. For a tech-career video that means things like a modern
+  open-plan tech office, glass meeting rooms, rows of cubicles with coworkers on laptops, a whiteboard
+  covered in algorithm or system-design diagrams, dual monitors full of code, a big-tech-style campus
+  lobby, a lanyard/badge, an across-the-desk interview, or a celebratory handshake — choose whatever
+  fits THIS video. NEVER a blank studio backdrop or an empty void.
+- ONE CLEAR HERO PERSON WITH A VISIBLE FACE: place a single main person in the foreground FACING the
+  camera with ONE huge, instantly-readable emotion (shocked, stressed, triumphant, thrilled,
+  determined, ...) and matching body language. Their face must be clearly visible, sharp, well-lit,
+  and a good size. Framing is FLEXIBLE — a tight close-up, a waist-up at a desk, standing, mid-
+  handshake, or a medium shot are ALL good; the face does NOT have to fill the frame, but it must face
+  the camera, stay unobstructed, and be the single largest, most prominent face in the image.
+- CLICKBAIT / STAKES: freeze a peak dramatic moment that cracks open a curiosity gap — reacting to an
+  offer letter, celebrating a win, sweating at a whiteboard, mid-interview — with bold, dynamic
+  composition and strong body language.
+- LIGHT & COLOR: set the scene in a BRIGHT, well-lit space (daylight through big windows, or bright,
+  even office lighting) and light the person clean and roughly NEUTRAL/white so the face reads true.
+  Use vivid, saturated ACCENT colors and pops of contrast for energy — but AVOID a dark neon-night
+  look, heavy RGB/electric gels bathing the scene, and any murky, moody, low-key, or dim result.
+  Overall BRIGHT and high-key, like a photo taken in a bright room.
+- LENS & FINISH: a real editorial DSLR photograph — the hero in SHARP focus with the setting in
+  slightly softer focus (shallow depth of field) so the relevant scene reads clearly WITHOUT clutter;
+  natural realistic skin, true detail. Leave one calmer area (a side, or the top or bottom) for a big
+  title overlay.
 {person_clause}
 </what_to_write>
 
@@ -32,6 +50,23 @@ Be concrete, specific and cinematic, and make a deliberate creative choice for A
   separately, and the model smears garbled fake lettering wherever text is hinted at. END your prompt
   with an explicit clause such as: "no text, no letters, no numbers, no logos, no watermark, clean
   image".
+- THE FACE IS SACRED: never project, overlay, paint, or draw ANYTHING on the hero's face — no glowing
+  patterns, circuitry, holograms, text, double-exposure, or data lines across it, and no hands or
+  objects covering it. Keep it clear, sharp, and unobstructed.
+- SHOW THE TOPIC, DON'T ABSTRACT IT: the setting and props must make the video's subject obvious at a
+  glance — never a person floating on a plain, gradient, or empty void with no context, and never one
+  vague symbolic object standing in for the whole topic.
+- BRIGHT, NOT DARK, NOT NEON-NIGHT: keep it high-key, high-contrast, and DAYLIT-bright; avoid dark,
+  dim, murky, moody, low-key, muddy, or "coding-at-night under neon/RGB" scenes — they read as AI slop
+  and vanish at thumbnail size.
+- REAL PHOTO, NOT AI SLOP: it MUST look like an AUTHENTIC PHOTOGRAPH a professional shot with a real
+  camera — genuine skin texture, real lighting, real depth. NEVER the plastic, waxy, rubbery, over-
+  smoothed, airbrushed, hyper-glossy "3D render / CGI / digital-art / AI-generated" look, and NEVER
+  warped or deformed hands, ears, eyes, eyebrows, teeth, or extra fingers, and NEVER doubled or
+  duplicated facial features (exactly ONE pair of eyebrows and TWO eyes).
+- FACE LIT CLEAN: the face must be brightly and NATURALLY lit with even, neutral light so it looks
+  like a real person in real light. NEVER slather the face in neon or electric blue/red gels or harsh
+  split/dual-tone lighting — keep bold colors in the BACKGROUND; a clean, clearly-lit face gets clicks.
 - ONE cohesive scene. Generic, anonymous people only — never a real, famous, or named person, and no
   real brand or product logo.
 - Keep it tasteful and advertiser-safe: no gore, no nudity, nothing hateful or shocking-for-shock.

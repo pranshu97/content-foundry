@@ -239,3 +239,19 @@ def test_enabled_but_missing_image_skips_gracefully(monkeypatch, tmp_path, fakes
     video = Renderer(settings, render).run("R", _voiceover(), _visuals(), run_root=tmp_path)
     assert video.has_avatar is False
     assert render.last_overlay is None
+
+
+def test_prepend_image_intro_is_best_effort(tmp_path):
+    from content_foundry.providers.render_backend import prepend_image_intro
+
+    # Missing files or a non-positive duration => a no-op that returns False and never raises.
+    assert prepend_image_intro(
+        video_path=str(tmp_path / "no_video.mp4"), image_path=str(tmp_path / "no.png"),
+        seconds=0.5, resolution="1080x1920", fps=30,
+    ) is False
+    (tmp_path / "v.mp4").write_bytes(b"x")
+    (tmp_path / "t.png").write_bytes(b"x")
+    assert prepend_image_intro(
+        video_path=str(tmp_path / "v.mp4"), image_path=str(tmp_path / "t.png"),
+        seconds=0.0, resolution="1080x1920", fps=30,
+    ) is False

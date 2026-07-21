@@ -2,12 +2,39 @@
 
 from __future__ import annotations
 
+import contextvars
+import json
 import logging
 from typing import Any
 
 import structlog
 
 _CONFIGURED = False
+# Absolute path of the current run's log file; when set, every structured log line is ALSO appended
+# there (JSON lines) so a run is fully debuggable after the fact — including silent model fallbacks.
+_RUN_LOG_FILE: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "run_log_file", default=None
+)
+
+
+def set_run_log_file(path: str | None) -> None:
+    """Tee all subsequent structured logs to ``path`` (a per-run JSON-lines file). Pass ``None`` to
+    stop. Set once at a run's start; best-effort (a logging failure never breaks the pipeline)."""
+    _RUN_LOG_FILE.set(path)
+
+
+def _run_file_sink(logger: Any, method_name: str, event_dict: dict) -> dict:
+    """structlog processor: append the fully-bound event (level, timestamp, run_id, component, ...) as
+    one JSON line to the current run's log file, then pass it through to the stdout renderer. Best-
+    effort — any file error is swallowed so logging never breaks a run."""
+    path = _RUN_LOG_FILE.get()
+    if path:
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(event_dict, default=str, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+    return event_dict
 
 
 def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
@@ -42,6 +69,7 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
+            _run_file_sink,  # tee to the per-run log file (no-op until set_run_log_file is called)
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(

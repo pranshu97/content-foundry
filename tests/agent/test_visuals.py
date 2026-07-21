@@ -58,6 +58,102 @@ def test_faceid_prompt_leads_with_person_and_stays_under_clip_limit():
     assert len(_faceid_prompt("word " * 80).split()) < 60
 
 
+def test_scene_brightness_score_prefers_a_bright_center():
+    from io import BytesIO
+
+    from PIL import Image
+
+    from content_foundry.agents.visuals import _scene_brightness_score
+
+    def png(color):
+        buf = BytesIO()
+        Image.new("RGB", (80, 80), color).save(buf, "PNG")
+        return buf.getvalue()
+
+    # A bright, cleanly-lit scene must outrank a dark / heavy-blue-neon one so best-of-N picks it.
+    assert _scene_brightness_score(png((235, 235, 235))) > _scene_brightness_score(png((25, 25, 60)))
+    assert _scene_brightness_score(b"not a png") == 0.0  # undecodable -> never chosen over an image
+
+
+def test_best_scene_keeps_the_brightest_candidate(settings):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from content_foundry.agents.visuals import Visuals
+
+    def png(color):
+        buf = BytesIO()
+        Image.new("RGB", (80, 80), color).save(buf, "PNG")
+        return buf.getvalue()
+
+    dark, bright, mid = png((25, 25, 60)), png((235, 235, 235)), png((110, 110, 110))
+    seq = [dark, bright, mid]
+
+    class _CyclingImage:
+        name = "fake-image"
+
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, prompt, size=None):
+            out = seq[self.calls % len(seq)]
+            self.calls += 1
+            return out
+
+    visuals = Visuals(settings, image_provider=_CyclingImage(), broll_client=None)
+    assert settings.thumbnail_scene_candidates >= 3  # default: best-of-3
+    assert visuals._best_scene("a prompt") == bright  # the brightest candidate wins
+
+
+def test_thumbnail_prompt_injects_avatar_appearance():
+    from content_foundry.agents.visuals import _thumbnail_prompt
+
+    # With a person, describe the operator so the generated face-swap target resembles them.
+    p = _thumbnail_prompt("a developer at a desk", appearance="a bearded man with glasses")
+    assert "a bearded man with glasses" in p
+    # A people-free background has no face to match, so the appearance is not injected.
+    bg = _thumbnail_prompt("a desk", no_person=True, appearance="a bearded man with glasses")
+    assert "a bearded man with glasses" not in bg
+
+
+def test_thumbnail_face_swap_can_be_disabled(monkeypatch, good_script, tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+
+    import content_foundry.providers.faceswap as faceswap_mod
+    from content_foundry.agents.visuals import Visuals
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    avatar = tmp_path / "avatar.png"
+    Image.new("RGB", (64, 64), "white").save(avatar)
+    monkeypatch.setenv("THUMBNAIL_FACE_ID_ENABLED", "true")
+    monkeypatch.setenv("THUMBNAIL_FACE_METHOD", "swap")
+    monkeypatch.setenv("THUMBNAIL_FACE_SWAP_ENABLED", "false")
+    monkeypatch.setenv("AVATAR_IMAGE_PATH", str(avatar))
+    reset_settings_cache()
+    settings = get_settings()
+
+    swap_called = {"hit": False}
+    monkeypatch.setattr(
+        faceswap_mod, "swap_face", lambda *a, **k: swap_called.__setitem__("hit", True) or None
+    )
+
+    class _Img:
+        name = "fake-image"
+
+        def generate(self, prompt, size=None):
+            buf = BytesIO()
+            Image.new("RGB", (32, 32), (120, 130, 140)).save(buf, "PNG")
+            return buf.getvalue()
+
+    Visuals(settings, _Img(), None).render_thumbnail(good_script, run_root=tmp_path)
+    # Swap OFF => the AI-generated scene is used AS-IS; the face-swap stack is never invoked.
+    assert swap_called["hit"] is False
+    assert (tmp_path / "assets" / "thumbnail.png").exists()
+
+
 def test_thumbnail_prompt_is_saved_edited_and_overridable(settings, good_script, tmp_path):
     from io import BytesIO
 
@@ -121,6 +217,28 @@ def test_faceswap_degrades_to_none(settings, tmp_path):
     assert swap_face(settings, scene_png=b"x", face_path=str(tmp_path / "nope.png")) is None
 
 
+def test_release_model_pops_and_is_safe_when_absent():
+    # OOM-safety helper: freeing an absent model is a no-op; a cached one is popped + GPU-freed.
+    from content_foundry.providers import faceswap
+
+    assert faceswap._release_model("nope") is None  # absent key -> no-op, never raises
+    faceswap._CACHE["dummy"] = object()
+    faceswap._release_model("dummy")
+    assert "dummy" not in faceswap._CACHE
+
+
+def test_thumbnail_fallback_bg_is_a_designed_nonempty_frame():
+    # When every image provider is down, the thumbnail must still be a full, DESIGNED frame (glow +
+    # gradient + tech dots + accent), never a flat/near-empty dark rectangle.
+    from content_foundry.agents.visuals import _gradient_bg, _thumbnail_fallback_bg
+
+    bg = _thumbnail_fallback_bg((1280, 720))
+    assert bg.size == (1280, 720) and bg.mode == "RGB"
+    colors = bg.getcolors(maxcolors=200000)
+    assert colors is not None and len(colors) > 500  # rich, not a flat fill
+    assert list(bg.getdata()) != list(_gradient_bg((1280, 720)).getdata())  # richer than a plain gradient
+
+
 def test_visuals_render_cards_and_captions(settings, good_script, tmp_path):
     vo = _voiceover(good_script)
     pkg = Visuals(settings, image_provider=None, broll_client=None).run(
@@ -170,6 +288,53 @@ def test_visuals_use_image_provider(settings, good_script, tmp_path, fakes):
     )
     assert image.calls >= 1
     assert any(sv.source == "fake-image" for sv in pkg.scenes)
+
+
+def test_visuals_generate_image_when_a_beat_has_no_broll(settings, good_script, tmp_path, fakes):
+    from pathlib import Path
+
+    # A beat stock sites can't match must NOT borrow an off-topic clip — it gets a GENERATED image
+    # used as that shot, while the matchable beat still uses a real clip.
+    scene = good_script.scenes[0]
+    scene.b_roll_keywords = ["handshake across a desk", "the abstract dread of impostor syndrome"]
+    one = good_script.model_copy(update={"scenes": [scene]})
+    vo = VoiceoverAsset(
+        run_id="0001", audio_path="assets/narration.mp3", duration_sec=6.0, sample_rate=16000,
+        voice_id="v", provider="fake", word_timings=[],
+        scene_timings=[SceneTiming(scene_index=scene.index, start=0.0, end=6.0)],
+        provenance=Provenance(produced_by="voiceover"),
+    )
+
+    class _PartialBroll:
+        enabled = True
+
+        def __init__(self):
+            self.downloaded: list[str] = []
+
+        def search(self, query, *, context=""):
+            # Only the concrete "handshake" beat matches; the abstract beat returns nothing.
+            hit = "https://videos.pexels.com/video-files/handshake.mp4"
+            return [hit] if "handshake" in query else []
+
+        def download(self, url):
+            self.downloaded.append(url)
+            return b"FAKEVIDEO"
+
+    image = fakes.Image()
+    broll = _PartialBroll()
+    pkg = Visuals(settings, image_provider=image, broll_client=broll).run(
+        "0001", one, vo, run_root=tmp_path
+    )
+    sv = pkg.scenes[0]
+    assert sv.kind == "broll"
+    assert len(sv.shots) == 2
+    by_suffix = {Path(s.path).suffix: s for s in sv.shots}
+    assert set(by_suffix) == {".mp4", ".png"}  # one real clip + one generated image
+    assert by_suffix[".png"].source == "fake-image"  # the gap beat was GENERATED, not borrowed
+    assert by_suffix[".mp4"].source == "pexels"  # the matchable beat still used a real clip
+    assert broll.downloaded == ["https://videos.pexels.com/video-files/handshake.mp4"]
+    for shot in sv.shots:
+        assert (tmp_path / shot.path).exists()
 
 
 def test_visuals_split_long_scene_into_ordered_beat_clips(settings, good_script, tmp_path, fakes):

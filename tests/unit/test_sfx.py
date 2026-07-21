@@ -73,6 +73,19 @@ def test_mix_sfx_returns_false_on_undecodable_narration(tmp_path):
     assert not out.exists()
 
 
+def test_relative_gain_targets_narration_loudness():
+    from content_foundry.production.sound_design import _relative_gain
+
+    # An SFX louder than the voice is pushed DOWN to (voice + gain_db); the delta is exact.
+    assert _relative_gain(-20.0, -5.0, -8.0) == -23.0  # (-20 + -8) - (-5)
+    # LOWERING SFX_VOLUME_DB reliably makes the effect quieter (a more negative delta).
+    assert _relative_gain(-20.0, -5.0, -15.0) < _relative_gain(-20.0, -5.0, -8.0)
+    # A silent/undecodable clip or narration (non-finite dBFS) is left untouched.
+    assert _relative_gain(-20.0, float("-inf"), -8.0) == 0.0
+    assert _relative_gain(float("-inf"), -5.0, -8.0) == 0.0
+
+
+
 def test_str_or_none_coercion():
     assert _str_or_none("whoosh") == "whoosh"
     assert _str_or_none("  ding  ") == "ding"

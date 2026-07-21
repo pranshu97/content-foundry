@@ -32,6 +32,7 @@ SCRIPT_JSON_SHAPE = """{
   "tags": ["tag1", "tag2"],
   "thumbnail_concept": "ONE bold, emotional, curiosity-driving SCENE for an image generator: concrete subject + exaggerated expression + dramatic lighting + bold contrasting colors; only what the camera sees, NO words in the image",
   "thumbnail_text": "VERY short punchy overlay words for the thumbnail (2-5 words); MAY differ from the title — a bold hook or intriguing question",
+  "open_loop": "the EXACT end-payoff you promised early to make viewers stay till the end, or empty string if you planted none (see the retention rules); if set it MUST be delivered in a later scene",
   "time_sensitive": false,
   "word_count": 0,
   "grounded_fact_refs": [0],
@@ -63,6 +64,7 @@ def _script_to_prompt_json(script: Script) -> dict:
         "tags": script.tags,
         "thumbnail_concept": script.thumbnail_concept,
         "thumbnail_text": script.thumbnail_text,
+        "open_loop": script.open_loop,
         "time_sensitive": script.time_sensitive,
         "grounded_fact_refs": script.grounded_fact_refs,
         "synthetic_disclosure": script.synthetic_disclosure,
@@ -134,6 +136,37 @@ def _format_context(settings) -> str:
         "- Still grounded and still witty, but ONE line that lands beats three that try; stay specific.\n"
         "- Close with a quick, natural nudge to follow for more, in a single short line.\n"
         "</format>"
+    )
+
+
+def _retention_context(settings) -> str:
+    """OPTIONAL open-loop retention nudge — LONG-FORM only (empty for a Short or when disabled). Lets
+    the writer plant ONE genuine 'stick around for X' promise, with a hard anti-bait guardrail that a
+    declared payoff MUST be delivered (a deterministic Judge gate enforces it)."""
+    if getattr(settings, "is_short", False) or not getattr(
+        settings, "retention_open_loop_enabled", True
+    ):
+        return ""
+    return (
+        "<retention_open_loop>\n"
+        "OPTIONAL OPEN LOOP (a strong retention tool — YOUR call whether it fits): near the top (the "
+        "hook or scene 0-1) you MAY plant ONE curiosity 'open loop' that gives the viewer a concrete "
+        "reason to stay to the end — tease a SPECIFIC, valuable payoff that lands LATER (e.g. 'there is "
+        "one mistake that quietly sinks most offers, and by the end I'll show you exactly how to dodge "
+        "it', 'the last step is the one almost nobody does'). An unresolved question is what keeps "
+        "people watching. Put the EXACT payoff you promise in the \"open_loop\" field (or leave it \"\" "
+        "when you plant none).\n"
+        "HARD GUARDRAILS (breaking any is a REJECT):\n"
+        "- CONDITIONAL: only plant it when it fits the topic NATURALLY and genuinely helps. Never bolt "
+        "on a forced, generic 'stay till the end!'. If nothing here earns a real payoff to tease, plant "
+        "NONE and set open_loop to \"\" — that is the correct, common choice, and a forced tease reads "
+        "worse than none.\n"
+        "- NEVER A BAIT-AND-SWITCH: if you tease it, you MUST DELIVER it. The exact payoff MUST actually "
+        "appear, clearly and specifically, in a LATER scene (ideally the final one before the sign-off). "
+        "Teasing something and never paying it off is the single worst outcome — do not do it.\n"
+        "- Tease it ONCE, in your own natural voice; do not nag about it through the script, and make "
+        "the payoff feel worth the wait when it lands.\n"
+        "</retention_open_loop>"
     )
 
 
@@ -240,6 +273,7 @@ class ScriptGenerator:
             time_context=time_context,
             creator_context=creator_context,
             format_context=_format_context(self._settings),
+            retention_context=_retention_context(self._settings),
             affiliate_context=affiliate_context(self._settings, candidates=affiliate_candidates),
             research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
@@ -370,6 +404,7 @@ class ScriptGenerator:
                 grounded_fact_refs=[],
                 synthetic_disclosure=True,
                 time_sensitive=bool(parsed.get("time_sensitive", False)),
+                open_loop=_replace_em_dashes(parsed.get("open_loop", "") or ""),
                 provenance=Provenance(
                     produced_by="script_generator",
                     model=self._settings.generator_model,

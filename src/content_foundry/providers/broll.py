@@ -139,14 +139,14 @@ _GENERIC_SUBJECTS = frozenset({
 def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
     """Keep a candidate clip only when it is NOT an off-topic stock subject the query never asked for
     AND — when we know this video's vocabulary (``vocab``) — its tags/slug (a) actually touch that
-    vocabulary AND (b) name at least one SPECIFIC word from THIS beat's query. The vocab check stops
-    holiday/greeting/unrelated clips that dodge the denylist (e.g. a 'Happy Valentine's Day' clip in a
-    software video); the per-beat specific-word check is the HIGH-CONFIDENCE gate that stops a clip
-    which merely shares a generic 'person/hand/office' word (a honey-scraping clip for an ML-interview
-    beat). With NO vocabulary we can't positively filter, so keep; but a clip with NO tags/slug while a
-    vocabulary IS known is unverifiable (a bare stock URL) and is DROPPED. Now that a rejected clip
-    falls back to a GENERATED image, we hold clips to this much higher bar rather than show anything
-    off-topic."""
+    vocabulary AND (b) name ENOUGH of THIS beat's SPECIFIC words (at least half, rounded up). The vocab
+    check stops holiday/greeting/unrelated clips that dodge the denylist (e.g. a 'Happy Valentine's
+    Day' clip in a software video); the per-beat specific-word check is the HIGH-CONFIDENCE gate that
+    stops a clip which merely shares a generic 'person/hand/office' word (a honey-scraping clip for an
+    ML-interview beat) OR shares just one word of a rich multi-word beat. With NO vocabulary we can't
+    positively filter, so keep; but a clip with NO tags/slug while a vocabulary IS known is
+    unverifiable (a bare stock URL) and is DROPPED. Now that a rejected clip falls back to a GENERATED
+    image, we hold clips to this much higher bar rather than show anything off-topic."""
     if _off_topic(query, meta):
         return False
     if not vocab:
@@ -161,15 +161,17 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
         # denylist — sneaks in. Drop it: the candidate pool is large and the scene falls back to its
         # card, so losing one unverifiable clip keeps junk out at no real cost.
         return False
-    # HIGH-CONFIDENCE MATCH: the clip must actually name what THIS beat asked for — at least one of the
-    # query's SPECIFIC words (its concrete subject/action, ignoring generic 'person/hand/shot' filler)
-    # has to appear in the clip's own tags/slug. A match on ONLY a generic word (nearly every clip is
-    # tagged with a 'person') is not evidence, so it is rejected in favour of a generated image.
+    # HIGH-CONFIDENCE MATCH: the clip must actually name what THIS beat asked for. From the beat we
+    # take its SPECIFIC words (concrete subject/action, ignoring generic 'person/hand/shot' filler)
+    # and require the clip's own tags/slug to name at least HALF of them (rounded up, floor 1). One
+    # shared word with a rich 3-4 word beat is a weak, borderline match — reject it so the shot falls
+    # back to a bespoke GENERATED image that depicts the WHOLE beat. Monotonic tightening: the floor is
+    # 1, so a 1-2 word beat still needs just one match — nothing the looser gate accepted is newly cut.
     specific = {
         w for w in re.findall(r"[a-z]+", (query or "").lower())
         if len(w) >= 3 and w not in _GENERIC_SUBJECTS
     }
-    if specific and not (meta_words & specific):
+    if specific and len(meta_words & specific) < max(1, (len(specific) + 1) // 2):
         return False
     return bool(meta_words & vocab)
 

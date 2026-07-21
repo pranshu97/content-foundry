@@ -71,6 +71,49 @@ def test_redundancy_flags_near_duplicate_scenes(good_script, make_script):
     assert not ok and "scenes 1 & 2" in detail
 
 
+def test_open_loop_report_passes_with_no_tease_or_declaration(good_script):
+    from content_foundry.agents.judge_checks import open_loop_report
+
+    ok, note = open_loop_report(good_script)  # no open_loop, no tease phrase -> the common, fine case
+    assert ok and note == ""
+
+
+def test_open_loop_report_flags_undelivered_declared_payoff(good_script):
+    from content_foundry.agents.judge_checks import open_loop_report
+
+    # A payoff is promised but its words never appear in the final scenes -> bait-and-switch -> fail.
+    s = good_script.model_copy(update={"open_loop": "the geothermal calibration ritual"})
+    ok, note = open_loop_report(s)
+    assert not ok and "bait-and-switch" in note.lower()
+
+
+def test_open_loop_report_passes_when_declared_payoff_is_delivered(good_script):
+    from content_foundry.agents.judge_checks import open_loop_report
+
+    scenes = list(good_script.scenes)
+    last = scenes[-1].model_copy(update={
+        "narration": scenes[-1].narration + " And here is the geothermal calibration ritual itself."
+    })
+    s = good_script.model_copy(update={
+        "scenes": scenes[:-1] + [last], "open_loop": "the geothermal calibration ritual"
+    })
+    ok, note = open_loop_report(s)
+    assert ok and note == ""  # promise words resurface at the end -> delivered
+
+
+def test_open_loop_report_flags_a_tease_with_no_declared_payoff(good_script):
+    from content_foundry.agents.judge_checks import open_loop_report
+
+    scenes = list(good_script.scenes)
+    first = scenes[0].model_copy(update={
+        "narration": "Stick around, by the end of this video I will reveal it. " + scenes[0].narration
+    })
+    s = good_script.model_copy(update={"scenes": [first] + scenes[1:], "open_loop": ""})
+    ok, note = open_loop_report(s)
+    assert not ok and "open loop" in note.lower()
+
+
+
 def test_fatigue_on_back_to_back_template(good_script):
     fresh = freshness_and_fatigue(
         "contrarian", good_script.hook, ["contrarian", "three_step"], []

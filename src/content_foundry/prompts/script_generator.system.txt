@@ -246,6 +246,7 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
 {time_context}
 {creator_context}
 {format_context}
+{retention_context}
 {affiliate_context}
 
 <output_format>

@@ -107,6 +107,18 @@ def test_clip_ok_requires_a_specific_query_word_not_just_generic():
     assert _clip_ok("person standing", "office, person, desk", vocab | {"office", "desk"}) is True
 
 
+def test_clip_ok_rich_beat_needs_more_than_one_specific_match():
+    vocab = {"engineer", "whiteboard", "office", "diagram", "confused", "coding", "developer", "code"}
+    # A 3-specific-word beat ("confused engineer whiteboard"): a clip that names only ONE of them is a
+    # weak, borderline match -> dropped (it falls back to a bespoke generated image)...
+    assert _clip_ok("confused engineer whiteboard", "engineer, bridge, construction", vocab) is False
+    # ...while a clip that names TWO of the three is a confident match -> kept.
+    assert _clip_ok("confused engineer whiteboard", "engineer, whiteboard, office", vocab) is True
+    # NO REGRESSION: a 2-specific-word beat still passes on a single strong match (floor stays 1).
+    assert _clip_ok("developer typing", "developer, code, laptop", vocab) is True
+
+
+
 @respx.mock
 def test_pixabay_positive_context_drops_unrelated_clip():
     respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
@@ -212,7 +224,7 @@ def test_cut_pace_maps_editing_hint():
 
 
 def test_picker_avoids_consecutive_and_caps_reuse():
-    picker = _BrollPicker(random.Random("seed"), max_uses=2)
+    picker = _BrollPicker(max_uses=2)
     seq = [picker.pick(["a", "b"]) for _ in range(4)]
     assert all(seq[i] != seq[i + 1] for i in range(len(seq) - 1))  # never back-to-back
     assert picker.pick(["a", "b"]) is None  # 2 clips x cap 2 -> exhausted
@@ -220,7 +232,7 @@ def test_picker_avoids_consecutive_and_caps_reuse():
 
 
 def test_picker_prefers_fresh_clips():
-    picker = _BrollPicker(random.Random("seed"))
+    picker = _BrollPicker()
     pool = [f"c{i}" for i in range(8)]
     picks = [picker.pick(list(pool)) for _ in range(5)]
     assert len(set(picks)) == 5  # all distinct while fresh clips remain
@@ -229,28 +241,20 @@ def test_picker_prefers_fresh_clips():
 def test_picker_never_reuses_a_clip_by_default():
     # The default cap is 1: every clip is used at most once, so a 3-clip pool yields 3 distinct picks
     # and then None — no shot is ever repeated anywhere in the video.
-    picker = _BrollPicker(random.Random("seed"))
+    picker = _BrollPicker()
     pool = ["a", "b", "c"]
     picks = [picker.pick(list(pool)) for _ in range(3)]
     assert sorted(picks) == ["a", "b", "c"]  # each used exactly once
     assert picker.pick(list(pool)) is None  # pool exhausted -> caller must reach for a different clip
 
 
-def test_picker_varies_across_runs():
+def test_picker_is_deterministic_and_takes_the_most_relevant():
+    # No diversity sampling: the pool is in search-rank order, so pick ALWAYS returns rank 1 (the most
+    # relevant), and two independent pickers on the same pool agree exactly (deterministic).
     pool = [f"c{i}" for i in range(12)]
-    firsts = {
-        _BrollPicker(random.Random(rid)).pick(list(pool))
-        for rid in ("0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010")
-    }
-    assert len(firsts) > 1  # different runs don't all open on the same clip
-
-
-def test_picker_favors_more_relevant_clips():
-    # Candidates arrive in relevance order (search rank). Across many runs the top-ranked clip should
-    # be chosen more often than the least-ranked, while still leaving room for variety.
-    pool = ["a", "b", "c", "d"]  # "a" = most relevant
-    firsts = Counter(_BrollPicker(random.Random(str(i))).pick(list(pool)) for i in range(60))
-    assert firsts["a"] > firsts["d"]
+    assert _BrollPicker().pick(list(pool)) == "c0"
+    a = [_BrollPicker().pick(list(pool)) for _ in range(5)]
+    assert a == ["c0"] * 5  # every fresh picker opens on the single best clip, never a sampled one
 
 
 def test_search_terms_shortens_beat_to_keywords():

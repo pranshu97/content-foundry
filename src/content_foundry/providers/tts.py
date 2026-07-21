@@ -259,7 +259,7 @@ class ChatterboxTTS:
 
     def __init__(self, reference_clip: str, *, device: str = "auto",
                  exaggeration: float = 0.5, cfg_weight: float = 0.5,
-                 silence_pad_ms: int = 150) -> None:
+                 silence_pad_ms: int = 150, max_pause_ms: int = 1000) -> None:
         from pathlib import Path
 
         self._reference = reference_clip or ""
@@ -267,6 +267,7 @@ class ChatterboxTTS:
         self._exaggeration = exaggeration
         self._cfg_weight = cfg_weight
         self._silence_pad_ms = silence_pad_ms
+        self._max_pause_ms = max_pause_ms
         self.voice = Path(self._reference).stem if self._reference else "cloned"
         self.sample_rate = 24000
         self._model = None
@@ -344,8 +345,12 @@ class ChatterboxTTS:
             if hasattr(wav, "dim") and wav.dim() == 1:
                 wav = wav.unsqueeze(0)
             # Trim Chatterbox's leading/trailing silence per chunk so stitched sentences/scenes don't
-            # pile up long dead-air pauses (a small pad keeps a natural beat between sentences).
-            pieces.append(_trim_silence(wav, self.sample_rate, pad_ms=self._silence_pad_ms))
+            # pile up long dead-air pauses (a small pad keeps a natural beat between sentences), and
+            # collapse any very long INTERNAL pause the cloner emits between two sentences in a chunk.
+            pieces.append(_trim_silence(
+                wav, self.sample_rate, pad_ms=self._silence_pad_ms,
+                max_pause_ms=self._max_pause_ms,
+            ))
         if not pieces:
             raise TTSError("Chatterbox produced no audio (the scene narration was empty).")
         wav = torch.cat(pieces, dim=-1) if len(pieces) > 1 else pieces[0]
@@ -367,23 +372,75 @@ def _tensor_to_wav_bytes(wav, sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
-def _trim_silence(wav, sample_rate: int, *, thresh: float = 0.015, pad_ms: int = 40):  # pragma: no cover - needs torch + real audio
+def _keep_slices(n: int, silent: list[tuple[int, int]], *, pad: int, max_gap: int) -> list[tuple[int, int]]:
+    """Plan which sample slices of ``[0, n)`` to KEEP so leading/trailing silence is trimmed to ``pad``
+    samples and any INTERNAL silent run longer than ``max_gap`` (0 disables) collapses to ``2*pad``
+    samples. ``silent`` = the maximal silent ``(start, end)`` runs, sorted, non-overlapping, inside
+    ``[0, n)``. Voiced samples are NEVER cut. Pure + deterministic, so it is unit-tested directly."""
+    drops: list[tuple[int, int]] = []
+    for s, e in silent:
+        lead, trail = s <= 0, e >= n
+        if lead and trail:
+            continue  # the whole signal is silent -> leave it to the caller
+        if lead:
+            if e - s > pad:
+                drops.append((s, e - pad))  # keep only `pad` before the first word
+        elif trail:
+            if e - s > pad:
+                drops.append((s + pad, e))  # keep only `pad` after the last word
+        elif max_gap and (e - s) > max_gap:
+            drops.append((s + pad, e - pad))  # collapse a very long internal pause to ~2*pad
+    keep: list[tuple[int, int]] = []
+    cursor = 0
+    for a, b in drops:
+        if a > cursor:
+            keep.append((cursor, a))
+        cursor = max(cursor, b)
+    if cursor < n:
+        keep.append((cursor, n))
+    return keep
+
+
+def _silent_runs(voiced) -> list[tuple[int, int]]:  # pragma: no cover - needs torch + real audio
+    """Maximal silent ``(start, end)`` sample runs from a 1-D voiced (amp > thresh) boolean tensor."""
+    import torch
+
+    n = int(voiced.shape[-1])
+    sil = ~voiced
+    if not bool(sil.any()):
+        return []
+    flips = (torch.nonzero(sil[1:] != sil[:-1]).flatten() + 1).tolist()
+    bounds = [0, *flips, n]
+    return [
+        (bounds[k], bounds[k + 1]) for k in range(len(bounds) - 1) if bool(sil[bounds[k]])
+    ]
+
+
+def _trim_silence(wav, sample_rate: int, *, thresh: float = 0.015, pad_ms: int = 40, max_pause_ms: int = 0):  # pragma: no cover - needs torch + real audio
     """Trim leading/trailing near-silence from a Chatterbox waveform tensor (channels, samples),
-    keeping a small pad, so stitched chunks/scenes don't accumulate dead air. Returns the tensor
-    unchanged when it is all silence or the shape is unexpected."""
+    keeping a ``pad_ms`` pad, and (when ``max_pause_ms`` > 0) collapse any INTERNAL silent run longer
+    than it to ~2*pad so a rare 2-3 s dead-air gap between two sentences in a chunk stops being an
+    outlier. Only SILENT samples are ever removed (speech is untouched), and pauses shorter than the
+    cap are left byte-identical. Returns the tensor unchanged when it is all silence or on any error."""
     try:
         import torch
 
         amp = wav.abs()
         if amp.dim() == 2:
             amp = amp.mean(dim=0)
-        nz = torch.nonzero(amp > thresh).flatten()
-        if nz.numel() == 0:
+        n = int(amp.shape[-1])
+        voiced = amp > thresh
+        if not bool(voiced.any()):
             return wav
         pad = int(sample_rate * pad_ms / 1000)
-        start = max(0, int(nz[0]) - pad)
-        end = min(int(amp.shape[-1]), int(nz[-1]) + pad + 1)
-        return wav[..., start:end]
+        max_gap = int(sample_rate * max_pause_ms / 1000) if max_pause_ms else 0
+        keep = _keep_slices(n, _silent_runs(voiced), pad=pad, max_gap=max_gap)
+        if not keep:
+            return wav
+        if len(keep) == 1:
+            a, b = keep[0]
+            return wav[..., a:b]
+        return torch.cat([wav[..., a:b] for a, b in keep], dim=-1)
     except Exception:
         return wav
 

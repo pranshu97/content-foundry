@@ -232,6 +232,27 @@ def test_creator_bio_stays_generic_when_unset():
     assert "SPARINGLY" in clause  # woven in subtly, never a brag
 
 
+def test_retention_context_is_long_form_only_and_gated(monkeypatch):
+    from content_foundry.agents.script_generator import _retention_context
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("CONTENT_FORMAT", "long")
+    monkeypatch.setenv("RETENTION_OPEN_LOOP_ENABLED", "true")
+    reset_settings_cache()
+    ctx = _retention_context(get_settings())
+    assert "OPEN LOOP" in ctx and "BAIT-AND-SWITCH" in ctx  # planted, with the anti-bait guardrail
+
+    # OFF for a Short (hooks in the first second; no room for an open loop)...
+    monkeypatch.setenv("CONTENT_FORMAT", "short")
+    reset_settings_cache()
+    assert _retention_context(get_settings()) == ""
+    # ...and OFF when the operator disables it.
+    monkeypatch.setenv("CONTENT_FORMAT", "long")
+    monkeypatch.setenv("RETENTION_OPEN_LOOP_ENABLED", "false")
+    reset_settings_cache()
+    assert _retention_context(get_settings()) == ""
+
+
 def test_ungrounded_stat_is_stripped(settings, data_brief, fakes):
     payload = {
         "title_options": ["t"],

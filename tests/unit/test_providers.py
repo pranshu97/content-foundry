@@ -512,6 +512,31 @@ def test_chunk_for_tts_splits_long_text_without_dropping_words():
     assert " ".join(pieces).split() == one_long.split()
 
 
+def test_keep_slices_trims_edges_and_collapses_only_long_internal_pauses():
+    from content_foundry.providers.tts import _keep_slices
+
+    n = 1000
+    # Speech at [100,300) and [700,900); silence: lead [0,100), internal [300,700), trailing [900,1000).
+    silent = [(0, 100), (300, 700), (900, 1000)]
+
+    # No internal cap (max_gap=0): only edges trimmed to pad=10; the 400-sample internal gap is KEPT.
+    keep = _keep_slices(n, silent, pad=10, max_gap=0)
+    assert keep == [(90, 910)]  # lead trimmed to 10 before speech, trailing to 10 after
+
+    # With a cap SHORTER than the internal gap: it collapses to 2*pad (drop its middle), edges as above.
+    keep = _keep_slices(n, silent, pad=10, max_gap=200)
+    assert keep == [(90, 310), (690, 910)]  # internal 400 -> keeps 10 each side, drops [310,690)
+
+    # NO REGRESSION: an internal gap SHORTER than the cap is left byte-identical (never touched).
+    short_gap = [(0, 100), (300, 500), (900, 1000)]  # internal gap is only 200 samples
+    keep = _keep_slices(n, short_gap, pad=10, max_gap=300)
+    assert keep == [(90, 910)]  # 200 <= 300 cap -> the whole middle is kept intact
+
+    # An all-silent signal is left whole (the caller short-circuits before ever compressing it).
+    assert _keep_slices(n, [(0, n)], pad=10, max_gap=100) == [(0, n)]
+
+
+
 def test_pick_voice_alternates_by_run_id_parity():
     from content_foundry.providers.tts import pick_voice
 

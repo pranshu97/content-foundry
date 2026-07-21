@@ -189,6 +189,12 @@ class Settings(BaseSettings):
     # and sentence-to-sentence transitions feel abrupt/clipped; ~150 ms leaves a natural breath so the
     # stitched narration flows instead of jump-cutting between sentences.
     tts_silence_pad_ms: int = Field(150, ge=0, le=1000)
+    # Cap on any INTERNAL pause inside a Chatterbox chunk: a neural cloner occasionally emits a long
+    # 2-3 s dead-air gap between two sentences that share a chunk, and edge-trimming can't reach it.
+    # Any silent run LONGER than this collapses to the normal ~2x pad beat, so those rare outliers
+    # match the consistent pauses. Set comfortably ABOVE a natural pause (default 1000 ms) so ONLY the
+    # outliers move and every normal pause is left byte-identical; 0 disables the internal cap.
+    tts_max_pause_ms: int = Field(1000, ge=0, le=5000)
 
     # ---------- Visuals ----------
     image_provider: Literal["openai", "stability", "google", "pollinations", "none"] = "openai"
@@ -365,6 +371,11 @@ class Settings(BaseSettings):
     # Optional SHORT credibility tag some titles/thumbnails may carry (e.g. "FAANG AI Scientist").
     # Blank = the writer may infer a short one from creator_bio, or omit it. Used only sometimes.
     creator_title_tag: str = ""
+    # Let the writer plant ONE optional "open loop" (a genuine 'stick around, I'll reveal X by the end'
+    # promise) in LONG-FORM videos to lift average view duration — conditional (the model only uses it
+    # when it fits naturally) and enforced (a Judge gate rejects a teased payoff that isn't delivered,
+    # so it is never a bait-and-switch). Never used on Shorts. Set false to disable the nudge entirely.
+    retention_open_loop_enabled: bool = True
 
     # ---------- Sound effects ----------
     # Script-authored SFX cues mixed into the narration at each scene's start. Local library first,

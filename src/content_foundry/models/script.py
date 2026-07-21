@@ -41,4 +41,8 @@ class Script(BaseModel):
     grounded_fact_refs: list[int] = Field(default_factory=list)
     synthetic_disclosure: bool = True
     time_sensitive: bool = False  # LLM's call: is the topic time-bound? (drives year-stamping)
+    # The specific end-payoff the script promised early to lift retention ("" = no open loop). A
+    # deterministic Judge gate verifies a declared payoff is actually delivered in the final scenes,
+    # so an open loop can never become a bait-and-switch.
+    open_loop: str = ""
     provenance: Provenance

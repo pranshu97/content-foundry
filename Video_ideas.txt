@@ -1,3 +1,6 @@
+Curiosity
+    [LONG] Are Your Devices Listening? (How recommendations work!)
+
 Interviews
     [LONG]  How to Pass the Amazon Applied Scientist Interview
     [LONG]  Leetcode vs ML: What FAANG ML Interviews Really Ask
@@ -6,6 +9,7 @@ Interviews
 
 
 Getting hired
+    [LONG] Transition from SWE to ML / AI Engineer
     [LONG]  How to Get an ML Engineer Job at FAANG With No PhD
     [SHORT] Machine Learning Resume Mistakes That Get You Auto-Rejected
     [LONG]  How FAANG Screens ML Resumes (What the ATS + Recruiter See)

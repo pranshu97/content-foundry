@@ -22,7 +22,7 @@ class SceneImageDirector:
         self._log = get_logger(component="scene_image_director")
 
     def compose(
-        self, *, beats: list[str], narration: str = "", on_screen_text: str = ""
+        self, *, beats: list[str], narration: str = "", on_screen_text: str = "", niche: str = ""
     ) -> dict[str, str]:
         """Return ``{beat: image_prompt}`` for the given gap beats — one LLM call for the whole scene.
         Empty when there are no beats or the model output is unusable (the caller then uses its
@@ -39,6 +39,7 @@ class SceneImageDirector:
             narration=narration or "",
             on_screen=on_screen_text or "",
             style=self._settings.visual_style,
+            niche=niche or self._settings.target_niche or "",
         )
         resp = self._llm.complete(
             "Return ONLY the JSON now.",

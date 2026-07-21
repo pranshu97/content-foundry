@@ -24,6 +24,7 @@ from .judge_checks import (
     heuristic_wittiness,
     hook_score,
     hook_why,
+    open_loop_report,
     redundancy_report,
     specificity_score,
     specificity_why,
@@ -80,6 +81,9 @@ class Judge:
         end, end_detail = ending_report(script)
         end5 = round(end / 2, 2)  # ending on the 0-5 rubric scale
         redundancy_ok, redundancy_note = redundancy_report(script, threshold=s.max_scene_similarity)
+        # Retention open loop: a declared/teased end-payoff MUST actually be delivered (never a bait-
+        # and-switch). Long-form only — Shorts don't plant open loops.
+        open_loop_ok, open_loop_note = (True, "") if s.is_short else open_loop_report(script)
 
         # An egregiously short draft (a single scene) is rejected without spending an LLM call,
         # exactly like a grounding/compliance violation. Full completeness (scene/word floors) is
@@ -89,6 +93,7 @@ class Judge:
             or (g5 < s.grounding_min)
             or (len(script.scenes) < 2)
             or (not redundancy_ok)
+            or (not open_loop_ok)
         )
 
         # ---- subjective dims: LLM (hybrid/llm) or heuristic (deterministic / fallback) ----
@@ -185,6 +190,7 @@ class Judge:
             wittiness_ok=wittiness_ok,
             ending_ok=ending_ok,
             redundancy_ok=redundancy_ok,
+            open_loop_ok=open_loop_ok,
             fatigue=fresh.fatigue,
             completeness_ok=completeness_ok,
             attempt_number=attempt_number,
@@ -211,6 +217,7 @@ class Judge:
             else self._revision_instructions(
                 dimensions, fresh, forced_template_id, length_note,
                 None if redundancy_ok else redundancy_note,
+                None if open_loop_ok else open_loop_note,
             )
         )
 
@@ -354,6 +361,7 @@ class Judge:
         wittiness_ok: bool,
         ending_ok: bool,
         redundancy_ok: bool,
+        open_loop_ok: bool = True,
         fatigue: bool,
         completeness_ok: bool,
         attempt_number: int,
@@ -366,6 +374,7 @@ class Judge:
             or not wittiness_ok
             or not ending_ok
             or not redundancy_ok
+            or not open_loop_ok
             or fatigue
             or not completeness_ok
         )
@@ -377,7 +386,8 @@ class Judge:
 
     @staticmethod
     def _revision_instructions(
-        dimensions, fresh, forced_template_id, length_note=None, redundancy_note=None
+        dimensions, fresh, forced_template_id, length_note=None, redundancy_note=None,
+        open_loop_note=None,
     ) -> str:
         """A per-dimension critique the Generator can act on — reuses the judge's own reasoning
         (justification + the evidence it flagged) for every dimension that fell short, so the
@@ -389,6 +399,8 @@ class Judge:
                 "- KEEP INTACT (already strong — edit around these, do NOT let them regress): "
                 f"{', '.join(strengths)}."
             )
+        if open_loop_note:
+            lines.append(f"- {open_loop_note}")
         if redundancy_note:
             lines.append(f"- {redundancy_note}")
         if length_note:

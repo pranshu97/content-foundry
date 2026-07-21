@@ -128,6 +128,62 @@ def duplicate_scene_pairs(script: Script, *, threshold: float = 0.5) -> list[tup
     return out
 
 
+# An explicit "stay to the end" promise. Kept tight (forward-looking phrases only) so ordinary prose
+# and warm sign-offs ("see you in the next one") are never mistaken for a retention tease.
+_END_TEASE_RE = re.compile(
+    r"\bstick around\b"
+    r"|\bstay (?:till|until|to|tuned till|tuned until) the end\b"
+    r"|\bby the end of (?:this|the) (?:video|one)\b"
+    r"|\bat the (?:very )?end of (?:this|the) (?:video|one)\b"
+    r"|\bkeep watching\b|\bwait for it\b|\bsave the best for last\b"
+    r"|\blater in (?:this|the) (?:video|one)\b"
+    r"|\b(?:i'?ll|i will|we'?ll|we will) (?:show|reveal|tell|give|share) you [^.!?]{0,60}"
+    r"(?:by the end|at the end|later)\b",
+    re.I,
+)
+# Words too generic to prove a promised payoff was actually delivered.
+_LOOP_STOP = frozenset({
+    "video", "this", "that", "your", "you", "the", "and", "with", "from", "what", "when", "will",
+    "would", "could", "should", "about", "there", "here", "them", "they", "then", "than", "into",
+    "just", "going", "really", "thing", "things", "most", "more", "some", "show", "reveal", "tell",
+    "give", "share", "later", "stay", "around", "watch", "watching", "keep", "till", "until",
+})
+
+
+def _loop_salient(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{4,}", (text or "").lower()) if w not in _LOOP_STOP}
+
+
+def open_loop_report(script: Script) -> tuple[bool, str]:
+    """Guardrail against a bait-and-switch retention hook. Returns ``(ok, note)``.
+
+    - When the script DECLARES an ``open_loop`` payoff, its concrete words MUST resurface in the final
+      two scenes / CTA (i.e. the promise is actually delivered), else it is a hard fail.
+    - When ``open_loop`` is empty but the narration still teases an end-of-video payoff ('stick around',
+      'by the end of this video'), that dangling promise is the same trap, so it also fails.
+    A script that neither teases nor declares a loop passes (the common, correct case)."""
+    promise = (getattr(script, "open_loop", "") or "").strip()
+    if promise:
+        ordered = sorted(script.scenes, key=lambda sc: sc.index)
+        tail = " ".join(sc.narration for sc in ordered[-2:]) + " " + (script.cta or "")
+        want = _loop_salient(promise)
+        if want and not (want & _loop_salient(tail)):
+            return False, (
+                "OPEN LOOP — HARD FAIL (bait-and-switch): the script promises a payoff "
+                f'(open_loop: "{promise[:80]}") but it is never delivered in the final scenes. '
+                "Pay it off clearly and specifically at the end, or drop the promise entirely."
+            )
+        return True, ""
+    if _END_TEASE_RE.search(all_text(script)):
+        return False, (
+            "OPEN LOOP — HARD FAIL: the narration teases an end-of-video payoff (e.g. 'stick around', "
+            "'by the end of this video') but nothing specific is set up to deliver it. Either DELIVER a "
+            "concrete payoff at the end and put it in the open_loop field, or remove the tease."
+        )
+    return True, ""
+
+
+
 def redundancy_report(script: Script, *, threshold: float = 0.5) -> tuple[bool, str]:
     """(is_ok, detail): flag scripts that repeat whole scenes near-verbatim, with a specific note
     naming the offending scene pairs so the rewrite fixes exactly them."""

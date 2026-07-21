@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import random
 import re
 from io import BytesIO
 from pathlib import Path
@@ -212,42 +211,34 @@ def _search_terms(beat: str, *, min_words: int = 2, max_words: int = 4) -> str:
 
 
 class _BrollPicker:
-    """Chooses B-roll clips for one run: keeps the most relevant candidates near the top, adds
-    cross-video variety with a per-run seed, and by default uses every clip AT MOST ONCE per video
-    (``max_uses=1``) so no shot is ever repeated — once a clip is taken it stays out of the pool and
-    ``pick`` returns None, letting the caller reach for a different one."""
+    """Chooses B-roll clips for one run, ALWAYS taking the single most-relevant eligible clip (kept in
+    search-rank order) — deterministic, with NO diversity sampling. A beat that can't get its best clip
+    now falls back to a bespoke GENERATED image, so there is never a reason to trade down to a less-
+    relevant clip for variety. Every clip is used AT MOST ONCE per video by default (``max_uses=1``) so
+    no shot repeats; once taken it leaves the pool and ``pick`` returns None, letting the caller reach
+    for a different clip (or generate one)."""
 
-    _TOP_K = 8  # sample among the most-relevant eligible clips (a wider window = much more variety)
-
-    def __init__(self, rng: random.Random, *, max_uses: int = 1) -> None:
-        self._rng = rng
+    def __init__(self, *, max_uses: int = 1) -> None:
         self._used: dict[str, int] = {}
         self._prev = ""
         self._max = max_uses
 
     def pick(self, candidates: list[str]) -> str | None:
-        pool = [u for u in dict.fromkeys(candidates) if u]  # de-dup, keep relevance order
+        pool = [u for u in dict.fromkeys(candidates) if u]  # de-dup, keep RELEVANCE order
         if not pool:
             return None
-        # Two tiers: prefer a never-used clip; otherwise (only when a caller raises max_uses above 1)
-        # an under-cap clip that ISN'T the one we just showed, so any repeat is never back-to-back. At
-        # the default cap of 1 the second tier is always empty, so a clip is NEVER reused anywhere.
-        tiers = (
-            lambda u: self._used.get(u, 0) == 0,  # fresh (never == prev, since prev was used)
-            lambda u: self._used.get(u, 0) < self._max and u != self._prev,  # under cap, not back-to-back
-        )
-        for eligible in tiers:
-            tier = [u for u in pool if eligible(u)]
-            if tier:
-                window = tier[: self._TOP_K]
-                # Bias hard toward the single most relevant clip (search rank 1), but keep a little
-                # seeded variety so different runs still differ — weights fall off with the SQUARE
-                # of rank, so rank 1 is picked far more often than rank 3-4.
-                weights = [r * r for r in range(len(window), 0, -1)]
-                chosen = self._rng.choices(window, weights=weights, k=1)[0]
-                self._used[chosen] = self._used.get(chosen, 0) + 1
-                self._prev = chosen
-                return chosen
+        # Prefer a never-used clip; otherwise (only when a caller raises max_uses above 1) an under-cap
+        # clip that ISN'T the one just shown, so a repeat is never back-to-back. Within a tier ALWAYS
+        # take the FIRST match — i.e. the most relevant (search rank 1) — never a sampled lower rank.
+        for eligible in (
+            lambda u: self._used.get(u, 0) == 0,
+            lambda u: self._used.get(u, 0) < self._max and u != self._prev,
+        ):
+            for u in pool:
+                if eligible(u):
+                    self._used[u] = self._used.get(u, 0) + 1
+                    self._prev = u
+                    return u
         return None
 
 
@@ -278,9 +269,10 @@ class Visuals:
             for w in re.findall(r"[a-z]{3,}", (kw or "").lower())
         }
         self._relevance_context = " ".join(sorted(vocab)) if len(vocab) >= 8 else ""
-        # Per-run picker: seeded so different runs pick different clips (varied videos), while
-        # de-duping, capping reuse, and never repeating a clip in consecutive scenes.
-        picker = _BrollPicker(random.Random(run_id))
+        # Per-run picker: de-dupes, caps reuse, never repeats a clip in consecutive scenes, and always
+        # takes the MOST relevant clip (deterministic — no diversity sampling; misses fall back to a
+        # generated image).
+        picker = _BrollPicker()
         for scene in sorted(script.scenes, key=lambda s: s.index):
             scene_visuals.append(
                 self._build_scene_visual(
@@ -429,6 +421,7 @@ class Visuals:
             return SceneImageDirector(self._settings, self._llm).compose(
                 beats=beats, narration=getattr(scene, "narration", "") or "",
                 on_screen_text=scene.on_screen_text or "",
+                niche=getattr(self._settings, "target_niche", "") or "",
             )
         except Exception as exc:  # a prompt-writing failure must never break the visuals stage
             self._log.warning("scene_image_director_skipped", error=str(exc))

@@ -130,3 +130,17 @@ def write_end_screen(path, payload: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def recommendations_comment(recs, *, header: str = "") -> str:
+    """A 'watch next' comment body from the recommended prior videos (dicts with ``name`` + ``link``)
+    — one play-marked line each. Empty when there are none, so an empty comment is never posted.
+    Format-agnostic: identical for Shorts and long-form."""
+    items = [r for r in (recs or []) if isinstance(r, dict) and (r.get("link") or "").strip()]
+    if not items:
+        return ""
+    head = (header or "").strip() or "More videos you might like:"
+    lines = [
+        f"\u25b6 {(r.get('name') or 'Watch this').strip()}: {r['link'].strip()}" for r in items
+    ]
+    return head + "\n" + "\n".join(lines)

@@ -50,14 +50,23 @@ class ThumbnailDirector:
     def _direct(self, concept, *, title, niche, thumbnail_text, no_person) -> str | None:
         person_clause = (
             "COMPOSITION: NO people and NO faces anywhere (a presenter is composited in separately). "
-            "Build a bold, simple, subject-free background around ONE striking symbolic object or "
-            "setting; keep the LEFT half cleaner and slightly darker for a large title overlay and "
-            "leave the RIGHT side open for a person."
+            "Build the topic-relevant SETTING itself — the office, cubicles, desks, monitors, "
+            "whiteboard, campus, etc. the concept implies — as a bold scene with real depth, and keep "
+            "the RIGHT side more open for a person plus a calmer area for a large title overlay."
             if no_person else
-            "COMPOSITION: ONE bold human subject as the clear focal point with an instantly-readable, "
-            "exaggerated facial expression and body language, framed chest-up and pushed to one side, "
-            "leaving the opposite side cleaner and slightly darker for a large title overlay."
+            "COMPOSITION: ONE main person in a topic-relevant setting as the clear focal subject, "
+            "facing the camera with an instantly-readable, exaggerated emotion; keep their face the "
+            "largest, sharpest, unobstructed face in the frame (a close-up, waist-up, standing, or a "
+            "medium shot all work). Leave a calmer area on one side or along the top or bottom for a "
+            "large title overlay."
         )
+        appearance = (getattr(self._settings, "avatar_appearance", "") or "").strip()
+        if appearance and not no_person:
+            person_clause += (
+                f" MATCH THE PRESENTER: the person's face is swapped in afterwards, so make the "
+                f"generated person LOOK like them: {appearance}. Keep the same age, gender, skin "
+                "tone, hair, and facial hair — a close match is what makes the swap convincing."
+            )
         model = select_model(
             self._settings, TaskTier.LIGHT, fallback=self._settings.generator_model
         )

@@ -42,6 +42,22 @@ def test_thumbnail_director_no_person_asks_for_a_background(monkeypatch, fakes):
     assert "no people" in llm.calls[-1]["system"].lower()
 
 
+def test_thumbnail_director_injects_avatar_appearance(monkeypatch, fakes):
+    monkeypatch.setenv("THUMBNAIL_DIRECTOR_ENABLED", "true")
+    monkeypatch.setenv("AVATAR_APPEARANCE", "a bearded man in his late 20s")
+    reset_settings_cache()
+    settings = get_settings()
+    llm = fakes.LLM(script_json="a bright office scene, no text")
+    # With a person, the operator's look is handed to the model so the swap target resembles them.
+    ThumbnailDirector(settings, llm).compose("developer at a desk", title="t", niche="tech")
+    system = llm.calls[-1]["system"]
+    assert "a bearded man in his late 20s" in system
+    assert "MATCH THE PRESENTER" in system
+    # A people-free background has no face to match, so the appearance clause is omitted.
+    ThumbnailDirector(settings, llm).compose("a desk", title="t", no_person=True)
+    assert "MATCH THE PRESENTER" not in llm.calls[-1]["system"]
+
+
 def test_thumbnail_director_empty_concept_and_title_is_noop(monkeypatch, fakes):
     settings = _settings(monkeypatch, enabled=True)
     llm = fakes.LLM(script_json="x")

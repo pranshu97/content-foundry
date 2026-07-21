@@ -7,13 +7,7 @@ from pathlib import Path
 
 from ..logging import get_logger
 from ..models import Provenance, PublishResult, Script, VideoAsset, VisualPackage, utcnow
-from ..production.affiliate import (
-    AffiliateLink,
-    affiliate_block,
-    amazon_search_query,
-    resolve_links,
-    tag_amazon_url,
-)
+from ..production.affiliate import AffiliateLink, affiliate_block
 from ..production.seo import channel_cta_block, optimize_metadata
 from ..safeguards.disclosure import resolve_publish_outcome
 
@@ -28,38 +22,38 @@ class Publisher:
     def __init__(self, settings, publisher, search_provider=None):
         self._settings = settings
         self._pub = publisher
-        self._search = search_provider
+        self._search = search_provider  # kept for compatibility; affiliate links now resolve pre-gen
         self._log = get_logger(component="publisher")
 
-    def _affiliate_links(self, script: Script, tags: list[str]) -> list[AffiliateLink]:
-        """Topic-relevant affiliate links for this video (referrals + an optional real Amazon product).
-        Empty when AFFILIATE_ENABLED is off."""
-        s = self._settings
-        if not getattr(s, "affiliate_enabled", False):
+    def _affiliate_links(self, script: Script) -> list[AffiliateLink]:
+        """The resource links the SCRIPT already committed to (resolved BEFORE generation + name-
+        scanned, persisted on the script). Rebuilt from ``script.affiliate_links`` — never re-searched
+        here, so the description matches EXACTLY what the narration promised."""
+        if not getattr(self._settings, "affiliate_enabled", False):
             return []
-        script_text = " ".join((sc.narration or "") for sc in script.scenes)
-        # The Amazon BOOK query uses the script's own topical tags (more specific than the niche-seeded
-        # SEO tags) so the found book is canonical to the topic.
-        amazon = self._amazon_link(list(script.tags) or list(tags))
-        return resolve_links(s, tags=tags, script_text=script_text, amazon_link=amazon)
+        return [AffiliateLink(**d) for d in (getattr(script, "affiliate_links", None) or [])]
 
-    def _amazon_link(self, tags: list[str]) -> AffiliateLink | None:
-        """Best-effort: find a REAL Amazon product URL via the search provider and append the associate
-        tag. ``None`` when disabled, no search provider, or nothing valid is found — never a guessed
-        URL."""
-        s = self._settings
-        if not (getattr(s, "amazon_assoc_tag", "") or "").strip() or self._search is None:
-            return None
+    def _recommendations_comment(
+        self, run_id: str, title: str, script: Script, run_root: Path
+    ) -> str:
+        """A 'watch next' comment block linking the most related PRIOR videos on the channel (the same
+        picks as the end screen) so a fresh upload pulls viewers deeper. Empty when there are no prior
+        published videos or on any failure — nothing spurious is ever posted. Works for both formats."""
         try:
-            query = amazon_search_query(tags, s.target_niche)
-            results = self._search.search(f"{query} site:amazon.com", 5) or []
-            for r in results:
-                tagged = tag_amazon_url(getattr(r, "url", ""), s.amazon_assoc_tag)
-                if tagged:
-                    return AffiliateLink("Recommended book (Amazon)", tagged)
-        except Exception as exc:  # a flaky search must never break publishing
-            self._log.warning("affiliate_amazon_failed", error=str(exc))
-        return None
+            from ..production.end_screen import build_end_screen, recommendations_comment
+
+            payload = build_end_screen(
+                run_root.parent, run_id=run_id, title=title,
+                tags=list(getattr(script, "tags", []) or []), niche=self._settings.target_niche,
+                count=self._settings.end_screen_count,
+            )
+            return recommendations_comment(
+                payload.get("recommendations", []),
+                header=self._settings.recommend_comment_header,
+            )
+        except Exception as exc:  # a recommendations failure must never abort the upload
+            self._log.warning("recommend_comment_failed", error=str(exc))
+            return ""
 
     def run(
         self,
@@ -71,23 +65,21 @@ class Publisher:
         run_root: Path,
     ) -> PublishResult:
         s = self._settings
+        # Affiliate resources the SCRIPT committed to (resolved pre-generation, name-scanned, stored on
+        # the script) + the disclosure. Placed ABOVE the chapters (more visible). A no-op when off.
+        aff_links = self._affiliate_links(script)
+        aff_block = affiliate_block(aff_links, s)
         if s.seo_optimize_enabled:
-            meta = optimize_metadata(script, visuals, s)
+            meta = optimize_metadata(script, visuals, s, affiliate_block=aff_block)
             title, description, tags = meta.title, meta.description, meta.tags
         else:
             title = (script.title_options or ["Untitled career-advice video"])[0]
             description = script.description
+            if aff_block:
+                description = f"{description}\n\n{aff_block}"
             tags = script.tags
         video_real = str(run_root / video.video_path)
         thumb_real = str(run_root / visuals.thumbnail_path)
-
-        # Affiliate resources (optional monetization). Topic-relevant referral links + a real Amazon
-        # product (found via search, never invented) + a required disclosure, appended to EVERY
-        # description. A no-op when AFFILIATE_ENABLED is off.
-        aff_links = self._affiliate_links(script, list(tags))
-        aff_block = affiliate_block(aff_links, s)
-        if aff_block:
-            description = f"{description}\n\n{aff_block}"
 
         # Always upload Private first; the disclosure gate decides the final privacy.
         video_id = self._pub.upload(
@@ -99,21 +91,32 @@ class Publisher:
             privacy_status="private",
             default_language=s.youtube_default_language,
         )
-        # Buffer: let YouTube finish processing the just-uploaded video before setting the thumbnail
-        # (thumbnails.set is rejected while the video is still processing), then retry with backoff.
-        if s.publish_thumbnail_delay_sec > 0:
-            self._log.info("thumbnail_buffer", seconds=s.publish_thumbnail_delay_sec)
-            time.sleep(s.publish_thumbnail_delay_sec)
-        for attempt in range(1, _THUMB_SET_ATTEMPTS + 1):
-            try:
-                self._pub.set_thumbnail(video_id, thumb_real)
-                break
-            except Exception as exc:  # a thumbnail failure must not abort the upload
-                if attempt >= _THUMB_SET_ATTEMPTS:
-                    self._log.warning("thumbnail_failed", error=str(exc), attempts=attempt)
-                else:
-                    self._log.info("thumbnail_retry", attempt=attempt, error=str(exc)[:200])
-                    time.sleep(_THUMB_SET_BACKOFF_SEC * attempt)
+        # YouTube SHORTS take their thumbnail from a video FRAME — a custom thumbnails.set is ignored
+        # (custom Short thumbnails are a limited, mobile-only rollout, not in the Data API). Skip the
+        # futile call for a Short unless the operator's account has the rollout; long-form always sets.
+        if s.is_short and not s.publish_shorts_custom_thumbnail:
+            self._log.info(
+                "shorts_thumbnail_skipped",
+                hint="YouTube uses a video frame for a Short's thumbnail; the uploaded thumbnail.png "
+                "is not applied via the API. Set PUBLISH_SHORTS_CUSTOM_THUMBNAIL=true only if your "
+                "account supports custom Short thumbnails.",
+            )
+        else:
+            # Buffer: let YouTube finish processing the just-uploaded video before setting the
+            # thumbnail (thumbnails.set is rejected while the video is still processing), then retry.
+            if s.publish_thumbnail_delay_sec > 0:
+                self._log.info("thumbnail_buffer", seconds=s.publish_thumbnail_delay_sec)
+                time.sleep(s.publish_thumbnail_delay_sec)
+            for attempt in range(1, _THUMB_SET_ATTEMPTS + 1):
+                try:
+                    self._pub.set_thumbnail(video_id, thumb_real)
+                    break
+                except Exception as exc:  # a thumbnail failure must not abort the upload
+                    if attempt >= _THUMB_SET_ATTEMPTS:
+                        self._log.warning("thumbnail_failed", error=str(exc), attempts=attempt)
+                    else:
+                        self._log.info("thumbnail_retry", attempt=attempt, error=str(exc)[:200])
+                        time.sleep(_THUMB_SET_BACKOFF_SEC * attempt)
 
         # Best-effort: file the upload into a series playlist (session watch time). Only when it's
         # configured AND the publisher supports it (the null/fake publishers don't) — never fatal.
@@ -124,11 +127,21 @@ class Publisher:
             except Exception as exc:  # a playlist-add failure must not abort the upload
                 self._log.warning("playlist_add_failed", error=str(exc))
 
-        # Best-effort: post a top comment nudging viewers to subscribe/explore (a soft channel pin;
-        # opt-in via PUBLISH_TOP_COMMENT, needs the force-ssl scope). Never fatal to the upload.
-        if s.publish_top_comment and hasattr(self._pub, "add_comment"):
-            parts = [aff_block] if (s.affiliate_in_comment and aff_block) else []
-            parts.append((channel_cta_block(s) or s.channel_cta_text or "").strip())
+        # Best-effort: post ONE top comment right after publishing (identical for Shorts and long-
+        # form; needs the force-ssl scope). It links the most related PRIOR videos on the channel —
+        # the same "watch next" picks as the end screen — and optionally adds an affiliate/subscribe
+        # nudge. Posted even when PUBLISH_TOP_COMMENT is off, as long as there are videos to recommend.
+        comment = ""
+        if hasattr(self._pub, "add_comment"):
+            parts: list[str] = []
+            if s.recommend_comment_enabled:
+                rec_block = self._recommendations_comment(run_id, title, script, run_root)
+                if rec_block:
+                    parts.append(rec_block)
+            if s.publish_top_comment:
+                if s.affiliate_in_comment and aff_block:
+                    parts.append(aff_block)
+                parts.append((channel_cta_block(s) or s.channel_cta_text or "").strip())
             comment = "\n\n".join(p for p in parts if p).strip()
             if comment:
                 try:
@@ -154,6 +167,11 @@ class Publisher:
             disclosure_set=disclosure_set,
             upload_status=upload_status,
             chosen_title=title,
+            description=description,
+            pinned_comment=comment,
+            affiliate_links=[
+                {"label": lnk.label, "url": lnk.url, "blurb": lnk.blurb} for lnk in aff_links
+            ],
             published_at=utcnow() if effective_privacy == "public" else None,
             provenance=Provenance(
                 produced_by="publisher", model=None, config_hash=s.config_hash

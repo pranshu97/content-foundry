@@ -67,6 +67,12 @@ def test_off_topic_filter_logic():
     assert _off_topic("full moon rising", "moon, night") is False  # the query DID ask for the moon
     assert _off_topic("close up of person smiling", "woman, lipstick, makeup") is True  # cosmetics
     assert _off_topic("happy team", "valentine, love, hearts, romantic") is True  # greeting-card junk
+    # The 0013 bug: a stock ANATOMY diagram padded in for "...whiteboard diagram" — it shares the
+    # generic word "diagram" but is off-domain, so drop it; a query that asked for it keeps it.
+    assert _off_topic(
+        "candidate drawing whiteboard diagram", "intestine, anatomy, digestive, diagram, medical"
+    ) is True
+    assert _off_topic("stethoscope in a clinic", "stethoscope, clinic") is False  # query asked for it
     assert _off_topic("anything at all", "") is False  # no metadata -> only drop on positive evidence
 
 
@@ -76,6 +82,11 @@ def test_clip_ok_positive_context_drops_unrelated():
     assert _clip_ok("woman at computer", "pottery, ceramics, clay", vocab) is False
     # Names an off-topic subject even though it shares a generic word -> denylist drops it:
     assert _clip_ok("woman at computer", "woman, valentine, hearts", vocab) is False
+    # An anatomy clip that shares the generic "diagram" with the video vocabulary is still denied:
+    assert _clip_ok(
+        "candidate drawing whiteboard diagram", "intestine, anatomy, diagram",
+        {"coding", "interview", "whiteboard", "diagram"},
+    ) is False
     # On-topic clip (tags touch the video's vocabulary) is kept:
     assert _clip_ok("woman at computer", "office, computer, business", vocab) is True
     # No vocabulary known (context off) -> only the denylist applies, unrelated tags pass:
@@ -83,6 +94,17 @@ def test_clip_ok_positive_context_drops_unrelated():
     # No tags at all while a vocabulary IS known -> unverifiable bare-URL clip, dropped (this is the
     # 'no evidence' gap that let off-topic Valentine's/greeting padding sneak past the denylist):
     assert _clip_ok("woman at computer", "", vocab) is False
+
+
+def test_clip_ok_requires_a_specific_query_word_not_just_generic():
+    vocab = {"machine", "learning", "interview", "person", "chart", "data", "model", "engineer"}
+    # A honey-scraping clip shares only the GENERIC word "person" with the beat -> dropped now that a
+    # missing clip falls back to a GENERATED image (before, the generic vocab overlap let it slip in).
+    assert _clip_ok("person pointing chart", "person, honey, beekeeper, jar", vocab) is False
+    # A clip that actually names the beat's SPECIFIC subject ("chart") is kept.
+    assert _clip_ok("person pointing chart", "businessman, pointing, chart, growth", vocab) is True
+    # Generic-only beats (no specific word to match on) still fall back to the vocabulary check.
+    assert _clip_ok("person standing", "office, person, desk", vocab | {"office", "desk"}) is True
 
 
 @respx.mock

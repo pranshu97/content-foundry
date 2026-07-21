@@ -215,6 +215,12 @@ class Settings(BaseSettings):
     # falls back to the generator's keywords on any failure.
     broll_director_enabled: bool = True
     broll_director_max_queries: int = Field(8, ge=1, le=12)
+    # GAP-FILL IMAGES (Agent 5.7): when a shot gets NO relevant stock B-roll, GENERATE a bespoke image
+    # for it instead of borrowing an off-topic clip. An LLM art-director writes a vivid, witty, richly
+    # descriptive prompt from the shot's beat + the scene's narration; best-effort, falling back to the
+    # deterministic template when no LLM is configured or the call fails. The image is always generated
+    # on a gap — this flag only controls the LLM prompt smartness.
+    scene_image_director_enabled: bool = True
     # THUMBNAIL DIRECTOR (Agent 5.6): an LLM writes a rich, per-video thumbnail image-generation prompt
     # from the script's concept/title/niche (quality over the generic static template), with a hard
     # NO-TEXT instruction so the image model stops baking in gibberish "hieroglyph" lettering.
@@ -225,6 +231,11 @@ class Settings(BaseSettings):
     scenes_per_video: int = 10
     thumbnail_size: str = "1280x720"
     shorts_thumbnail_size: str = "1080x1920"  # vertical 9:16 thumbnail for a Short (matches the frame)
+    # SHORTS ONLY: bake the designed thumbnail as a brief FROZEN opening frame of the Short (with
+    # silent audio) so it becomes a real video FRAME — the only way to control a Short's thumbnail
+    # (YouTube ignores a custom uploaded thumbnail for Shorts). It doubles as a bold hook card. ~0.5s
+    # balances "reliably a selectable/auto-sampled frame" against retention; 0 = off. Best-effort.
+    shorts_thumbnail_intro_sec: float = Field(0.5, ge=0, le=3)
     # ---------- Face-identity thumbnail (option B: YOUR face, generated not pasted) ----------
     # Generate the thumbnail WITH the operator's own face + the prompt's emotion in one local model
     # pass (SD1.5 + IP-Adapter-FaceID on the GPU) instead of compositing a cut-out. OFF by default; it
@@ -238,7 +249,25 @@ class Settings(BaseSettings):
     # 77 tokens, weaker instruction-following). Either falls back to the composited thumbnail if its
     # models are unavailable, so nothing ever breaks.
     thumbnail_face_method: Literal["swap", "generate"] = "swap"
+    # Master switch for the FACE-SWAP + restore stages (opt-out). true = swap the operator's real face
+    # onto the generated person (+ optional restore). FALSE = use the AI-generated person AS-IS — with
+    # AVATAR_APPEARANCE it already resembles the operator and avoids swap/restore artifacts (e.g.
+    # doubled eyebrows). Scene generation, text, and the punch pass are unchanged either way.
+    thumbnail_face_swap_enabled: bool = True
     faceswap_model_path: str = ""  # inswapper_128.onnx path; blank => auto-locate/download (~530 MB)
+    # After the swap, RESTORE/upscale the soft 128 px swapped face with an offline ONNX enhancer
+    # (GFPGAN/CodeFormer/GPEN) so it looks sharp and REAL instead of AI-soft. Aligns to the FFHQ/512
+    # template with a RANSAC fit and blends the crop back through a feathered box mask (the facefusion
+    # method) so it no longer cracks or seams. Best-effort + OOM-safe (frees the swapper's GPU memory
+    # first); ANY problem keeps the un-restored swap. Model auto-downloads (~325 MB).
+    thumbnail_face_restore: bool = True
+    face_restore_model: Literal["gfpgan_1.4", "codeformer", "gpen_bfr_512"] = "gfpgan_1.4"
+    face_restore_model_path: str = ""  # explicit .onnx path; blank => auto-download by face_restore_model
+    # QUALITY vs TIME: generate this many thumbnail SCENE candidates and keep the best-lit one (the
+    # brightest, clearest face) before the face-swap. Pollinations/flux is high-variance — some scenes
+    # come out dark / neon-muddy ("AI slop") — so best-of-N reliably lands a bright, clean, high-CTR
+    # thumbnail (a cleanly-lit face is also what the restorer needs). 1 = off. Costs N provider calls.
+    thumbnail_scene_candidates: int = Field(3, ge=1, le=6)
     faceid_base_model: str = "SG161222/Realistic_Vision_V5.1_noVAE"  # any photoreal SD1.5 checkpoint
     faceid_ip_repo: str = "h94/IP-Adapter-FaceID"
     faceid_ip_weight: str = "ip-adapter-faceid_sd15.bin"
@@ -247,7 +276,7 @@ class Settings(BaseSettings):
     faceid_guidance: float = Field(7.5, ge=1.0, le=15.0)
     faceid_gen_size: str = "768x448"  # SD-friendly generation size, upscaled to THUMBNAIL_SIZE
     faceid_device: str = "auto"  # auto | cuda | cpu
-    faceid_negative_prompt: str = "multiple people, two people, extra person, crowd, text, watermark, logo, extra fingers, deformed, blurry, low quality"
+    faceid_negative_prompt: str = "multiple people, two people, extra person, crowd, text, watermark, logo, extra fingers, deformed, blurry, low quality, 3d render, cgi, plastic skin, waxy skin, airbrushed, over-smooth, illustration, cartoon, painting, oversaturated, uncanny"
 
     # ---------- Content format (long-form video vs vertical Shorts) ----------
     # ONE switch selects the whole output shape. "long" = the standard 16:9 long-form video (every
@@ -356,6 +385,12 @@ class Settings(BaseSettings):
     # AI-generated face — a consistent real face lifts click-through. Skipped when the file is absent.
     thumbnail_use_avatar: bool = True
     thumbnail_avatar_scale: float = Field(0.9, ge=0.15, le=1.0)  # face height as a fraction of the thumb (big = main-region reaction, flush right)
+    # A short physical description of YOU (whose face is swapped into the thumbnail), e.g. "a bearded
+    # South Asian man in his late 20s with short dark hair and glasses". Injected into the thumbnail's
+    # person prompt so the AI generates someone who ALREADY resembles you — the face-swap only
+    # transplants the inner face and keeps the generated head's age/gender/hair, so a matching base is
+    # what makes the swap actually look like you. Blank => a generic person (much weaker likeness).
+    avatar_appearance: str = ""
 
     # ---------- Publishing (YouTube) ----------
     youtube_client_secrets_file: str = "secrets/client_secrets.json"
@@ -369,6 +404,11 @@ class Settings(BaseSettings):
     # head start (plus an automatic retry-with-backoff) makes the thumbnail reliably stick. Raise it
     # if your videos take longer to process; 0 = attempt immediately and rely on the retry only.
     publish_thumbnail_delay_sec: float = Field(15.0, ge=0, le=300)
+    # YouTube SHORTS take their thumbnail from a video FRAME — a custom thumbnails.set is ignored (the
+    # custom-Short-thumbnail option is a limited, mobile-only rollout, not in the Data API). OFF => skip
+    # the futile call on a Short (long-form videos always get their custom thumbnail). Turn ON only if
+    # your account actually has custom Short thumbnails.
+    publish_shorts_custom_thumbnail: bool = False
     # Optional: auto-add each upload to this playlist (a niche SERIES boosts session watch time, a top
     # ranking signal). Create it once in YouTube Studio and paste its id (starts "PL..."). Blank => skip.
     youtube_playlist_id: str = ""
@@ -378,6 +418,14 @@ class Settings(BaseSettings):
     # screens. The candidate pool is your local run history (so unlisted uploads count too).
     end_screen_enabled: bool = True
     end_screen_count: int = Field(2, ge=1, le=4)
+    # Also POST those end-card picks (the most related PRIOR videos on your channel) as a "watch next"
+    # top comment right after publishing — pulls viewers to more of your videos on BOTH Shorts and
+    # long-form. Uses the same comment channel as PUBLISH_TOP_COMMENT (needs the youtube.force-ssl
+    # scope, requested when EITHER is on), and posts on its own even if PUBLISH_TOP_COMMENT is off.
+    # Best-effort; skipped when there are no prior published videos yet. Pick count reuses
+    # END_SCREEN_COUNT so the comment matches the end screen exactly.
+    recommend_comment_enabled: bool = True
+    recommend_comment_header: str = "More videos you might like:"
     # Pull viewers deeper into the channel. When enabled, a short CTA block (subscribe + a link to
     # explore the rest of the channel) is appended to EVERY description (long and Short). Set
     # YOUTUBE_CHANNEL_URL to your channel/handle URL; blank => a generic subscribe line.
@@ -402,9 +450,15 @@ class Settings(BaseSettings):
     affiliate_leetcode_url: str = ""     # your LeetCode referral link (if available)
     affiliate_coursera_url: str = ""     # your Coursera affiliate/deep link (usually via Impact)
     affiliate_udemy_url: str = ""        # your Udemy affiliate/deep link
-    affiliate_educative_url: str = ""    # your Educative referral link
+    affiliate_educative_url: str = ""    # your Educative referral link (a full URL)
+    affiliate_educative_id: str = ""     # OR just the Educative affiliate ID (built into a URL)
+    affiliate_fenzo_url: str = ""        # your Fenzo AI referral link (a full URL)
+    affiliate_fenzo_id: str = ""         # OR the Fenzo affiliate ID (Educative's new venture)
     affiliate_max_links: int = Field(4, ge=1, le=10)
     affiliate_in_comment: bool = True    # also include the resources block in the top comment
+    # A casual line appended to the resources block (e.g. "some of these get you a discount via my
+    # link"). Default empty = off/generic; the operator opts in via AFFILIATE_PERK_TEXT.
+    affiliate_perk_text: str = ""
     affiliate_header: str = "\U0001f4da Resources & tools (some are affiliate links):"
     affiliate_disclosure: str = (
         "As an affiliate I may earn a small commission from qualifying purchases through the links "
@@ -460,6 +514,10 @@ class Settings(BaseSettings):
     # ---------- Ops ----------
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "json"
+    # Tee EVERY structured log line for a run to output/runs/<id>/run.log (JSON lines) so a run is
+    # fully debuggable after the fact — especially SILENT model fallbacks (image 429 -> Pollinations,
+    # face-swap/restore skips, etc.). Best-effort; never breaks a run. Set false to skip the file.
+    run_log_enabled: bool = True
     schedule_cron: str = "0 9 * * MON"
 
     # ------------------------------------------------------------------ parsing

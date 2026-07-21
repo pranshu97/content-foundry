@@ -10,7 +10,6 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, SceneVisual, Script, VisualPackage, VisualShot, VoiceoverAsset
 from ..production.captions import write_srt
-from ..production.timebox import timebox_title
 
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
@@ -81,34 +80,52 @@ def _fallback_thumb_text(title: str) -> str:
     return " ".join(words[:6]) if words else (title or "").strip()
 
 
-def _thumbnail_prompt(concept: str, *, no_person: bool = False) -> str:
+def _thumbnail_prompt(concept: str, *, no_person: bool = False, appearance: str = "") -> str:
     """Turn the script's thumbnail concept into a punchy, high-CTR YouTube-thumbnail image prompt for a
-    text-to-image model: one bold subject, exaggerated emotion, dramatic lighting, saturated
-    contrasting colors, clean space for the overlaid title, and NO baked-in text (we add the title).
-    When ``no_person`` (the operator's avatar face is composited in separately) it asks for a
-    people-free background so the avatar is the ONLY face."""
+    text-to-image model: ONE hero person (face visible, facing camera) inside a TOPIC-RELEVANT setting
+    with concrete props, a big emotion, bright clean face light, saturated color in the environment,
+    room for the overlaid title, and NO baked-in text (we add the title). When ``no_person`` (the
+    operator's avatar face is composited in separately) it asks for the relevant, people-free SETTING
+    so the avatar is the ONLY face."""
     concept = (concept or "a shocked person reacting to a glowing screen").strip().rstrip(".")
     if no_person:
         return (
-            f"Professional high-CTR YouTube thumbnail BACKGROUND, 16:9, about: {concept}. NO people, "
-            "no faces, no person at all (a presenter is composited in separately). Design a BOLD, "
-            "SIMPLE backdrop rather than a busy scene: ONE striking symbolic object or setting for the "
-            "topic, a strong saturated palette with a punchy complementary accent, dramatic cinematic "
-            "lighting, soft depth-of-field bokeh, a gentle vignette, and a subtle radial glow where the "
-            "subject will sit. Keep the LEFT HALF clean, simple and slightly darker for a large title "
-            "overlay, and leave the RIGHT side open for a person. Crisp, glossy, photo-real, high "
-            "dynamic range. Absolutely no text, letters, numbers, watermark, logos, UI, or real/famous "
-            "people."
+            f"A real, professional DSLR PHOTOGRAPH used as a high-CTR YouTube thumbnail BACKGROUND, "
+            f"16:9, about: {concept}. NO people, no faces, no person at all (a presenter is composited "
+            "in separately). Build the REAL, topic-relevant SETTING itself with concrete props (for a "
+            "tech-career video: a modern open-plan tech office, cubicles and desks with laptops and "
+            "dual monitors of code, a whiteboard of algorithm diagrams, a campus lobby) as a bold scene "
+            "with real depth, bright DAYLIT high-key lighting, and vivid accent colors (NOT a dark "
+            "neon-night look) in the environment. "
+            "Keep it uncluttered with shallow depth of field; keep the RIGHT side more open for a "
+            "person and a calmer area for a large title overlay. Shot on a 35mm lens, real photographic "
+            "detail — a REAL photo, NOT a 3D render, NOT CGI, NOT digital art, no plastic or over-"
+            "smoothed surfaces. Bright, not dark or muddy. Absolutely no text, letters, numbers, "
+            "watermark, logos, UI, or real/famous people."
         )
-    return (
-        f"Professional high-CTR YouTube thumbnail, 16:9, about: {concept}. ONE bold subject as the "
-        "clear focal point with an instantly-readable facial expression and body "
-        "language, framed chest-up and pushed to one side. Dramatic rim and key lighting, punchy "
-        "saturated complementary colors, strong subject-to-background separation, shallow depth of "
-        "field, glossy photo-real render, subtle vignette and rim glow so the subject pops. Keep the "
-        "opposite side a clean, simple, slightly darker area for a large title overlay. Absolutely no "
-        "text, letters, numbers, watermark, logos, UI, or real/famous people."
+    look = (
+        f" The main person LOOKS like {appearance}: keep that same age, gender, skin tone, hair, "
+        "and facial hair (their real face is swapped in afterwards)." if appearance else ""
     )
+    return (
+        f"A real, professional DSLR PHOTOGRAPH used as a high-CTR YouTube thumbnail, 16:9, about: "
+        f"{concept}. Stage it in a REAL, topic-relevant setting with concrete props (for a tech-career "
+        "video: a modern open-plan tech office, cubicles with coworkers on laptops, a whiteboard of "
+        "algorithm diagrams, dual monitors of code, a campus lobby, an interview desk, or a handshake) "
+        "so the subject is obvious at a glance. Put ONE main person in the foreground FACING the camera "
+        "with ONE huge, instantly-readable emotion; their face is clearly visible, sharp, unobstructed, "
+        "well-lit and the largest face in frame (close-up, waist-up, standing, or a medium shot all "
+        "work). Set it in a BRIGHT, well-lit or DAYLIT space (big windows / bright office light) and "
+        "light the face clean, bright and NEUTRAL — no colored gels, neon, or split light on the face; "
+        "use vivid ACCENT colors for pop but AVOID a dark neon-night look. The hero in sharp "
+        "focus, the setting in slightly softer focus (shallow depth of field) so it reads without "
+        "clutter. Shot on a 50mm f/1.8 lens, natural realistic skin, true photographic detail — a REAL "
+        "photo, NOT a 3D render, NOT CGI, NOT digital art, no plastic or over-smoothed skin. A clean, "
+        "natural, symmetric face with normal undistorted features — exactly one pair of eyebrows and "
+        "two eyes, no doubled/warped/extra facial features. Bright, not "
+        "dark or muddy. Leave a calmer area for a large title overlay. Absolutely no text, letters, "
+        "numbers, watermark, logos, UI, or real/famous people."
+    ) + look
 
 
 def _faceid_prompt(concept: str) -> str:
@@ -118,12 +135,28 @@ def _faceid_prompt(concept: str) -> str:
     No baked-in text (the title is overlaid; the negative prompt drops stray text). To take full
     control, edit ``assets/thumbnail_prompt.txt`` and re-run ``content-foundry thumbnail``."""
     words = (concept or "a person reacting to a glowing screen").strip().rstrip(".").split()
-    concept = " ".join(words[:26])  # the concept leads; ~26 words leaves room under CLIP's 77 tokens
+    concept = " ".join(words[:18])  # the concept leads; ~18 words leaves room under CLIP's 77 tokens
     return (
-        f"high-CTR YouTube thumbnail, {concept}, one prominent person with an exaggerated, "
-        "instantly-readable expression, dramatic rim lighting, bold saturated colors, high contrast, "
-        "glossy photo-real"
+        f"high-CTR YouTube thumbnail, real DSLR photo, {concept}, one prominent person facing camera in "
+        "a relevant tech office / cubicles setting, huge readable emotion, face clearly visible and "
+        "sharp, bright clean neutral light, colorful background, realistic skin, not a 3d render, no text"
     )
+
+
+def _scene_brightness_score(png: bytes) -> float:
+    """A 'is the subject brightly, cleanly lit?' proxy for ranking thumbnail scene candidates. Returns
+    the mean LUMA of the center of the frame (where the face sits): a bright, clean face scores high,
+    while a dark or heavy-neon face (blue/red gels read LOW in luma) scores low — so the best-lit
+    candidate wins. Any decode problem scores 0 so it is never chosen over a valid image."""
+    try:
+        from PIL import Image, ImageStat
+
+        img = Image.open(BytesIO(png)).convert("L")
+        w, h = img.size
+        center = img.crop((int(w * 0.28), int(h * 0.08), int(w * 0.72), int(h * 0.92)))
+        return float(ImageStat.Stat(center).mean[0])
+    except Exception:
+        return 0.0
 
 
 def _broll_source(url: str) -> str:
@@ -286,10 +319,11 @@ class Visuals:
             (script.title_options or [script.thumbnail_concept or "Career Advice"])[0]
         )
         # Hard cap the overlay to a few big words so it stays readable at thumbnail size (a wall of
-        # text is the #1 thumbnail-CTR killer), THEN optionally year-stamp when time-sensitive.
+        # text is the #1 thumbnail-CTR killer). The year is NOT auto-stamped onto the thumbnail — a
+        # tacked-on "(2026)" clutters a punchy hook; the TITLE carries the year for search when the
+        # topic is genuinely time-sensitive, and the writer only puts a year in the thumbnail_text
+        # itself when the year IS the hook.
         thumbnail_text = _cap_words(thumbnail_text, self._settings.thumbnail_max_words)
-        if self._settings.time_box_enabled and script.time_sensitive:
-            thumbnail_text = timebox_title(thumbnail_text, self._settings.effective_content_year)
         prompt_path = run_root / _THUMB_PROMPT_REL
         image_prompt = prompt
         if image_prompt is None and prompt_path.exists():
@@ -347,29 +381,74 @@ class Visuals:
     def _build_shots(
         self, scene, run_root: Path, *, duration: float, picker: _BrollPicker
     ) -> list[VisualShot]:
-        """Break the scene into ordered visual beats — one B-roll clip per keyword/description, each
-        matched to that moment — so the footage changes with the narration instead of one broad clip
-        covering the whole scene."""
+        """Break the scene into ordered visual beats — each matched to that moment — so the footage
+        changes with the narration. A beat gets a relevant stock clip when one exists; when it does
+        NOT, it gets a bespoke GENERATED image (a witty, on-topic prompt) instead of a borrowed
+        off-topic clip — so no shot ever shows something irrelevant."""
         beats = [k.strip() for k in scene.b_roll_keywords if k and k.strip()]
         pace = _cut_pace(getattr(scene, "cut", None))  # the editor 'cut' hint steers shot density
         n = max(1, min(len(beats), int(duration // (_MIN_SHOT_SEC * pace)) or 1, _MAX_SHOTS_PER_SCENE))
+        chosen = beats[:n]
+        # First pass: try to claim a RELEVANT, fresh clip for each beat FROM ITS OWN search (not a
+        # borrowed clip from another beat — that is exactly the "irrelevant shot" we want to avoid).
+        clips = [picker.pick(self._broll_candidates([beat])) for beat in chosen]
+        # Beats with no perfect clip -> generate an image. Craft all their prompts in ONE LLM call.
+        gap_prompts = self._shot_image_prompts(
+            scene, [b for b, u in zip(chosen, clips, strict=True) if not u]
+        )
         found: list[tuple[str, str, str]] = []  # (rel_path, source, query)
-        for j, beat in enumerate(beats[:n]):
-            # Footage for THIS beat; if every candidate for the beat is already used elsewhere, widen
-            # to the scene's other queries so a hole is filled with a DIFFERENT fresh clip instead of
-            # being left empty or repeated (the picker still never reuses a clip).
-            url = picker.pick(self._broll_candidates([beat])) or picker.pick(
-                self._broll_candidates(beats)
-            )
-            if not url:
-                continue
-            rel = f"assets/scenes/scene_{scene.index}_shot_{j}.mp4"
-            (run_root / rel).write_bytes(self._broll.download(url))
-            found.append((rel, _broll_source(url), beat))
+        for j, (beat, url) in enumerate(zip(chosen, clips, strict=True)):
+            stem = f"assets/scenes/scene_{scene.index}_shot_{j}"
+            if url:
+                rel = f"{stem}.mp4"
+                (run_root / rel).write_bytes(self._broll.download(url))
+                found.append((rel, _broll_source(url), beat))
+            else:
+                rel = f"{stem}.png"
+                prompt = gap_prompts.get(beat) or build_image_prompt(
+                    [beat], scene.on_screen_text, self._settings.visual_style
+                )
+                source = self._render_shot_image(
+                    prompt, run_root / rel, caption=scene.on_screen_text or beat
+                )
+                found.append((rel, source, beat))
         if not found:
             return []
         per = round(duration / len(found), 3)  # split the scene evenly across the beats we found
         return [VisualShot(path=r, duration_sec=per, source=src, query=q) for r, src, q in found]
+
+    def _shot_image_prompts(self, scene, beats: list[str]) -> dict[str, str]:
+        """Witty, richly descriptive image prompts for the beats that got NO stock B-roll — one LLM
+        call for the whole scene (grounded in its narration). Empty dict when off / no LLM / on any
+        failure, so the caller uses its deterministic template."""
+        if not beats or self._llm is None or not self._settings.scene_image_director_enabled:
+            return {}
+        try:
+            from .scene_image_director import SceneImageDirector
+
+            return SceneImageDirector(self._settings, self._llm).compose(
+                beats=beats, narration=getattr(scene, "narration", "") or "",
+                on_screen_text=scene.on_screen_text or "",
+            )
+        except Exception as exc:  # a prompt-writing failure must never break the visuals stage
+            self._log.warning("scene_image_director_skipped", error=str(exc))
+            return {}
+
+    def _render_shot_image(self, prompt: str, target: Path, *, caption: str) -> str:
+        """Generate a gap-fill image for one shot (at the full video resolution) and return its source
+        label. A DESIGNED card is drawn when there is no image provider or generation fails, so a
+        missing clip never leaves a hole."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if self._image is not None:
+            try:
+                data = self._image.generate(prompt, size=self._settings.effective_resolution)
+                target.write_bytes(data)
+                return getattr(self._image, "name", self._settings.image_provider)
+            except Exception as exc:  # a flaky image gen must not kill the scene
+                self._log.warning("scene_shot_image_failed", error=str(exc))
+        _write_card(caption or prompt, self._settings.resolution_wh, target)
+        return "card"
+
 
     def _build_scene_visual(
         self, scene, run_root: Path, *, duration: float, picker: _BrollPicker
@@ -443,12 +522,20 @@ class Visuals:
         full manual control over the thumbnail."""
         size = self._settings.effective_thumbnail_wh
         avatar = self._avatar_thumbnail_path(_detect_emotion(concept))
+        scene_cloud_failed = False  # the network image provider itself failed (outage) — skip re-tries
         if avatar is not None and self._settings.thumbnail_face_id_enabled:
             if self._settings.thumbnail_face_method == "swap":
                 # Two-stage: a rich scene WITH a person from the normal image provider (LONG prompt, no
                 # 77-token limit, so it follows the scene), then swap the operator's real face onto it.
                 prompt = override_prompt or self._scene_prompt(concept, title, no_person=False)
-                scene = self._generate_image(prompt)
+                scene = self._best_scene(prompt)
+                if scene and not self._settings.thumbnail_face_swap_enabled:
+                    # Face-swap OFF (opt-out): use the AI-generated person AS-IS. Guided by
+                    # AVATAR_APPEARANCE it already resembles the operator, with none of the swap /
+                    # restore artifacts (e.g. doubled eyebrows), and it skips the whole GPU stack.
+                    self._log.info("thumbnail_face_swap_disabled")
+                    _write_card(text, size, target, base_png=scene, punchy=True)
+                    return prompt
                 if scene:
                     from ..providers.faceswap import swap_face
 
@@ -456,6 +543,8 @@ class Visuals:
                     if swapped:
                         _write_card(text, size, target, base_png=swapped, punchy=True)
                         return prompt
+                else:
+                    scene_cloud_failed = True  # provider outage — don't retry it in the fallback
                 self._log.warning("faceswap_thumbnail_fell_back")
             else:
                 # "generate": SD1.5 + IP-Adapter-FaceID in one local pass (bound by CLIP's 77 tokens).
@@ -470,13 +559,20 @@ class Visuals:
                     _write_card(text, size, target, base_png=face_png, punchy=True)
                     return prompt
                 self._log.warning("faceid_thumbnail_fell_back")
-        # Fallback: generic background image + composited avatar cut-out (the default path).
+        # Fallback: background image + composited avatar cut-out (the default path). Skip re-calling a
+        # provider that just failed (outage) so we go straight to the DESIGNED card instead of waiting.
         prepared = self._prepare_avatar(avatar) if avatar is not None else None
         prompt = override_prompt or self._scene_prompt(concept, title, no_person=prepared is not None)
-        base = self._generate_image(prompt)
+        base = None if scene_cloud_failed else self._generate_image(prompt)
+        # With no AI scene the face carries the designed card, so show it big; over a real scene it
+        # stays a small corner tag.
+        avatar_scale = (
+            self._settings.thumbnail_avatar_scale if base is not None
+            else max(self._settings.thumbnail_avatar_scale, 0.85)
+        )
         _write_card(
             text, size, target, base_png=base, punchy=True,
-            avatar_path=prepared, avatar_scale=self._settings.thumbnail_avatar_scale,
+            avatar_path=prepared, avatar_scale=avatar_scale,
         )
         return prompt if base is not None else None
 
@@ -490,6 +586,29 @@ class Visuals:
         except Exception as exc:
             self._log.warning("thumbnail_image_failed", error=str(exc))
             return None
+
+    def _best_scene(self, prompt: str) -> bytes | None:
+        """Generate several scene candidates and keep the BEST-LIT one. Pollinations/flux is high-
+        variance — one call returns a clean, bright face and the next a dark, neon-muddy 'AI-slop' one
+        — so picking the brightest of N reliably lands a scroll-stopping thumbnail (and a cleanly-lit
+        face is also what the ONNX restorer needs to avoid artifacts). Costs N provider calls; 1 = off."""
+        n = max(1, int(getattr(self._settings, "thumbnail_scene_candidates", 1)))
+        if n == 1:
+            return self._generate_image(prompt)
+        best: bytes | None = None
+        best_score = -1.0
+        for _ in range(n):
+            img = self._generate_image(prompt)
+            if not img:
+                continue
+            score = _scene_brightness_score(img)
+            if score > best_score:
+                best, best_score = img, score
+        if best is not None:
+            self._log.info(
+                "thumbnail_scene_selected", candidates=n, brightness=round(best_score, 1)
+            )
+        return best
 
     def _scene_prompt(self, concept: str, title: str, *, no_person: bool) -> str:
         """The thumbnail SCENE image prompt. When the thumbnail director is enabled and an LLM is
@@ -507,7 +626,10 @@ class Visuals:
                 directed = None
             if directed:
                 return directed
-        return _thumbnail_prompt(concept, no_person=no_person)
+        return _thumbnail_prompt(
+            concept, no_person=no_person,
+            appearance=(self._settings.avatar_appearance or "").strip(),
+        )
 
     def _prepare_avatar(self, path: Path) -> Path:
         """Return a TRANSPARENT-background avatar for the thumbnail. If the source already has real
@@ -578,8 +700,13 @@ def _write_card(
     width, height = size_wh
     if base_png:
         img = Image.open(BytesIO(base_png)).convert("RGB").resize(size_wh)
-        darken = 0.12 if punchy else 0.28  # keep a punchy thumb vivid; its scrim handles legibility
-        img = Image.blend(img, Image.new("RGB", size_wh, (8, 11, 20)), darken)
+        if punchy:
+            img = _punch(img)  # saturation + contrast + sharpness so the scene POPS at small size
+            img = Image.blend(img, Image.new("RGB", size_wh, (8, 11, 20)), 0.06)  # keep it BRIGHT
+        else:
+            img = Image.blend(img, Image.new("RGB", size_wh, (8, 11, 20)), 0.28)
+    elif punchy:
+        img = _thumbnail_fallback_bg(size_wh)  # no AI image -> a DESIGNED thumbnail, never empty
     else:
         img = _gradient_bg(size_wh)
 
@@ -695,6 +822,65 @@ def _load_display_font(size: int):
         except Exception:
             continue
     return _load_font(size)
+
+
+def _punch(img):
+    """A 'scroll-stopping' pop for an AI thumbnail scene: FIRST lift a dark/neon exposure toward a
+    bright target (flux frequently returns dim scenes that die in the feed), then add saturation,
+    contrast, and sharpness so it reads bright and crisp at tiny thumbnail size."""
+    from PIL import ImageEnhance, ImageStat
+
+    # Exposure lift: best-of-N already keeps the brightest candidate, but when EVERY candidate came
+    # back dark (flux is stubborn), brighten toward a bright target so the thumbnail is NEVER dim.
+    # Capped so highlights don't blow out; a no-op once the scene is already bright.
+    mean = ImageStat.Stat(img.convert("L")).mean[0] or 1.0
+    if mean < 130.0:
+        img = ImageEnhance.Brightness(img).enhance(min(2.3, 130.0 / mean))
+    img = ImageEnhance.Color(img).enhance(1.3)
+    img = ImageEnhance.Contrast(img).enhance(1.12)
+    img = ImageEnhance.Sharpness(img).enhance(1.6)
+    return img
+
+
+def _thumbnail_fallback_bg(size_wh: tuple[int, int]):
+    """A DESIGNED thumbnail background for when no AI image is available (all providers down): a bold
+    gradient with soft accent glows, a faint tech dot-grid and an accent wedge — so a provider outage
+    still yields a full, intentional thumbnail instead of an empty dark frame."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    width, height = size_wh
+    top, bot = (30, 41, 82), (5, 8, 20)  # deep indigo -> near-black
+    img = Image.new("RGB", size_wh)
+    draw = ImageDraw.Draw(img)
+    span = max(1, height - 1)
+    for y in range(height):
+        t = y / span
+        draw.line(
+            [(0, y), (width, y)],
+            fill=tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3)),
+        )
+    # Soft accent glows for depth (blurred), composited over the gradient.
+    over = Image.new("RGBA", size_wh, (0, 0, 0, 0))
+    od = ImageDraw.Draw(over)
+    od.ellipse([-width * 0.25, -height * 0.45, width * 0.55, height * 0.55], fill=(37, 99, 235, 150))
+    od.ellipse([width * 0.55, height * 0.15, width * 1.2, height * 1.05], fill=(13, 110, 138, 95))
+    over = over.filter(ImageFilter.GaussianBlur(radius=int(min(width, height) * 0.14)))
+    img = Image.alpha_composite(img.convert("RGBA"), over).convert("RGB")
+    draw = ImageDraw.Draw(img, "RGBA")
+    # Faint tech dot-grid fills the negative space so the frame never reads as empty.
+    step = max(18, int(min(width, height) * 0.055))
+    for yy in range(step, height, step):
+        for xx in range(step, width, step):
+            draw.ellipse([xx - 2, yy - 2, xx + 2, yy + 2], fill=(150, 180, 236, 22))
+    # A bold accent wedge + bright edge, bottom-left, anchors the composition.
+    draw.polygon(
+        [(0, height), (0, int(height * 0.55)), (int(width * 0.42), height)], fill=(56, 189, 248, 34)
+    )
+    draw.line(
+        [(0, int(height * 0.55)), (int(width * 0.42), height)],
+        fill=(56, 189, 248, 130), width=max(2, width // 360),
+    )
+    return img
 
 
 def _gradient_bg(size_wh: tuple[int, int]):

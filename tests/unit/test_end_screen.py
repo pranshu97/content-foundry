@@ -79,3 +79,26 @@ def test_write_end_screen_roundtrip(tmp_path):
 
 def test_missing_runs_dir_is_empty(tmp_path):
     assert gather_past_videos(tmp_path / "nope", exclude_run_id="0001") == []
+
+
+def test_recommendations_comment_formats_links_or_empty():
+    from content_foundry.production.end_screen import recommendations_comment
+
+    body = recommendations_comment(
+        [
+            {"name": "System Design Interview", "link": "https://youtu.be/B"},
+            {"name": "Coding Interview Tips", "link": "https://youtu.be/C"},
+        ],
+        header="Watch next:",
+    )
+    assert body.startswith("Watch next:")
+    assert "System Design Interview: https://youtu.be/B" in body
+    assert "https://youtu.be/C" in body
+    # Nothing to recommend / a link-less entry -> empty, so an empty comment is never posted:
+    assert recommendations_comment([]) == ""
+    assert recommendations_comment([{"name": "x", "link": ""}]) == ""
+    # A blank header falls back to a sensible default line.
+    assert recommendations_comment([{"name": "X", "link": "https://youtu.be/Z"}]).startswith(
+        "More videos you might like:"
+    )
+

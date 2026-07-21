@@ -8,7 +8,7 @@ import re
 from ..errors import LLMError, SchemaValidationError
 from ..logging import get_logger
 from ..models import DataBrief, Provenance, ResearchBrief, SceneCue, Script
-from ..production.affiliate import affiliate_context
+from ..production.affiliate import affiliate_context, select_used
 from ..production.timebox import build_time_context
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
@@ -159,9 +159,11 @@ class ScriptGenerator:
         idea: str = "",
         previous_script: Script | None = None,
         research: ResearchBrief | None = None,
+        affiliate_candidates: list | None = None,
     ) -> Script:
         system = self._build_prompt(
-            brief, template, perspective_modifier, judge_feedback, idea, previous_script, research
+            brief, template, perspective_modifier, judge_feedback, idea, previous_script, research,
+            affiliate_candidates,
         )
         text = self._complete(system)
         parsed = self._parse_json(system, text)
@@ -172,6 +174,7 @@ class ScriptGenerator:
         script = self._prepend_intro(script)
         script = self._ensure_ending(script)
         script = self._stamp_sources(script, brief)
+        script = self._stamp_affiliate(script, affiliate_candidates)
         script = self._design_sound(script)
         return script
 
@@ -185,6 +188,7 @@ class ScriptGenerator:
         idea: str = "",
         previous_script: Script | None = None,
         research: ResearchBrief | None = None,
+        affiliate_candidates: list | None = None,
     ) -> str:
         beats = "\n".join(f"{i + 1}) {b}" for i, b in enumerate(template.beats))
         facts = [
@@ -236,7 +240,7 @@ class ScriptGenerator:
             time_context=time_context,
             creator_context=creator_context,
             format_context=_format_context(self._settings),
-            affiliate_context=affiliate_context(self._settings, niche=brief.niche, topic=idea),
+            affiliate_context=affiliate_context(self._settings, candidates=affiliate_candidates),
             research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
         )
@@ -525,6 +529,20 @@ class ScriptGenerator:
             scene.on_screen_text = f"{caption} · Source: {label}" if caption else f"Source: {label}"
         return script
 
+    def _stamp_affiliate(self, script: Script, candidates) -> Script:
+        """Persist ONLY the resolved resources the finished script actually references (name-scan of
+        the narration). URLs come from the pre-resolved candidates, never the model — so a link the
+        script promises is guaranteed to be in the description, and vice-versa."""
+        if not candidates:
+            return script
+        text = " ".join(s.narration or "" for s in script.scenes)
+        used = select_used(self._settings, candidates=candidates, script_text=text)
+        script.affiliate_links = [
+            {"label": lk.label, "url": lk.url, "blurb": lk.blurb, "mention": lk.mention}
+            for lk in used
+        ]
+        return script
+
     def _design_sound(self, script: Script) -> Script:
         """Guarantee a tasteful sprinkle of sound effects when SFX is enabled — the same 'never rely
         on the model alone' guarantee used for source stamping. Local models almost always return
@@ -729,6 +747,31 @@ def _replace_em_dashes(text):
     return re.sub(r"\s{2,}", " ", out).strip()
 
 
+# A time-sensitive script may name the year "at most once" (prompt rule). A model sometimes complies
+# by DELETING the year mid-clause yet leaving the temporal preposition + comma orphaned behind: the
+# hook reads "In 2026, the vast majority ..." but the scene body comes back as "In , the vast
+# majority ...". Only the sentence-OPENING "<temporal preposition> ," is repaired (an opening like
+# that always expected a year), so ordinary prose ("plugged in, the light came on") is never touched.
+_ORPHAN_YEAR_RE = re.compile(
+    r"(?i)(^|[.!?]\s+)(?:back\s+in|come|in|by|for|since|during|around|throughout|through)"
+    r"(?:\s+the\s+year)?\s*,\s*(\w)"
+)
+
+
+def _repair_dropped_year(text: str) -> str:
+    """Repair the orphan a model leaves when it drops the year but keeps the preposition and comma
+    ('In , the vast majority ...' -> 'The vast majority ...'). Removes the dangling
+    '<temporal preposition> ,' at a sentence start and restores the opening capital."""
+    if not text or "," not in text:
+        return text
+
+    def _fix(m: re.Match) -> str:
+        head, nxt = m.group(1), m.group(2)
+        return f"{head}{nxt.upper()}"  # the orphan opened the sentence -> restore its capital
+
+    return _ORPHAN_YEAR_RE.sub(_fix, text)
+
+
 def _clean_narration(text: str) -> str:
     """Make narration safe to speak: strip leaked structured-field annotations, neutralize any
     first-person company voice, and remove em dashes (the prompt forbids these; this guarantees it)."""
@@ -739,6 +782,7 @@ def _clean_narration(text: str) -> str:
     cleaned = _LABEL_LEADIN_RE.sub(lambda m: m.group(1).upper(), cleaned)
     cleaned = _neutralize_company_voice(cleaned)
     cleaned = _replace_em_dashes(cleaned)
+    cleaned = _repair_dropped_year(cleaned)  # fix an orphaned "In , ..." left when the year was cut
     cleaned = re.sub(r"\s+([.,!?;:])", r"\1", cleaned)  # tidy any space left before punctuation
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 

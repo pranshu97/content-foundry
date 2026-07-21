@@ -218,7 +218,8 @@ def _run(**kwargs):
 def run(
     niche: str | None = typer.Option(None),
     topic: str | None = typer.Option(None),
-    idea: str | None = typer.Option(None, "--idea", help="Focus the brainstormer on your concept (it proposes angles you pick from)"),
+    idea: str | None = typer.Option(None, "--idea", help="Your video idea/topic; used AS-IS by default. Add --brainstorm to explore angles around it instead."),
+    brainstorm: bool = typer.Option(False, "--brainstorm/--no-brainstorm", help="Explore ideas with the Brainstormer (+ YouTube outlier mining, if enabled) around --idea instead of using it verbatim. OFF by default."),
     template: str | None = typer.Option(None),
     fmt: str | None = typer.Option(None, "--format", help="long | short (a vertical YouTube Short); overrides CONTENT_FORMAT"),
     from_stage: str = typer.Option("fetch", "--from-stage"),
@@ -230,13 +231,18 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
     """Run the pipeline end-to-end (or a slice via --from-stage/--to-stage). By default it stops at a
-    finished, UNPUBLISHED video; pass --publish (or run `content-foundry publish` later) to upload."""
+    finished, UNPUBLISHED video; pass --publish (or run `content-foundry publish` later) to upload.
+    Your --idea is used AS-IS by default; add --brainstorm to explore/brainstorm angles around it."""
     if fmt:
         if fmt not in ("long", "short"):
             raise typer.BadParameter("--format must be 'long' or 'short'")
         os.environ["CONTENT_FORMAT"] = fmt
         _STATE["format_explicit"] = True  # an explicit --format wins over the run's persisted format
         reset_settings_cache()
+    # Idea exploration is OPT-IN: by default the --idea is used verbatim (no brainstorming, and no
+    # YouTube outlier mining, which lives behind the brainstormer). --brainstorm turns exploration on.
+    os.environ["BRAINSTORM_ENABLED"] = "true" if brainstorm else "false"
+    reset_settings_cache()
     if publish:
         to_stage = "publish"
     _run(

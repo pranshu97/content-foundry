@@ -25,7 +25,7 @@ from ..agents.judge_checks import redundancy_report
 from ..agents.research import research_key_facts
 from ..config import get_settings
 from ..errors import BudgetExhaustedError, ContentFoundryError, SchemaValidationError
-from ..logging import configure_logging, get_logger
+from ..logging import configure_logging, get_logger, set_run_log_file
 from ..models import (
     DataBrief,
     IdeaSelection,
@@ -158,6 +158,8 @@ class Orchestrator:
         run_id = self._ensure_run(run_id, topic_seed)
         paths = run_paths(run_id, self.s.output_dir)
         ensure_run_dirs(paths)
+        if self.s.run_log_enabled:
+            set_run_log_file(str(paths.root / "run.log"))  # tee every log line to a per-run debug file
         save_run_format(paths, self.s.content_format)  # so a re-run/thumbnail keeps this run's shape
         self.log.info("run_start", run_id=run_id, from_stage=from_stage, to_stage=to_stage)
         self._emit("start", run_id=run_id, from_stage=from_stage, to_stage=to_stage, niche=niche)
@@ -418,6 +420,79 @@ class Orchestrator:
             self.log.warning("search_provider_unavailable", error=str(exc))
             return None
 
+    def _resolve_affiliates(self, brief, idea):
+        """Resolve affiliate resource candidates (tag-matched platforms + a REAL Amazon book) ONCE
+        before generation, so the writer can name only resources whose links actually exist. Best-
+        effort: any failure yields no candidates (the script then names no resource)."""
+        if not getattr(self.s, "affiliate_enabled", False):
+            return []
+        try:
+            from ..production.affiliate import resolve_candidates
+
+            return resolve_candidates(
+                self.s, idea=idea, niche=brief.niche, search_provider=self._search_provider(),
+                amazon_queries=self._affiliate_queries(idea, brief.niche),
+            )
+        except Exception as exc:  # affiliate discovery must never break generation
+            self.log.warning("affiliate_resolve_failed", error=str(exc))
+            return []
+
+    def _affiliate_queries(self, idea, niche) -> list[str]:
+        """A few DISTINCT Amazon book-search queries for the topic via a cheap LIGHT-tier LLM call, so
+        the search finds the best-KNOWN book (the model can name the canonical title) rather than a
+        literal match for the headline. Uniquified, with the deterministic cleaned query appended as a
+        safety net. Falls back to just the deterministic query if the LLM is unavailable/misbehaves."""
+        from ..production.affiliate import amazon_search_query
+
+        deterministic = amazon_search_query([idea], niche)
+        try:
+            from ..prompts import load_prompt, render_prompt
+            from ..providers.tiering import TaskTier, select_model
+
+            system = render_prompt(
+                load_prompt("affiliate_queries.system"), topic=idea or niche, niche=niche
+            )
+            resp = self._llm_provider().complete(
+                "Return ONLY the JSON array now.",
+                system=system, temperature=0.3, max_tokens=self.s.llm_max_tokens,
+                model=select_model(self.s, TaskTier.LIGHT, fallback=self.s.judge_model),
+            )
+            queries = self._parse_query_list(resp.text)
+        except Exception as exc:  # a flaky query call must never break generation
+            self.log.warning("affiliate_queries_fallback", error=str(exc))
+            queries = []
+        seen: set[str] = set()
+        out: list[str] = []
+        for query in [*queries, deterministic]:  # LLM queries first, deterministic as the safety net
+            key = (query or "").strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(query.strip())
+        return out[:5]
+
+    @staticmethod
+    def _parse_query_list(text: str) -> list[str]:
+        """Pull a list of query strings from an LLM reply (a bare JSON array, an array wrapped in
+        prose, or an object whose first list value holds them)."""
+        import json
+
+        raw = (text or "").strip()
+        sliced = raw[raw.find("[") : raw.rfind("]") + 1] if "[" in raw and "]" in raw else ""
+        for candidate in (raw, sliced):
+            if not candidate:
+                continue
+            try:
+                data = json.loads(candidate)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(data, dict):
+                data = next((v for v in data.values() if isinstance(v, list)), [])
+            if isinstance(data, list):
+                items = [str(x).strip() for x in data if str(x).strip()]
+                if items:
+                    return items
+        return []
+
     def _augment_brief(self, brief: DataBrief, research: ResearchBrief | None) -> DataBrief:
         """Fold the Researcher's idea-relevant findings into the brief's CITABLE key_facts (prepended,
         so they rank first). This grounds the script in on-topic, source-backed specifics instead of
@@ -452,6 +527,7 @@ class Orchestrator:
         idea = self._resolve_idea(run_id, paths, brief, idea, recent_hooks, force=force)
         research = self._run_research(run_id, paths, brief, idea, force=force)
         gen_brief = self._augment_brief(brief, research)
+        aff_cands = self._resolve_affiliates(gen_brief, idea)
 
         feedback: str | None = None
         perspective = ""
@@ -476,7 +552,7 @@ class Orchestrator:
                 run_id, gen_brief, template,
                 perspective_modifier=perspective, judge_feedback=feedback,
                 attempt_number=attempt_number, idea=idea, previous_script=previous_script,
-                research=research,
+                research=research, affiliate_candidates=aff_cands,
             )
             self.repo.add_attempt(attempt_id, run_id, db_offset + attempt_number, template.id, forced)
             self._persist(
@@ -563,9 +639,11 @@ class Orchestrator:
         )
         research = self._run_research(run_id, paths, brief, idea, force=force)
         gen_brief = self._augment_brief(brief, research)
+        aff_cands = self._resolve_affiliates(gen_brief, idea)
         attempt_id = str(ULID())
         script = ScriptGenerator(self.s, self._llm_provider()).run(
-            run_id, gen_brief, template, attempt_number=1, idea=idea, research=research
+            run_id, gen_brief, template, attempt_number=1, idea=idea, research=research,
+            affiliate_candidates=aff_cands,
         )
         self.repo.add_attempt(attempt_id, run_id, 1, template.id, False)
         self._persist(

@@ -224,7 +224,7 @@ def build_publisher(settings: Settings, *, dry_run: bool = False) -> Publisher:
 
     return YouTubePublisher(
         settings.youtube_client_secrets_file, settings.youtube_token_file,
-        comment_enabled=settings.publish_top_comment,
+        comment_enabled=settings.publish_top_comment or settings.recommend_comment_enabled,
     )
 
 

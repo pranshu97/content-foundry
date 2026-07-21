@@ -1,0 +1,14 @@
+You generate Amazon BOOK search queries for a YouTube video's topic, so the single best,
+most-recommended book on that topic can be linked in the description.
+
+TOPIC: {topic}
+NICHE: {niche}
+
+Return ONLY a JSON array of 3 to 4 SHORT, DISTINCT search queries (2-6 words each) that would surface
+the best-known book on this topic on Amazon:
+- If you KNOW the canonical / most-recommended book on this exact topic, make the FIRST query its
+  EXACT title (for a coding-interview topic, that is: Cracking the Coding Interview).
+- The rest should be short SUBJECT phrases from different angles (for example: coding interview book,
+  technical interview preparation book).
+- Books only. No years, no "how to", no channel or brand fluff, no quotes, no extra keys.
+- Output ONLY the JSON array of plain strings and nothing else.

@@ -80,6 +80,19 @@ _OFF_TOPIC_SUBJECTS = frozenset({
     # lifestyle / people fluff
     "yoga", "meditation", "baby", "babies", "toddler", "newborn", "fashion",
     "dance", "dancing", "concert", "nightclub", "disco", "karaoke",
+    # medical / anatomy / biology — the classic "diagram"/"chart"/"model"/"scan" mismatch (a stock
+    # anatomy diagram padded in for "whiteboard diagram"). Safe for a medical niche: a clip is only
+    # dropped when the QUERY itself never used the term (see _off_topic). Tech-ambiguous words
+    # (cell, virus, dna, molecule) are deliberately EXCLUDED.
+    "anatomy", "anatomical", "intestine", "intestines", "intestinal", "digestive",
+    "gastrointestinal", "colon", "bowel", "stomach", "liver", "kidney", "kidneys", "pancreas",
+    "bladder", "artery", "arteries", "cardiovascular", "respiratory", "lung", "lungs", "skeleton",
+    "skeletal", "vertebrae", "ribcage", "pelvis", "cranium", "esophagus", "abdomen", "organs",
+    "surgery", "surgical", "surgeon", "medical", "medicine", "clinic", "clinical", "patient",
+    "disease", "diagnosis", "dental", "dentist", "tooth", "teeth", "stethoscope", "syringe",
+    "vaccine", "vaccination", "ultrasound", "pathology", "prescription", "pharmacy", "biology",
+    "biological", "bacteria", "bacterial", "microscope", "microscopic", "embryo", "fetus",
+    "hormone",
 })
 
 
@@ -109,14 +122,31 @@ def _slug_words(url: str) -> str:
     return " ".join(w for w in words if w not in _SLUG_STOP)
 
 
+# Words too generic to PROVE a clip shows what a beat asked for: almost every stock clip is tagged
+# with a person, a body part, or a framing word, so a match on ONLY one of these is not evidence. The
+# concrete subject/action words in a beat (office, chart, laptop, server, handshake, whiteboard) are
+# what must match — see _clip_ok's high-confidence gate.
+_GENERIC_SUBJECTS = frozenset({
+    "person", "people", "man", "woman", "men", "women", "guy", "girl", "boy", "kid", "child",
+    "human", "adult", "someone", "somebody", "worker", "professional", "team", "group", "crowd",
+    "everyone", "hand", "hands", "finger", "fingers", "arm", "arms", "face", "head", "body",
+    "closeup", "close", "shot", "footage", "video", "clip", "background", "view", "scene", "angle",
+    "indoor", "indoors", "outdoor", "outdoors", "camera", "looking", "using", "working", "sitting",
+    "standing", "walking", "talking", "holding",
+})
+
+
 def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
     """Keep a candidate clip only when it is NOT an off-topic stock subject the query never asked for
-    AND — when we know this video's vocabulary (``vocab``) — its tags/slug actually touch that
-    vocabulary. The second check is what stops holiday/greeting/unrelated clips that dodge the
-    denylist (e.g. a 'Happy Valentine's Day' clip in a software video). With NO vocabulary we can't
-    positively filter, so keep; but a clip with NO tags/slug while a vocabulary IS known is
-    unverifiable (a bare stock URL) and is DROPPED — that 'no evidence' gap is exactly how off-topic
-    padding sneaks past the denylist."""
+    AND — when we know this video's vocabulary (``vocab``) — its tags/slug (a) actually touch that
+    vocabulary AND (b) name at least one SPECIFIC word from THIS beat's query. The vocab check stops
+    holiday/greeting/unrelated clips that dodge the denylist (e.g. a 'Happy Valentine's Day' clip in a
+    software video); the per-beat specific-word check is the HIGH-CONFIDENCE gate that stops a clip
+    which merely shares a generic 'person/hand/office' word (a honey-scraping clip for an ML-interview
+    beat). With NO vocabulary we can't positively filter, so keep; but a clip with NO tags/slug while a
+    vocabulary IS known is unverifiable (a bare stock URL) and is DROPPED. Now that a rejected clip
+    falls back to a GENERATED image, we hold clips to this much higher bar rather than show anything
+    off-topic."""
     if _off_topic(query, meta):
         return False
     if not vocab:
@@ -130,6 +160,16 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
         # how off-topic padding — the recurring Valentine's / greeting-card clip that dodges the
         # denylist — sneaks in. Drop it: the candidate pool is large and the scene falls back to its
         # card, so losing one unverifiable clip keeps junk out at no real cost.
+        return False
+    # HIGH-CONFIDENCE MATCH: the clip must actually name what THIS beat asked for — at least one of the
+    # query's SPECIFIC words (its concrete subject/action, ignoring generic 'person/hand/shot' filler)
+    # has to appear in the clip's own tags/slug. A match on ONLY a generic word (nearly every clip is
+    # tagged with a 'person') is not evidence, so it is rejected in favour of a generated image.
+    specific = {
+        w for w in re.findall(r"[a-z]+", (query or "").lower())
+        if len(w) >= 3 and w not in _GENERIC_SUBJECTS
+    }
+    if specific and not (meta_words & specific):
         return False
     return bool(meta_words & vocab)
 

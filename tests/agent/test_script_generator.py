@@ -398,6 +398,27 @@ def test_clean_narration_drops_bracketed_source_attribution():
     assert _clean_narration("Build one source of truth.") == "Build one source of truth."
 
 
+def test_clean_narration_repairs_orphaned_dropped_year():
+    # A model that names the year "at most once" sometimes cuts it from the body but leaves the
+    # preposition + comma behind ("In 2026, the vast..." -> "In , the vast..."). Repair the orphan.
+    from content_foundry.agents.script_generator import _clean_narration
+
+    assert (
+        _clean_narration("In , the vast majority of candidates will fail.")
+        == "The vast majority of candidates will fail."
+    )
+    assert _clean_narration("By , salaries had shifted.") == "Salaries had shifted."
+    # Mid-sentence "in," is ordinary prose (a verb particle), NOT a dropped year -> left untouched.
+    assert (
+        _clean_narration("They plugged in, and the screen lit up.")
+        == "They plugged in, and the screen lit up."
+    )
+    # A real year in the hook is kept exactly (no orphan to repair).
+    assert (
+        _clean_narration("In 2026, the market changed.") == "In 2026, the market changed."
+    )
+
+
 def test_company_voice_is_neutralized_to_third_person():
     # Legal: the narration must never speak AS a company. "At Expedia Group we..." -> third person.
     from content_foundry.agents.script_generator import _neutralize_company_voice as n

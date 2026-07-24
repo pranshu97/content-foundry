@@ -33,29 +33,30 @@ clear, cinematic picture, never a bag of keywords.
 - Make each beat's image DISTINCT — vary the subject, angle, setting, and palette shot to shot.
 </relevance>
 
-<people_hands_and_faces>
-A visible face is welcome and often stronger — but ONLY when it can read as a REAL, cleanly photographed
-human. Image models fail on close-up FINGERS and on faces given too little room, and a warped hand or a
-melted face instantly screams "AI slop". So direct these deliberately:
-- FACES: fine to show, and you do NOT have to hide or turn them away. Frame them like a real editorial
-  photo would — ONE clear face, naturally and evenly lit, a genuine relaxed expression, with a little
-  breathing room (a medium or waist-up shot rather than an extreme macro of the face); natural,
-  symmetric, undistorted features. If a beat doesn't really call for a face, an environment or object
-  shot is just as good — choose whatever serves the beat, and vary it across shots.
-- HANDS are the weak point: AVOID close-up hands and fingers and never make fingers the subject. Keep
-  hands whole, relaxed, and out of the foreground; if they appear, keep them small in frame or partly
-  out of it — never spread fingers in macro.
-- Mix people-forward frames with pure environment / object / wide establishing shots so the sequence
-  feels edited and varied, not a row of near-identical portraits.
-</people_hands_and_faces>
+<avoid_faces_and_hands>
+THE #1 RULE for looking REAL instead of AI-generated: image models MANGLE faces and close-up fingers,
+and a warped hand or a melted, uncanny face instantly screams "AI slop". So COMPOSE AROUND THEM — this
+is not optional:
+- DEFAULT TO NO VISIBLE FACE. Build the shot around the ENVIRONMENT, the OBJECTS, the TOOLS, the
+  SCREEN, the SETTING — a laptop on a desk, a whiteboard of diagrams, a server rack, a city skyline, an
+  empty meeting room, an open notebook, atmospheric close-ups of props, wide establishing shots. The
+  beat's subject can almost always be shown through its PLACE and THINGS, not a face.
+- When a human presence genuinely helps, keep the person a SMALL, DISTANT figure, seen FROM BEHIND or
+  OVER-THE-SHOULDER, in SILHOUETTE, or CROPPED so the face and hands fall OUTSIDE the frame — the face
+  is turned away, obscured, or simply not in shot.
+- HARD BANS: NEVER a face filling or clearly visible in the frame, NEVER a direct-to-camera portrait,
+  NEVER a group smiling at the camera, NEVER a close-up of hands or fingers, NEVER fingers as the
+  subject, NEVER a macro of hands manipulating a small object. If hands must appear at all, keep them
+  whole, relaxed, distant, and partly out of frame — never spread fingers in close-up.
+- If you cannot tell the beat without a clear face, fall back to the ENVIRONMENT or OBJECT that stands
+  in for it — that ALWAYS beats a mangled AI face.
+</avoid_faces_and_hands>
 
 <quality>
 - REAL PHOTOGRAPH, NOT AI SLOP: describe an authentic editorial DSLR photograph shot on a real lens
   (e.g. 35mm or 50mm) with natural, motivated light, true photographic detail, and tactile texture.
   NEVER the plastic, waxy, over-smoothed, airbrushed, hyper-glossy "3D render / CGI / illustration /
-  digital-art / AI-generated" look, and NEVER warped, melted, or duplicated anatomy. When a face is
-  visible, give it true skin texture and natural catchlights under clean, even light — one symmetric,
-  undistorted face, never waxy, plastic, or asymmetric with doubled or warped features.
+  digital-art / AI-generated" look, and NEVER warped, melted, or duplicated anatomy.
 - CINEMATIC LIGHT & COLOR: shallow depth of field with the subject sharp and the setting slightly
   soft; rich but believable color; a bright, clean, high-key feel over dark, murky, or heavy neon-
   night looks. Leave one calmer area where the on-screen caption can sit legibly.

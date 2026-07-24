@@ -3,6 +3,8 @@
 ### 11.1 Purpose
 Produce every visual the renderer needs: a click-worthy **thumbnail**, one **visual per scene** (AI-generated image or stock B-roll), and a **time-synced captions** track. Visuals are chosen to reinforce the specific data points, not generic stock fluff.
 
+> **Relevance-first B-roll + generated fallback (current behavior).** Each narration beat gets the single most relevant stock clip (deterministic, no diversity sampling), held to a STRICT on-topic bar — a clip must name a specific (non-generic) word from the beat and, for a rich 3-4 word beat, match at least half of them. Any beat with **no confidently-relevant clip** falls back to a bespoke **generated image** whose prompt is written by an LLM art-director (`SceneImageDirector`, gated by `SCENE_IMAGE_DIRECTOR_ENABLED`) that is deliberately composed to AVOID the mangled AI faces/hands look — never an off-topic clip. With no image provider the fallback is a clean designed card.
+
 ### 11.2 Inputs / outputs
 - **Input:** approved `Script` + `VoiceoverAsset` (for caption timing).
 - **Output:** `VisualPackage` artifact → `output/runs/<run_id>/visuals.json`, plus `assets/thumbnail.png`, `assets/scenes/scene_<n>.{png|mp4}`, `assets/captions.srt`.

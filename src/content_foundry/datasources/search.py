@@ -2,9 +2,10 @@
 
 Unlike the domain-specific feeds (jobs / layoffs / news / BLS), this source is decoupled and
 domain-agnostic: it runs a plain web search on the run's *topic* (niche + seed), so ANY niche works.
-Free by default via DuckDuckGo (no key, no signup); optionally Tavily or Brave when their free API
-key is set. Each hit becomes a ``NormalizedSignal(kind="news")`` so the existing distiller turns it
-into a grounded, citation-ready fact with the result's URL and snippet.
+Free by default via DuckDuckGo (no key, no signup); Tavily and/or Brave act as automatic FALLBACKS
+(or the primary) when their free API key is set — so when DuckDuckGo rate-limits, the search
+transparently switches to the next provider. Each hit becomes a ``NormalizedSignal(kind="news")`` so
+the existing distiller turns it into a grounded, citation-ready fact with the result's URL and snippet.
 """
 
 from __future__ import annotations
@@ -294,11 +295,65 @@ class SearchSource:
         return signals
 
 
+class FallbackSearchProvider:
+    """Try each provider in order and return the first NON-EMPTY result set — so when the primary
+    (e.g. DuckDuckGo) rate-limits or errors, the search transparently falls back to the next configured
+    provider. The last error is re-raised ONLY when EVERY provider errored (so the source counts a real
+    failure); if some provider succeeded but found nothing, an empty list is returned."""
+
+    def __init__(self, providers: Sequence[SearchProvider]) -> None:
+        self._providers = list(providers)
+        self.name = self._providers[0].name if self._providers else "search"
+        self._log = get_logger(component="search_fallback")
+
+    @property
+    def providers(self) -> list[SearchProvider]:
+        return self._providers
+
+    def search(self, query: str, max_results: int) -> list[SearchResult]:
+        last_exc: Exception | None = None
+        served = False
+        for provider in self._providers:
+            try:
+                results = provider.search(query, max_results)
+            except Exception as exc:  # rate-limit / network / API error -> try the next provider
+                last_exc = exc
+                self._log.warning("search_provider_failed", provider=provider.name, error=str(exc))
+                continue
+            served = True
+            if results:
+                return results
+            self._log.info("search_provider_empty", provider=provider.name, query=query)
+        if last_exc is not None and not served:  # every provider ERRORED -> propagate the failure
+            raise last_exc
+        return []  # a provider answered but found nothing (or all did) -> no results, no error
+
+
 def build_search_provider(settings: Settings) -> SearchProvider:
-    """Pick the configured provider, gracefully falling back to key-less DuckDuckGo."""
-    provider = (settings.search_provider or "duckduckgo").lower()
-    if provider == "tavily" and settings.tavily_api_key:
-        return TavilyProvider(settings.tavily_api_key)
-    if provider == "brave" and settings.brave_api_key:
-        return BraveProvider(settings.brave_api_key)
-    return DuckDuckGoProvider()
+    """The web-search provider CHAIN: the configured SEARCH_PROVIDER first, then the others as automatic
+    FALLBACKS (Tavily/Brave only when their key is set; key-less DuckDuckGo is always the final safety
+    net) — so a rate-limited or erroring primary transparently switches to the next. Returns a lone
+    provider when only one is viable (the common key-less DuckDuckGo case)."""
+    primary = (settings.search_provider or "duckduckgo").lower()
+
+    def _make(name: str) -> SearchProvider | None:
+        if name == "duckduckgo":
+            return DuckDuckGoProvider()  # key-less: always available as the final fallback
+        if name == "tavily":
+            return TavilyProvider(settings.tavily_api_key) if settings.tavily_api_key else None
+        if name == "brave":
+            return BraveProvider(settings.brave_api_key) if settings.brave_api_key else None
+        return None
+
+    # Primary first, then the remaining providers in a stable preference order (key-less DDG last).
+    order = [primary, *(p for p in ("tavily", "brave", "duckduckgo") if p != primary)]
+    chain: list[SearchProvider] = []
+    seen: set[str] = set()
+    for name in order:
+        if name in seen:
+            continue
+        seen.add(name)
+        provider = _make(name)
+        if provider is not None:
+            chain.append(provider)
+    return chain[0] if len(chain) == 1 else FallbackSearchProvider(chain)

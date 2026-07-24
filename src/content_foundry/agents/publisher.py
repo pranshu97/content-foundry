@@ -8,7 +8,7 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, PublishResult, Script, VideoAsset, VisualPackage, utcnow
 from ..production.affiliate import AffiliateLink, affiliate_block
-from ..production.seo import channel_cta_block, optimize_metadata
+from ..production.seo import channel_cta_block, optimize_metadata, youtube_safe_text
 from ..safeguards.disclosure import resolve_publish_outcome
 
 # A just-uploaded video is often still processing, so YouTube rejects thumbnails.set for a few seconds
@@ -78,6 +78,10 @@ class Publisher:
             if aff_block:
                 description = f"{description}\n\n{aff_block}"
             tags = script.tags
+        # YouTube's API rejects a title/description containing '<' or '>' (400 invalidDescription) — the
+        # auto-built chapters can inherit one from a scene's on_screen_text (e.g. "PROCESS > RESULT").
+        title = youtube_safe_text(title)
+        description = youtube_safe_text(description)
         video_real = str(run_root / video.video_path)
         thumb_real = str(run_root / visuals.thumbnail_path)
 
@@ -102,6 +106,14 @@ class Publisher:
                 "account supports custom Short thumbnails.",
             )
         else:
+            # A manually-swapped thumbnail.png can exceed YouTube's 2 MB custom-thumbnail limit (the
+            # pipeline caps its OWN render, but a hand-replaced high-res image bypasses that), so
+            # thumbnails.set 400s and the video ends up with NO custom thumbnail. Re-optimize in place
+            # first so a personal thumbnail uploads too. Best-effort.
+            from .visuals import ensure_upload_safe_thumbnail
+
+            if ensure_upload_safe_thumbnail(Path(thumb_real)):
+                self._log.info("thumbnail_optimized_for_upload", path=thumb_real)
             # Buffer: let YouTube finish processing the just-uploaded video before setting the
             # thumbnail (thumbnails.set is rejected while the video is still processing), then retry.
             if s.publish_thumbnail_delay_sec > 0:
@@ -142,7 +154,7 @@ class Publisher:
                 if s.affiliate_in_comment and aff_block:
                     parts.append(aff_block)
                 parts.append((channel_cta_block(s) or s.channel_cta_text or "").strip())
-            comment = "\n\n".join(p for p in parts if p).strip()
+            comment = youtube_safe_text("\n\n".join(p for p in parts if p).strip())
             if comment:
                 try:
                     self._pub.add_comment(video_id, comment)

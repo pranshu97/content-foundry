@@ -7,7 +7,7 @@ from .ideas import IdeaSelection, MinedIdea
 from .judge_report import DimensionScore, JudgeReport, Verdict
 from .provenance import Provenance, utcnow
 from .publish import PublishResult
-from .research import ResearchBrief, ResearchPoint
+from .research import InstructionPlan, ResearchBrief, ResearchPoint
 from .run import Attempt, Run, RunResult, RunState
 from .script import SceneCue, Script
 from .signals import SIGNAL_KINDS, NormalizedSignal, RawSignal
@@ -40,6 +40,7 @@ __all__ = [
     "VisualShot",
     "VideoAsset",
     "PublishResult",
+    "InstructionPlan",
     "ResearchBrief",
     "ResearchPoint",
     "RunState",

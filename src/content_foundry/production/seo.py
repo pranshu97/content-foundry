@@ -153,6 +153,19 @@ def channel_cta_block(settings) -> str:
     return "\n".join(parts)
 
 
+# YouTube's Data API rejects a title or description containing a raw angle bracket ('<' or '>') with a
+# 400 "invalid description"/"invalid title" error. The auto-built chapters can inherit one from a
+# scene's on_screen_text (e.g. "PROCESS > RESULT"), so swap both for accepted look-alike guillemets.
+_YOUTUBE_ANGLE = str.maketrans({"<": "‹", ">": "›"})
+
+
+def youtube_safe_text(text: str) -> str:
+    """Make ``text`` safe for a YouTube title / description / comment: replace the API-forbidden angle
+    brackets ``<`` and ``>`` (which trigger a 400 ``invalidDescription``) with accepted look-alikes.
+    Everything else is left untouched; empty/falsy input is returned unchanged."""
+    return text.translate(_YOUTUBE_ANGLE) if text else text
+
+
 def optimize_description(
     description: str,
     *,

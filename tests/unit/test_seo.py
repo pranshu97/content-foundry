@@ -11,6 +11,7 @@ from content_foundry.production.seo import (
     optimize_tags,
     optimize_title,
     pick_title,
+    youtube_safe_text,
 )
 
 
@@ -99,6 +100,16 @@ def test_optimize_description_composes_blocks():
 def test_optimize_description_does_not_duplicate_cta():
     desc = optimize_description("Please Subscribe now.", cta="Subscribe now.", tags=[], chapters=[])
     assert desc.lower().count("subscribe now") == 1
+
+
+def test_youtube_safe_text_replaces_forbidden_angle_brackets():
+    # YouTube's API 400s (invalidDescription) on a title/description containing '<' or '>' — a chapter
+    # built from an on_screen_text like "PROCESS > RESULT" is the usual culprit.
+    assert youtube_safe_text("PROCESS > RESULT") == "PROCESS › RESULT"
+    assert youtube_safe_text("a < b, c > d") == "a ‹ b, c › d"
+    cleaned = youtube_safe_text("Chapters:\n0:00 Intro\n1:12 PROCESS > RESULT")
+    assert "<" not in cleaned and ">" not in cleaned
+    assert youtube_safe_text("") == ""  # empty in, empty out
 
 
 # -------------------------------------------------------------- compose

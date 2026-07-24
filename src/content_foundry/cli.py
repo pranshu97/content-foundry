@@ -219,6 +219,7 @@ def run(
     niche: str | None = typer.Option(None),
     topic: str | None = typer.Option(None),
     idea: str | None = typer.Option(None, "--idea", help="Your video idea/topic; used AS-IS by default. Add --brainstorm to explore angles around it instead."),
+    instructions: str | None = typer.Option(None, "--instructions", help="Extra guidance for THIS video that STEERS both the research direction and the script's angle/emphasis/tone (e.g. 'focus on remote roles, keep it beginner-friendly'). Persisted per run and reused on a re-run."),
     brainstorm: bool = typer.Option(False, "--brainstorm/--no-brainstorm", help="Explore ideas with the Brainstormer (+ YouTube outlier mining, if enabled) around --idea instead of using it verbatim. OFF by default."),
     template: str | None = typer.Option(None),
     fmt: str | None = typer.Option(None, "--format", help="long | short (a vertical YouTube Short); overrides CONTENT_FORMAT"),
@@ -248,7 +249,7 @@ def run(
     _run(
         run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input,
         template_id=template, force=force, dry_run=dry_run or _STATE["dry_run"],
-        niche=niche, topic_seed=topic, idea=idea, interactive_idea=True,
+        niche=niche, topic_seed=topic, idea=idea, instructions=instructions, interactive_idea=True,
     )
 
 
@@ -266,11 +267,12 @@ def fetch(
 def generate(
     input: str = typer.Option(..., help="data_brief.json"),
     template: str | None = typer.Option(None),
+    instructions: str | None = typer.Option(None, "--instructions", help="Extra guidance that STEERS the research + script direction for this run."),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
     """Stage 2 only (needs a brief)."""
     _run(run_id=run_id, from_stage="generate", to_stage="generate", input_path=input,
-         template_id=template)
+         template_id=template, instructions=instructions)
 
 
 @app.command()
@@ -340,6 +342,14 @@ def thumbnail(
     prompt_file = paths.root / "assets" / "thumbnail_prompt.txt"
     if reset and prompt_file.exists():
         prompt_file.unlink()  # discard saved edits -> render rebuilds from the concept
+    # Which prompt will drive this render? Announce it up front so a REUSED saved prompt never looks
+    # like a caching bug — the standalone command reuses assets/thumbnail_prompt.txt whenever it exists.
+    if prompt is not None:
+        prompt_source = "your --prompt (also saved to the prompt file)"
+    elif prompt_file.exists():
+        prompt_source = f"the SAVED prompt file — pass --reset to rebuild it fresh ({prompt_file})"
+    else:
+        prompt_source = "a freshly rebuilt prompt from the Thumbnail Director"
     try:
         llm = build_llm_provider(settings)
     except Exception:
@@ -348,7 +358,8 @@ def thumbnail(
         script, run_root=paths.root, prompt=prompt,
     )
     typer.echo(f"Thumbnail regenerated: {paths.root / 'assets' / 'thumbnail.png'}")
-    typer.echo(f"Edit this to tweak the look, then re-run: {prompt_file}")
+    typer.echo(f"Prompt used: {prompt_source}")
+    typer.echo(f"Hand-tune by editing {prompt_file}, or use --reset to rebuild it fresh.")
 
 
 @app.command()

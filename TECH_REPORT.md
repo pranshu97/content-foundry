@@ -7,7 +7,7 @@
 | **Version** | 1.0.0 |
 | **Language** | Python ≥ 3.11 |
 | **Source** | 72 modules · ~5,300 LOC |
-| **Tests** | 213 passing · ~91% coverage · `ruff` clean |
+| **Tests** | 425 passing · `ruff` clean |
 | **Design spec** | 26 chapters (`spec/`) |
 | **License** | MIT |
 
@@ -28,13 +28,22 @@ A fifth cross-cutting concern, **cost control**, lets the entire pipeline run **
 free** (local LLM + offline TTS + procedural visuals) or scale up to paid cloud providers, selected
 per-stage through a uniform provider abstraction.
 
-Recent additions extend the free tier further: a **domain-agnostic web-search** data source (any
-niche, no key), **moment-matched multi-source B-roll** (a separate clip per narration beat, from
-Pexels + Pixabay), **sound effects** mixed into the narration, scene **crossfades**, a **warm colour
-grade**, and a midpoint **Subscribe nudge**, plus **run-alternating male/female voices** — all local
-or free-tier. Narration is additionally hardened in code (no leaked meta tokens, no spoken sources,
-no company first-person "we", no em dashes), and runs are identified by short sequential ids (`0001`,
-`0002`, …) that are easy to resume.
+Recent additions extend both the free tier and the quality/retention bar. On visuals: **moment-matched
+multi-source B-roll** (a separate clip per narration beat) is now held to a **strict on-topic
+relevance bar** — any beat with no confidently-relevant stock clip falls back to a **bespoke,
+LLM-art-directed GENERATED image** (composed to avoid the mangled AI faces/hands look) rather than an
+off-topic clip, and clip selection is **deterministic** (always the most relevant, no diversity
+sampling). On the script: retention is engineered directly — the crafted **hook is now the literal
+spoken opening**, an optional, non-bait **"open loop"** teases a payoff that a deterministic Judge gate
+**guarantees is delivered**, and pacing rules fight monotony (vary scene shape, pull into the next
+scene, allow anonymized stories, curiosity captions). On monetization/growth: optional **affiliate
+resource links** (a real, searched Amazon product plus topic-matched platforms) and a **"watch next"
+comment** linking related prior uploads are posted at publish time. Plus: **free zero-shot voice
+cloning** (Chatterbox, MIT) with silence/pause normalization, **sound effects** mixed under the voice
+at a predictable level, scene **crossfades**, a **warm colour grade**, a midpoint **Subscribe nudge**,
+**run-alternating voices**, and a **per-run structured log file** for debugging silent fallbacks.
+Narration is hardened in code (no leaked meta tokens, no spoken sources, no company first-person
+"we", no em dashes), and runs are identified by short sequential ids (`0001`, `0002`, …).
 
 ---
 

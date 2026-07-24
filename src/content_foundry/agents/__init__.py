@@ -6,6 +6,7 @@ from .brainstorm import Brainstormer
 from .broll_director import BrollDirector
 from .data_fetcher import DataFetcher
 from .idea_miner import IdeaMiner
+from .instruction_planner import InstructionPlanner
 from .judge import Judge
 from .publisher import Publisher
 from .renderer import Renderer
@@ -20,6 +21,7 @@ __all__ = [
     "DataFetcher",
     "Brainstormer",
     "IdeaMiner",
+    "InstructionPlanner",
     "Researcher",
     "BrollDirector",
     "ScriptGenerator",

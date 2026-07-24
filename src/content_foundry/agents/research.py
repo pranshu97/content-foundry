@@ -73,6 +73,22 @@ def research_key_facts(research: ResearchBrief) -> list[KeyFact]:
     ]
 
 
+def _instruction_block(instructions: str) -> str:
+    """Render the creator's extra instructions as a STEER block for the research prompt (empty when
+    none). It biases WHICH points get pulled and what's emphasized — still grounded in the sources and
+    still on the exact topic."""
+    text = (instructions or "").strip()
+    if not text:
+        return ""
+    return (
+        "\n<creator_direction>\n"
+        "EXTRA INSTRUCTIONS from the creator for this video — let them STEER which points you pull out "
+        "and what you emphasize (still grounded in the sources, still on the exact topic above):\n"
+        f"{text}\n"
+        "</creator_direction>\n"
+    )
+
+
 class Researcher:
     def __init__(self, settings, llm_provider: LLMProvider, *, search_provider=None):
         self._settings = settings
@@ -80,9 +96,12 @@ class Researcher:
         self._search = search_provider  # optional: fresh web search for the CHOSEN idea (idea-match)
         self._log = get_logger(component="research")
 
-    def run(self, run_id: str, brief: DataBrief, *, idea: str) -> ResearchBrief:
-        sources = self._gather_sources(brief, idea=idea)
-        points, used_model = self._synthesize(idea, brief.niche, sources)
+    def run(
+        self, run_id: str, brief: DataBrief, *, idea: str, instructions: str = "",
+        research_queries: list[str] | None = None,
+    ) -> ResearchBrief:
+        sources = self._gather_sources(brief, idea=idea, extra_queries=research_queries)
+        points, used_model = self._synthesize(idea, brief.niche, sources, instructions)
         if not points:
             points = self._fallback(brief)
             used_model = None
@@ -94,7 +113,9 @@ class Researcher:
             used_model=used_model,
         )
 
-    def _gather_sources(self, brief: DataBrief, *, idea: str = "") -> list[tuple[str, str]]:
+    def _gather_sources(
+        self, brief: DataBrief, *, idea: str = "", extra_queries: list[str] | None = None
+    ) -> list[tuple[str, str]]:
         """Fetch the full text behind the research sources (deduped). A fresh web search for the
         CHOSEN idea comes FIRST — so the research (and its numbers) match the picked topic instead of
         whatever the seed-built brief happened to contain (the salary-drift bug) — then the brief's own
@@ -106,6 +127,7 @@ class Researcher:
         # (url, fallback snippet) candidates: idea-search hits FIRST, then the brief's citation URLs.
         candidates: list[tuple[str, str]] = [
             *self._idea_search_candidates(idea),
+            *self._directed_search_candidates(extra_queries or []),
             *(
                 ((f.citation.url or "").strip(), (f.citation.snippet or f.statement or "").strip())
                 for f in brief.key_facts
@@ -154,7 +176,33 @@ class Researcher:
             if getattr(h, "url", None)
         ]
 
-    def _synthesize(self, idea, niche, sources) -> tuple[list[ResearchPoint], str | None]:
+    def _directed_search_candidates(self, queries: list[str]) -> list[tuple[str, str]]:
+        """Fresh web searches for the Instruction Planner's queries -> (url, snippet) candidates, so
+        research actually goes and FINDS the specific material the creator asked about (the scoring
+        matrix, the negative signals, a real feedback form...). Best-effort: no provider or a failing
+        query is skipped; the idea + brief URLs still drive research."""
+        if self._search is None or not queries:
+            return []
+        out: list[tuple[str, str]] = []
+        for q in queries:
+            q = (q or "").strip()
+            if not q:
+                continue
+            try:
+                hits = self._search.search(q, self._settings.search_max_results)
+            except Exception as exc:  # a flaky search must never break research
+                self._log.warning("research_directed_search_failed", query=q, error=str(exc))
+                continue
+            out.extend(
+                ((h.url or "").strip(), (h.snippet or h.title or "").strip())
+                for h in hits
+                if getattr(h, "url", None)
+            )
+        return out
+
+    def _synthesize(
+        self, idea, niche, sources, instructions: str = ""
+    ) -> tuple[list[ResearchPoint], str | None]:
         if not sources:
             return [], None
         blocks = "\n\n".join(f"[{url}]\n{text}" for url, text in sources)
@@ -166,6 +214,7 @@ class Researcher:
                 load_prompt("research.system"),
                 niche=niche,
                 idea=idea or niche,
+                instructions=_instruction_block(instructions),
                 max_points=str(self._settings.research_max_points),
                 sources=blocks,
             )

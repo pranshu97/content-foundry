@@ -3,6 +3,8 @@
 ### 8.1 Purpose
 Turn the `DataBrief` into a complete, recordable video **script** using one of six rotating structural templates ([Ch. 16](16-template-definitions-all-6.md)). The output is "systematically varied" — same factual grounding, deliberately different structure each time — and is pre-segmented into scenes so downstream production (voiceover, visuals, render) needs no further interpretation.
 
+> **Retention engineering (current behavior).** The crafted `hook` is now the LITERAL spoken opening: `_ensure_spoken_hook` guarantees scene 0 begins with the hook (prepended only if the writer didn't already open on it — verbatim or a reworded restatement — so it is never said twice), and the fixed intro tagline still leads into it. The writer may plant ONE optional non-bait **"open loop"** (`RETENTION_OPEN_LOOP_ENABLED`, long-form only) that teases a payoff recorded in the `open_loop` field; a deterministic Judge gate rejects any teased payoff that is not actually delivered near the end. Pacing rules fight monotony (vary scene shape, pull into the next scene, curiosity-driven `on_screen_text`, and anonymized/illustrative stories are allowed — only a fabricated named-and-numbered personal achievement is banned).
+
 ### 8.2 Inputs / outputs
 - **Input:** `DataBrief` artifact + a chosen `template_id` (selected by the orchestrator, or forced by the Judge on a revision) + optional `judge_feedback` **and the previous draft** (on revisions).
 - **Output:** `Script` artifact → `output/runs/<run_id>/script.json`.

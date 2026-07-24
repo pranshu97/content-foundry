@@ -255,22 +255,95 @@ def test_resolve_amazon_multiple_queries_are_redundant(monkeypatch):
     assert link.mention == "Cracking the Coding Interview"
 
 
-def test_select_used_scans_narration_and_promise_safety_net(monkeypatch):
+def test_select_used_scans_narration_with_description_safety_net(monkeypatch):
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="t-20")
     book = AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
                          "", mention="Cracking the Coding Interview")
-    lc = AffiliateLink("LeetCode", "https://lc", "", mention="LeetCode")
-    # Named in the narration -> used:
+    course = AffiliateLink("Educative", "https://www.educative.io/courses/grokking-x?aff=BXmM",
+                           "", mention="Grokking X")
+    fenzo = AffiliateLink("Fenzo AI", "https://fenzo.ai/?ref=Z", "", mention="Fenzo AI")
+    # A specific resource NAMED in the narration -> exactly that one is linked:
     used = select_used(
-        s, candidates=[book, lc], script_text="grab Cracking the Coding Interview below"
+        s, candidates=[book, course, fenzo], script_text="grab Cracking the Coding Interview below"
     )
     assert [u.mention for u in used] == ["Cracking the Coding Interview"]
-    # Nothing named but a link is PROMISED -> the top candidate is attached (never an empty promise):
-    assert select_used(s, candidates=[book, lc], script_text="the link is in the description") == [
-        book
-    ]
-    # No mention, no promise -> nothing:
-    assert select_used(s, candidates=[book, lc], script_text="a plain sentence") == []
+    # Narration named nothing -> ALL the concrete topic-resolved resources (book + course) attach, but
+    # NOT the generic platform landing page (Fenzo):
+    used = select_used(s, candidates=[book, course, fenzo], script_text="a plain sentence")
+    assert [u.mention for u in used] == ["Cracking the Coding Interview", "Grokking X"]
+    # No concrete resource -> fall back to the single top candidate:
+    assert select_used(s, candidates=[fenzo], script_text="a plain sentence") == [fenzo]
+    # Nothing to attach when there are no candidates:
+    assert select_used(s, candidates=[], script_text="a plain sentence") == []
+
+
+def test_select_used_always_fills_remaining_space_with_universal_fenzo(monkeypatch):
+    s = _settings(
+        monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="t-20", AFFILIATE_MAX_LINKS="5"
+    )
+    book = AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
+                         "", mention="ML System Design Interview")
+    course = AffiliateLink("Educative", "https://www.educative.io/courses/x?aff=BXmM",
+                           "", mention="Grokking X")
+    fenzo = AffiliateLink("Fenzo AI", "https://fenzo.ai/?ref=7jL6", "generates a course on this",
+                          mention="Fenzo AI", universal=True)
+    # Nothing named -> concrete book + course attach, AND the universal Fenzo fills the remaining space:
+    used = select_used(s, candidates=[book, course, fenzo], script_text="a plain sentence")
+    assert [u.mention for u in used] == ["ML System Design Interview", "Grokking X", "Fenzo AI"]
+    # ...but NEVER exceed AFFILIATE_MAX_LINKS: with the cap at 2 the universal filler has no room:
+    s2 = _settings(
+        monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="t-20", AFFILIATE_MAX_LINKS="2"
+    )
+    used2 = select_used(s2, candidates=[book, course, fenzo], script_text="a plain sentence")
+    assert [u.mention for u in used2] == ["ML System Design Interview", "Grokking X"]
+
+
+def test_affiliate_block_shows_the_real_resource_name(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true")
+    book = AffiliateLink(
+        "Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
+        "a book worth reading on this", mention="Machine Learning System Design Interview",
+    )
+    block = affiliate_block([book], s)
+    assert "Machine Learning System Design Interview" in block  # the ACTUAL title, not a generic label
+    assert "Recommended book (Amazon)" not in block
+    assert "https://www.amazon.com/dp/B0/?tag=t-20" in block
+
+
+def test_book_and_course_mentions_strip_trailing_ellipsis():
+    from content_foundry.production.affiliate import _book_mention, _course_title
+
+    assert _book_mention("Machine Learning System Design Interview...") == (
+        "Machine Learning System Design Interview"
+    )
+    assert _book_mention("Amazon.com: Clean Code : Books") == "Clean Code"
+    assert _course_title("Grokking the ML System Design Interview...") == (
+        "Grokking the ML System Design Interview"
+    )
+
+
+def test_resolve_amazon_prefers_the_on_topic_book_over_a_generic_first_hit(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="t-20")
+
+    class _PerQuery:  # the FIRST query surfaces a famous but off-topic classic; a later one the real book
+        def search(self, query, max_results=5):
+            if "pragmatic" in query.lower():
+                return [_result("The Pragmatic Programmer", "https://www.amazon.com/dp/020161622X/")]
+            if "machine learning system design" in query.lower():
+                return [_result("Machine Learning System Design Interview : Books",
+                                "https://www.amazon.com/x/dp/1736049127/")]
+            return []
+
+    link = resolve_amazon(
+        s,
+        queries=["The Pragmatic Programmer", "Machine Learning System Design Interview"],
+        search_provider=_PerQuery(),
+        topic="The ML System Design Interview: A Step-by-Step Blueprint",
+    )
+    assert link is not None
+    # the ON-TOPIC book wins even though the generic classic was the FIRST query's hit:
+    assert link.url == "https://www.amazon.com/dp/1736049127/?tag=t-20"
+    assert link.mention == "Machine Learning System Design Interview"
 
 
 def test_resolve_candidates_combines_platforms_and_amazon(monkeypatch):

@@ -28,3 +28,15 @@ class ResearchBrief(BaseModel):
     source_urls: list[str] = Field(default_factory=list)  # pages actually fetched + read
     used_model: str | None = None  # LLM that synthesized it; None when the deterministic fallback ran
     generated_at: datetime = Field(default_factory=utcnow)
+
+
+class InstructionPlan(BaseModel):
+    """Agent 1.4 (Instruction Planner) decomposition of a creator's long-form ``--instructions`` into
+    ROUTED directives: what the RESEARCH should find/verify, concrete web-search queries to find it,
+    and what the SCRIPT should do/present. An item can appear in both when it needs facts AND delivery.
+    An empty plan (or the verbatim fallback) leaves the run on its default steer. Not a persisted stage
+    artifact — computed per run and written to ``instruction_plan.json`` for inspection only."""
+
+    research_focus: list[str] = Field(default_factory=list)  # what to FIND/verify in research
+    research_queries: list[str] = Field(default_factory=list)  # concrete web searches to run
+    script_directions: list[str] = Field(default_factory=list)  # what the script should DO/present

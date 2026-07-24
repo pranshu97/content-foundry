@@ -21,6 +21,7 @@ class AffiliateLink:
     url: str
     blurb: str = ""
     mention: str = ""  # the human name the writer says / we scan for (platform name or book title)
+    universal: bool = False  # fits ANY topic (e.g. Fenzo) -> always attach when there's room
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class _Platform:
     id_attr: str = ""  # optional Settings attr holding just an affiliate ID (not a full URL)
     id_template: str = ""  # URL built from that ID, e.g. "https://x.com/?aff={id}"
     topic_template: str = ""  # topic-aware URL from {id} + {topic}, e.g. a search/create link
+    universal: bool = False  # fits ANY topic (a course GENERATOR) -> always a candidate, not tag-gated
 
 
 # Built-in catalog. The operator only pastes a referral URL per platform (blank => that platform is
@@ -89,6 +91,7 @@ _PLATFORMS: tuple[_Platform, ...] = (
         # Fenzo's referral param is ?ref= (not ?aff=). It's a course GENERATOR — the viewer types the
         # topic on the homepage — so there's no reliable per-topic URL; the blurb frames the topic.
         id_template="https://fenzo.ai/?ref={id}",
+        universal=True,  # a course generator for ANY topic -> always offered, not gated on tag overlap
     ),
 )
 
@@ -211,15 +214,44 @@ def resolve_links(
 
 
 # ------------------------------------------------ resolve-first (BEFORE generation)
-# A promise like "link in the description" / "link below" in the narration.
-_LINK_PROMISE = re.compile(r"\b(link|links)\b[^.!?\n]{0,50}\b(description|below|down below)\b", re.I)
+# Words that don't help decide whether a book/course TITLE matches the video's topic.
+_TITLE_STOP = frozenset({
+    "the", "a", "an", "and", "or", "for", "of", "to", "in", "on", "with", "your", "you", "my",
+    "book", "books", "guide", "edition", "volume", "series", "how", "step", "by",
+    "ultimate", "complete", "definitive", "mastering", "master", "handbook", "blueprint", "roadmap",
+})
+# Light synonym expansion so an abbreviation in the topic still matches a spelled-out title.
+_TOPIC_SYNONYMS = {"ml": ("machine", "learning"), "ai": ("artificial", "intelligence")}
+
+
+def _salient(text: str) -> set[str]:
+    """Topic/title words that carry meaning for a relevance match (len>=2, minus generic filler), with
+    'ml'/'ai' expanded to their spelled-out forms so they match a title that writes them out."""
+    words = {w for w in _WORD.findall((text or "").lower()) if len(w) >= 2 and w not in _TITLE_STOP}
+    for w in list(words):
+        words.update(_TOPIC_SYNONYMS.get(w, ()))
+    return words
+
+
+def _topic_overlap(title: str, topic_words: set[str]) -> int:
+    """How many salient words a result TITLE shares with the topic — the relevance score (0 when the
+    topic is unknown, so callers fall back to the first valid result)."""
+    return len(_salient(title) & topic_words) if topic_words else 0
+
+
+def _is_specific_resource(link: AffiliateLink) -> bool:
+    """A concrete, topic-RESOLVED product/course (a real Amazon /dp/ book or an Educative /courses/
+    page) as opposed to a generic platform landing/search page — the safety-net attaches these."""
+    u = (link.url or "").lower()
+    return "/dp/" in u or "/gp/product/" in u or "/courses/" in u
 
 
 def _book_mention(title: str) -> str:
     """A clean, scannable book title from a messy Amazon search-result title."""
     text = re.sub(r"(?i)^amazon\.com\s*:?\s*", "", (title or "").strip())
     text = re.split(r"\s[:|\u2013\-]\s|:\s|\(", text)[0].strip()  # keep the first clause = the title
-    return text[:70]
+    text = re.sub(r"[\s.\u2026|\u2013\u2014\-]+$", "", text)  # drop a trailing ellipsis / dangling punctuation
+    return text[:70].strip()
 
 
 def _topic_query(tags, niche: str) -> str:
@@ -231,27 +263,32 @@ def _topic_query(tags, niche: str) -> str:
 
 
 def candidate_platforms(settings, *, tags, niche: str = "") -> list[AffiliateLink]:
-    """Configured platforms whose topic tags overlap this video — offered to the writer as things it
-    MAY recommend. Platforms that support it get a TOPIC-aware link (e.g. an Educative search for this
-    video's subject). Empty when affiliate is off."""
+    """Configured platforms whose topic tags overlap this video (PLUS any UNIVERSAL resource, e.g. a
+    course generator that fits every topic) — offered to the writer as things it MAY recommend.
+    Platforms that support it get a TOPIC-aware link (e.g. an Educative search). Empty when off."""
     if not _enabled(settings):
         return []
     vocab = _vocab(" ".join(tags or []) + " " + (niche or ""))
     topic = _topic_query(tags, niche)
     return [
-        AffiliateLink(p.label, _referral_url(settings, p, topic=topic), p.blurb, mention=p.label)
+        AffiliateLink(p.label, _referral_url(settings, p, topic=topic), p.blurb, mention=p.label,
+                      universal=p.universal)
         for p in enabled_platforms(settings)
-        if p.tags & vocab
+        if (p.tags & vocab) or p.universal  # tag-matched, OR a universal resource that fits any topic
     ]
 
 
-def resolve_amazon(settings, *, queries, search_provider) -> AffiliateLink | None:
-    """Search each of ``queries`` (best-first) for a REAL Amazon book and return the FIRST valid tagged
-    product (mention = the book title), or ``None`` if none is found / affiliate is off. Multiple
-    queries give redundancy — a miss on one is covered by the next. Best-effort (network)."""
+def resolve_amazon(settings, *, queries, search_provider, topic: str = "") -> AffiliateLink | None:
+    """Search ``queries`` (best-first) for a REAL Amazon book and return the tagged product whose TITLE
+    best matches ``topic`` — so a generic or mis-chosen query can't surface an off-topic classic (a
+    'Pragmatic Programmer' hit loses to the on-topic book). Ties and an empty topic fall back to the
+    earliest query's first valid product. ``None`` if none found / affiliate off. Best-effort."""
     tag = (getattr(settings, "amazon_assoc_tag", "") or "").strip()
     if not _enabled(settings) or not tag or search_provider is None:
         return None
+    topic_words = _salient(topic)
+    best: AffiliateLink | None = None
+    best_score = -1
     for query in queries or []:
         try:
             results = search_provider.search(f"{query} site:amazon.com", max_results=5)
@@ -259,12 +296,16 @@ def resolve_amazon(settings, *, queries, search_provider) -> AffiliateLink | Non
             continue
         for result in results or []:
             tagged = tag_amazon_url(getattr(result, "url", ""), tag)
-            if tagged:
-                return AffiliateLink(
-                    "Recommended book (Amazon)", tagged, "a book worth reading on this",
-                    mention=_book_mention(getattr(result, "title", "")),
+            if not tagged:
+                continue
+            title = _book_mention(getattr(result, "title", ""))
+            score = _topic_overlap(title, topic_words)
+            if score > best_score:
+                best_score = score
+                best = AffiliateLink(
+                    "Recommended book (Amazon)", tagged, "a book worth reading on this", mention=title,
                 )
-    return None
+    return best
 
 
 # A REAL Educative COURSE page (…/courses/<slug>); the aff param appends to ANY Educative URL.
@@ -288,16 +329,21 @@ def _course_title(title: str) -> str:
     """A clean, scannable course name from a messy Educative search-result title."""
     text = re.split(r"\s[|\u2013\-]\s", (title or "").strip())[0].strip()  # keep the first clause
     text = re.sub(r"(?i)\s*[-|]\s*educative(\.io)?\s*$", "", text).strip()
-    return text[:70]
+    text = re.sub(r"[\s.\u2026|\u2013\u2014\-]+$", "", text)  # drop a trailing ellipsis / dangling punctuation
+    return text[:70].strip()
 
 
-def resolve_educative(settings, *, queries, search_provider) -> AffiliateLink | None:
+def resolve_educative(settings, *, queries, search_provider, topic: str = "") -> AffiliateLink | None:
     """Find a REAL, specific Educative COURSE for the topic (like the Amazon flow) and append our
     affiliate id — REPLACING any existing ``aff`` — so the link is a concrete, relevant course rather
-    than a generic landing/search page. ``None`` when off / no id / no provider / nothing found."""
+    than a generic landing/search page. Among the course hits, prefer the one whose title/slug best
+    matches ``topic``. ``None`` when off / no id / no provider / nothing found."""
     aff_id = (getattr(settings, "affiliate_educative_id", "") or "").strip()
     if not _enabled(settings) or not aff_id or search_provider is None:
         return None
+    topic_words = _salient(topic)
+    best: AffiliateLink | None = None
+    best_score = -1
     for query in queries or []:
         q = (query or "").strip()
         if not q:
@@ -308,13 +354,17 @@ def resolve_educative(settings, *, queries, search_provider) -> AffiliateLink | 
             continue
         for result in results or []:
             m = _EDUCATIVE_COURSE.search(getattr(result, "url", "") or "")
-            if m:
-                return AffiliateLink(
+            if not m:
+                continue
+            title = _course_title(getattr(result, "title", "")) or "Educative"
+            score = _topic_overlap(f"{title} {m.group(0)}", topic_words)  # title + slug words
+            if score > best_score:
+                best_score = score
+                best = AffiliateLink(
                     "Educative", _set_query_param(m.group(0), "aff", aff_id),
-                    "an interactive course on exactly this",
-                    mention=_course_title(getattr(result, "title", "")) or "Educative",
+                    "an interactive course on exactly this", mention=title,
                 )
-    return None
+    return best
 
 
 def resolve_candidates(
@@ -327,18 +377,23 @@ def resolve_candidates(
     if not _enabled(settings):
         return []
     seed = list(tags or []) or ([idea] if idea else [])
-    cands = candidate_platforms(settings, tags=seed, niche=niche)
+    topic = (idea or "").strip() or _topic_query(seed, niche) or (niche or "").strip()
+    plats = candidate_platforms(settings, tags=seed, niche=niche)
+    specific: list[AffiliateLink] = []
     # Educative: ONLY when the topic actually fits it (it's already a candidate), upgrade the generic
     # link to a REAL, specific course found via search + our aff (replacing any existing aff).
-    if search_provider is not None and any(c.label == "Educative" for c in cands):
+    if search_provider is not None and any(c.label == "Educative" for c in plats):
         edu_q = [q for q in dict.fromkeys([_topic_query(seed, niche), (idea or "").strip()]) if q]
-        edu = resolve_educative(settings, queries=edu_q, search_provider=search_provider)
+        edu = resolve_educative(settings, queries=edu_q, search_provider=search_provider, topic=topic)
         if edu:
-            cands = [c for c in cands if c.label != "Educative"] + [edu]
+            plats = [c for c in plats if c.label != "Educative"]
+            specific.append(edu)
     queries = list(amazon_queries or []) or [amazon_search_query(seed, niche)]
-    amazon = resolve_amazon(settings, queries=queries, search_provider=search_provider)
+    amazon = resolve_amazon(settings, queries=queries, search_provider=search_provider, topic=topic)
     if amazon:
-        cands.append(amazon)
+        specific.insert(0, amazon)  # the concrete book leads the resources
+    # Concrete, topic-RESOLVED resources (real book + course) first; generic platform pages after.
+    cands = specific + plats
     cap = int(getattr(settings, "affiliate_max_links", 4) or 4)
     return cands[:cap]
 
@@ -349,23 +404,34 @@ def _mentions(text_lower: str, link: AffiliateLink) -> bool:
 
 
 def select_used(settings, *, candidates, script_text: str = "") -> list[AffiliateLink]:
-    """Which resolved candidates the finished script actually references — a deterministic name-scan of
-    the narration (URLs are never invented; they come from ``candidates``). Safety net: if the script
-    PROMISES a link ('link in the description') but named nothing we detect, include the top candidate
-    so a promise is never empty. Capped at AFFILIATE_MAX_LINKS; empty when affiliate off."""
+    """The affiliate links attached to the video's description. The narration is name-scanned first, so
+    a resource the script NAMES (one or more) is exactly what gets linked — URLs are never invented;
+    they come from ``candidates``. Description safety-net: when the narration named nothing, attach
+    EVERY concrete topic-resolved resource (a real Amazon book + an Educative course — both already
+    relevance-gated at resolution), or the single top candidate if none are concrete. Then, whenever
+    there's still room under the cap, ALWAYS add the universal resource (Fenzo — a course generator
+    that fits any topic). A Resources section needs no spoken mention, so a relevant video monetizes
+    its book, its course AND the generator. Capped at AFFILIATE_MAX_LINKS; empty when off / nothing."""
     if not _enabled(settings) or not candidates:
         return []
     low = (script_text or "").lower()
     used = [c for c in candidates if _mentions(low, c)]
-    if not used and _LINK_PROMISE.search(script_text or ""):
-        used = [candidates[0]]
+    if not used:  # narration named none -> the concrete resolved resources (book + course), else top
+        used = [c for c in candidates if _is_specific_resource(c)] or [candidates[0]]
+    cap = int(getattr(settings, "affiliate_max_links", 4) or 4)
     seen: set[str] = set()
     out: list[AffiliateLink] = []
     for c in used:
         if c.url not in seen:
             seen.add(c.url)
             out.append(c)
-    cap = int(getattr(settings, "affiliate_max_links", 4) or 4)
+    # ALWAYS include the universal resource (Fenzo fits ANY topic) while there's still room under cap.
+    for c in candidates:
+        if len(out) >= cap:
+            break
+        if getattr(c, "universal", False) and c.url not in seen:
+            seen.add(c.url)
+            out.append(c)
     return out[:cap]
 
 
@@ -377,7 +443,9 @@ def affiliate_block(links: list[AffiliateLink], settings) -> str:
     header = (getattr(settings, "affiliate_header", "") or "Resources & tools:").strip()
     lines = [header]
     for lk in links:
-        lines.append(f"→ {lk.label} ({lk.blurb}): {lk.url}" if lk.blurb else f"→ {lk.label}: {lk.url}")
+        name = (lk.mention or lk.label or "").strip()  # the REAL name (book title / course / tool)
+        blurb = (lk.blurb or "").strip()
+        lines.append(f"→ {name} — {blurb}: {lk.url}" if blurb else f"→ {name}: {lk.url}")
     perk = (getattr(settings, "affiliate_perk_text", "") or "").strip()
     if perk:
         lines.extend(["", perk])  # a casual "you may get a discount via my link" aside
@@ -397,14 +465,22 @@ def affiliate_context(settings, *, candidates=None) -> str:
         return ""
     example = cands[0].mention or cands[0].label
     lines = [
-        "AFFILIATE RESOURCES (optional monetization — recommend with taste, ONLY where it truly helps "
-        "the viewer):",
+        "AFFILIATE RESOURCES (optional monetization — recommend with taste, where it genuinely "
+        "helps the viewer):",
         "- The resources below are REAL and their links are ALREADY prepared for the "
-        "description. When one GENUINELY fits this exact topic, recommend it (one or two): "
-        f"name it EXACTLY and say the link is in the description (e.g. \"grab {example} — I'll "
-        "leave the link in the description\"). Frame it as a recommendation, never a fabricated "
-        "personal use (\"I used X\"). When NONE genuinely fits, name none — never shoehorn an "
-        "affiliate resource into an unrelated video.",
+        "description. When one CLEARLY fits this exact topic (a book or course ON this very "
+        "subject), you SHOULD recommend it once: name it EXACTLY and tell viewers the link is "
+        f"in the description (e.g. \"grab {example} — link's in the description\"). "
+        "Frame it as a recommendation, not a fabricated personal use (\"I used X\"). Only skip "
+        "when NOTHING here genuinely fits — then name none; never shoehorn a resource into an "
+        "unrelated video.",
+        "- WHERE + WHEN — do NOT save it for the last second: weave the recommendation into the "
+        "MIDDLE of the video (roughly 25-75% through), in whichever scene it fits best, NEVER the "
+        "opening and NEVER the final scene / sign-off. Drop it right after the point it supports, "
+        "as a natural aside (name the resource + \"the link's in the description\"), then carry "
+        "straight on with the lesson. It must feel like a genuine part of the teaching, not an ad "
+        "break bolted onto the end — leave the closing scene a clean like/subscribe + sign-off "
+        "with NO resource plug.",
         "- CRITICAL: only ever name a resource from THIS list, using its exact name; whatever you name "
         "is what gets linked, so NEVER promise a link for anything not listed. If none fit, name none.",
     ]

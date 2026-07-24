@@ -70,16 +70,30 @@ def test_hybrid_pass(settings, data_brief, good_script, fakes):
     assert report.weighted_total >= settings.pass_threshold
 
 
-def test_engagement_floorfree_wittiness_floored(settings, data_brief, good_script, fakes):
+def test_engagement_and_wittiness_are_floored(settings, data_brief, good_script, fakes):
     report = Judge(settings, fakes.LLM()).run("R", good_script, data_brief, attempt_number=1)
     dims = {d.dimension: d for d in report.scores}
     assert "engagement" in dims and "wittiness" in dims and "ending" in dims
-    # LLM-scored (from the fake judge JSON): the 1-5 integer IS the score directly now (0-5 scale).
+    # LLM-scored (from the fake judge JSON): the 1-5 integer IS the score directly (0-5 scale).
     assert dims["engagement"].score_1_5 == 4 and dims["engagement"].score == 4.0
     assert dims["wittiness"].score_1_5 == 4
-    # engagement is a weighted contributor only; wittiness now carries a hard floor.
-    assert dims["engagement"].minimum is None
+    # Retention now carries a hard floor too (a flat/list-like draft REVISES), like wittiness.
+    assert dims["engagement"].minimum == settings.engagement_min
     assert dims["wittiness"].minimum == settings.wittiness_min
+
+
+def test_low_engagement_revises_on_floor(settings, data_brief, good_script, fakes):
+    # A grounded, complete, insightful, funny script that is FLAT / list-like (weak retention) REVISES.
+    llm = fakes.LLM(judge_json={
+        "actionability": {"justification": "ok", "evidence": "x", "score_1_5": 4},
+        "insight": {"justification": "ok", "evidence": "x", "score_1_5": 4},
+        "engagement": {"justification": "flat, list-like", "evidence": "x", "score_1_5": 2},
+        "wittiness": {"justification": "ok", "evidence": "x", "score_1_5": 4},
+    })
+    report = Judge(settings, llm).run("R", good_script, data_brief, attempt_number=1)
+    assert report.verdict == Verdict.REVISE
+    eng = next(d for d in report.scores if d.dimension == "engagement")
+    assert not eng.passed and eng.minimum == settings.engagement_min
 
 
 def test_low_wittiness_revises_on_floor(settings, data_brief, good_script, fakes):

@@ -85,13 +85,64 @@ def ensure_run_dirs(paths: RunPaths) -> None:
     paths.scenes.mkdir(parents=True, exist_ok=True)
 
 
+def _read_run_meta(paths: RunPaths) -> dict:
+    """The run's sidecar facts dict (run_meta.json), or {} when absent/unreadable."""
+    if paths.meta.exists():
+        try:
+            data = json.loads(paths.meta.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _write_run_meta(paths: RunPaths, **fields) -> None:
+    """MERGE ``fields`` into the run's sidecar so run-level facts coexist (content_format AND idea);
+    None values are skipped. Best-effort."""
+    with contextlib.suppress(OSError):
+        meta = _read_run_meta(paths)
+        meta.update({k: v for k, v in fields.items() if v is not None})
+        paths.meta.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
 def save_run_format(paths: RunPaths, content_format: str) -> None:
     """Persist the run's content_format ('long'/'short') so a later re-run or thumbnail refinement
     stays in the SAME shape regardless of the current CONTENT_FORMAT default. Best-effort."""
-    with contextlib.suppress(OSError):
-        paths.meta.write_text(
-            json.dumps({"content_format": content_format}, indent=2), encoding="utf-8"
-        )
+    _write_run_meta(paths, content_format=content_format)
+
+
+def save_run_idea(paths: RunPaths, idea: str) -> None:
+    """Persist the run's chosen idea/topic so a re-run (e.g. `--from-stage fetch` WITHOUT `--idea`)
+    keeps the SAME topic instead of collapsing to the bare niche. Best-effort; a blank is ignored."""
+    if (idea or "").strip():
+        _write_run_meta(paths, idea=idea.strip())
+
+
+def load_run_idea(run_id: str, output_dir: str) -> str | None:
+    """The persisted idea/topic for an EXISTING run, or ``None`` — so a re-run reuses the run's
+    original topic instead of the bare niche."""
+    idea = _read_run_meta(run_paths(run_id, output_dir)).get("idea")
+    if isinstance(idea, str) and idea.strip():
+        return idea.strip()
+    return None
+
+
+def save_run_instructions(paths: RunPaths, instructions: str) -> None:
+    """Persist the run's extra creator instructions — the steer that drives BOTH the research direction
+    and the script's angle/emphasis — so a re-run WITHOUT `--instructions` keeps the SAME direction.
+    Best-effort; a blank is ignored."""
+    if (instructions or "").strip():
+        _write_run_meta(paths, instructions=instructions.strip())
+
+
+def load_run_instructions(run_id: str, output_dir: str) -> str | None:
+    """The persisted extra creator instructions for an EXISTING run, or ``None`` — so a re-run reuses
+    the same steer for research + script direction."""
+    val = _read_run_meta(run_paths(run_id, output_dir)).get("instructions")
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return None
 
 
 def load_run_format(run_id: str, output_dir: str) -> str | None:

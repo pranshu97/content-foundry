@@ -140,6 +140,7 @@ class Judge:
             "grounding": s.grounding_min,
             "insight": s.insight_min,
             "wittiness": s.wittiness_min,
+            "engagement": s.engagement_min,
             "ending": s.ending_min,
         }
         dimensions = [
@@ -172,6 +173,7 @@ class Judge:
         )
         insight_ok = ins >= s.insight_min * factor
         wittiness_ok = wit >= s.wittiness_min * factor
+        engagement_ok = eng >= s.engagement_min * factor
         ending_ok = end5 >= s.ending_min
         strict_complete = (
             len(script.scenes) >= s.effective_min_scenes and script.word_count >= strict_floor
@@ -180,6 +182,7 @@ class Judge:
             (completeness_ok and not strict_complete)
             or (insight_ok and ins < s.insight_min)
             or (wittiness_ok and wit < s.wittiness_min)
+            or (engagement_ok and eng < s.engagement_min)
         )
 
         verdict = self._verdict(
@@ -188,6 +191,7 @@ class Judge:
             grounding_score=g5,
             insight_ok=insight_ok,
             wittiness_ok=wittiness_ok,
+            engagement_ok=engagement_ok,
             ending_ok=ending_ok,
             redundancy_ok=redundancy_ok,
             open_loop_ok=open_loop_ok,
@@ -343,7 +347,7 @@ class Judge:
             "specificity": "Name concrete numbers, roles, and tools from the data.",
             "grounding": "Tie every number to a DataBrief fact_ref; remove invented stats.",
             "insight": "Add a non-obvious, data-backed reframing; cut clichés.",
-            "engagement": "Hook harder and hold it: open a curiosity loop, raise the stakes, vary the pace, talk TO the viewer.",
+            "engagement": "Hook harder and HOLD it: deliver a payoff AND raise the stakes in the first 30s; make it ONE flowing talk — smooth segues, each scene bridging from the last, no disconnected jumps; end most scenes on a forward pull; ESCALATE to a strong beat in the back third; vary the scene shapes; make on_screen_text a curiosity hook, not a chapter label.",
             "wittiness": "Dial up the VOICE, don't bolt on filler jokes: rewrite 2-3 flat lines with a comedic device — a vivid analogy, a silly exaggerated example (e.g. 'less processing power than a 2005 toaster'), a rule-of-three with a sharp third turn, a callback to an earlier line, or naming the obvious elephant in the room. A genuinely funny voice all the way through beats one forced quip; keep every number exact.",
             "ending": "End the last scene with BOTH a like/subscribe nudge AND a warm sign-off (e.g. 'subscribe for more data-backed moves', then 'see you in the next one'), on top of a witty payoff line.",
             "hook": "Open with a specific number or claim in the first ~10 seconds.",
@@ -359,6 +363,7 @@ class Judge:
         grounding_score: float,
         insight_ok: bool,
         wittiness_ok: bool,
+        engagement_ok: bool = True,
         ending_ok: bool,
         redundancy_ok: bool,
         open_loop_ok: bool = True,
@@ -372,6 +377,7 @@ class Judge:
             or grounding_score < s.grounding_min
             or not insight_ok
             or not wittiness_ok
+            or not engagement_ok
             or not ending_ok
             or not redundancy_ok
             or not open_loop_ok

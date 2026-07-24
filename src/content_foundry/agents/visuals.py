@@ -127,6 +127,32 @@ def _thumbnail_prompt(concept: str, *, no_person: bool = False, appearance: str 
     ) + look
 
 
+def ensure_upload_safe_thumbnail(path: Path, *, max_bytes: int = 1_900_000) -> bool:
+    """Make ``path`` safe for YouTube's ``thumbnails.set`` (a HARD 2 MB limit on custom thumbnails):
+    if it's over ``max_bytes``, re-save it optimized and downscale in steps until it fits. Used for
+    BOTH the pipeline's own render AND a MANUALLY-swapped thumbnail at publish time (a hand-replaced
+    high-res image is the usual reason a custom thumbnail silently fails to upload). Best-effort and in
+    place; returns True when it shrank the file, False otherwise. Never raises."""
+    try:
+        if not path.exists() or path.stat().st_size <= max_bytes:
+            return False
+        from PIL import Image
+
+        img = Image.open(path)
+        img.load()
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+        img.save(path, format="PNG", optimize=True)
+        w, h = img.size
+        while path.stat().st_size > max_bytes and min(w, h) > 320:
+            w, h = int(w * 0.85), int(h * 0.85)
+            img = img.resize((w, h), Image.LANCZOS)
+            img.save(path, format="PNG", optimize=True)
+        return True
+    except Exception:  # best-effort: an oversize thumb must never crash render or publish
+        return False
+
+
 def _faceid_prompt(concept: str) -> str:
     """Build the FaceID image prompt from the script's per-video ``thumbnail_concept`` — high-CTR
     YouTube style, with the CONCEPT driving the scene (that is the dynamic, per-video part). Kept
@@ -323,6 +349,7 @@ class Visuals:
         used = self._compose_thumbnail(
             script.thumbnail_concept, thumbnail_text, run_root / _THUMB_REL,
             override_prompt=image_prompt, title=(script.title_options or [""])[0],
+            description=(script.description or ""),
         )
         if used:  # persist the exact prompt used, so it can be inspected and edited for a re-run
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -331,26 +358,11 @@ class Visuals:
         return thumbnail_text
 
     def _cap_thumbnail_bytes(self, path: Path, *, max_bytes: int = 1_900_000) -> None:
-        """Keep the thumbnail under YouTube's 2 MB custom-thumbnail limit. A photo-real 9:16 PNG can
-        exceed it, and then ``thumbnails.set`` fails silently (best-effort) so the video publishes with
-        NO custom thumbnail. Re-save optimized; if still too big, downscale in steps until it fits.
-        Best-effort, PNG in place."""
-        try:
-            if not path.exists() or path.stat().st_size <= max_bytes:
-                return
-            from PIL import Image
-
-            img = Image.open(path)
-            img.load()
-            img.save(path, format="PNG", optimize=True)
-            w, h = img.size
-            while path.stat().st_size > max_bytes and min(w, h) > 320:
-                w, h = int(w * 0.85), int(h * 0.85)
-                img = img.resize((w, h), Image.LANCZOS)
-                img.save(path, format="PNG", optimize=True)
-            self._log.info("thumbnail_capped", bytes=path.stat().st_size, dims=f"{w}x{h}")
-        except Exception as exc:  # best-effort: an oversize thumb beats crashing the visuals stage
-            self._log.warning("thumbnail_cap_failed", error=str(exc))
+        """Keep the rendered thumbnail under YouTube's 2 MB custom-thumbnail limit (delegates to the
+        shared ``ensure_upload_safe_thumbnail`` helper, which the publisher also runs so a manually-
+        swapped thumbnail uploads too). Best-effort."""
+        if ensure_upload_safe_thumbnail(path, max_bytes=max_bytes):
+            self._log.info("thumbnail_capped", bytes=path.stat().st_size)
 
     # ------------------------------------------------------------------ scene
     def _broll_candidates(self, keywords: list[str]) -> list[str]:
@@ -507,12 +519,13 @@ class Visuals:
 
     def _compose_thumbnail(
         self, concept: str, text: str, target: Path, *, override_prompt: str | None = None,
-        title: str = "",
+        title: str = "", description: str = "",
     ) -> str | None:
-        """Render the thumbnail and RETURN the image prompt actually used (so the caller can persist it
-        to an editable file), or ``None`` when only the text card was drawn. ``override_prompt`` — a
-        saved/edited prompt — is fed verbatim to the image model instead of the auto-built one, giving
-        full manual control over the thumbnail."""
+        """Render the thumbnail and RETURN the image prompt actually used, so the caller ALWAYS persists
+        it to the editable file — even when the AI image failed and only the text card was drawn (so a
+        freshly-built prompt is never silently dropped, leaving a STALE one behind). ``override_prompt``
+        — a saved/edited prompt — is fed verbatim to the image model instead of the auto-built one,
+        giving full manual control over the thumbnail."""
         size = self._settings.effective_thumbnail_wh
         avatar = self._avatar_thumbnail_path(_detect_emotion(concept))
         scene_cloud_failed = False  # the network image provider itself failed (outage) — skip re-tries
@@ -520,7 +533,9 @@ class Visuals:
             if self._settings.thumbnail_face_method == "swap":
                 # Two-stage: a rich scene WITH a person from the normal image provider (LONG prompt, no
                 # 77-token limit, so it follows the scene), then swap the operator's real face onto it.
-                prompt = override_prompt or self._scene_prompt(concept, title, no_person=False)
+                prompt = override_prompt or self._scene_prompt(
+                    concept, title, no_person=False, description=description
+                )
                 scene = self._best_scene(prompt)
                 if scene and not self._settings.thumbnail_face_swap_enabled:
                     # Face-swap OFF (opt-out): use the AI-generated person AS-IS. Guided by
@@ -555,7 +570,9 @@ class Visuals:
         # Fallback: background image + composited avatar cut-out (the default path). Skip re-calling a
         # provider that just failed (outage) so we go straight to the DESIGNED card instead of waiting.
         prepared = self._prepare_avatar(avatar) if avatar is not None else None
-        prompt = override_prompt or self._scene_prompt(concept, title, no_person=prepared is not None)
+        prompt = override_prompt or self._scene_prompt(
+            concept, title, no_person=prepared is not None, description=description
+        )
         base = None if scene_cloud_failed else self._generate_image(prompt)
         # With no AI scene the face carries the designed card, so show it big; over a real scene it
         # stays a small corner tag.
@@ -567,7 +584,10 @@ class Visuals:
             text, size, target, base_png=base, punchy=True,
             avatar_path=prepared, avatar_scale=avatar_scale,
         )
-        return prompt if base is not None else None
+        # ALWAYS return the built prompt so the caller persists it — even when the AI image failed and
+        # only the text card was drawn. Otherwise a regenerated prompt is silently discarded and the
+        # STALE prompt file lingers, which looks exactly like "it reused the old prompt".
+        return prompt
 
     def _generate_image(self, prompt: str) -> bytes | None:
         """Generate a thumbnail-sized image from the configured provider; ``None`` if there is no
@@ -603,25 +623,36 @@ class Visuals:
             )
         return best
 
-    def _scene_prompt(self, concept: str, title: str, *, no_person: bool) -> str:
+    def _scene_prompt(self, concept: str, title: str, *, no_person: bool, description: str = "") -> str:
         """The thumbnail SCENE image prompt. When the thumbnail director is enabled and an LLM is
-        available, an LLM writes a rich, per-video creative prompt (with a hard no-text rule);
-        otherwise the built-in template is used. An explicit/saved prompt bypasses this upstream."""
+        available, an LLM writes a rich, per-video creative prompt from the video's own DESCRIPTION
+        (with a hard no-text rule); otherwise the built-in template is used. An explicit/saved prompt
+        bypasses this upstream."""
         if self._llm is not None and self._settings.thumbnail_director_enabled:
             try:
                 from .thumbnail_director import ThumbnailDirector
 
                 directed = ThumbnailDirector(self._settings, self._llm).compose(
-                    concept, title=title, niche=self._settings.target_niche, no_person=no_person
+                    concept, title=title, niche=self._settings.target_niche, no_person=no_person,
+                    description=description,
                 )
             except Exception as exc:  # a thumbnail-prompt failure must never crash the run
                 self._log.warning("thumbnail_director_skipped", error=str(exc))
                 directed = None
             if directed:
                 return directed
+            # Enabled + an LLM was available, yet nothing came back (the model call failed — e.g. a
+            # provider outage). Flag it loudly: the render silently uses the plain built-in template,
+            # which is what makes a regenerate look like it "kept the old prompt".
+            self._log.warning(
+                "thumbnail_director_unused",
+                hint="the Thumbnail Director produced no prompt (the LLM call likely failed) — using "
+                     "the built-in template instead; retry, or check the LLM provider",
+            )
         return _thumbnail_prompt(
             concept, no_person=no_person,
-            appearance=(self._settings.avatar_appearance or "").strip(),
+            appearance=(self._settings.avatar_appearance or "").strip()
+            if self._settings.thumbnail_use_avatar else "",
         )
 
     def _prepare_avatar(self, path: Path) -> Path:

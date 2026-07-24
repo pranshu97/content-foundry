@@ -24,12 +24,19 @@ INSIGHT / VALUE DENSITY — is there a non-obvious idea? (FLOOR: needs >= 4)
   5 = a counterintuitive, memorable insight, provably backed by the data, that reframes the topic
       and changes what the viewer does next.
 
-ENGAGEMENT / RETENTION — does it grab attention and hold it to the end?
+ENGAGEMENT / RETENTION — does it hook fast, FLOW, and pull the viewer to the end? (FLOOR: needs >= 3)
+  Judge specifically: (a) the first ~30s delivers a real payoff AND raises the stakes; (b) it reads as
+  ONE flowing talk — each scene BRIDGES from the last (smooth segues), never a jarring jump or a
+  disconnected list of points; (c) most scenes END on a forward pull (a hook / turn / question) that
+  makes you need the next; (d) tension and value ESCALATE, with a strong beat in the back third (the
+  middle never sags); (e) scene SHAPES vary (not the same claim -> explain -> analogy -> restate every
+  time); (f) on_screen_text is a curiosity hook, not a chapter label.
   1 = dead air; no reason to keep watching.
-  2 = flat and list-like; attention drifts.
-  3 = watchable but even; few curiosity loops or turns.
-  4 = pulls you forward: open loops, clear stakes/payoff, varied pace, talks to the viewer.
-  5 = magnetic; every beat makes you need the next one, with no dead spots.
+  2 = flat and list-like, OR choppy — ideas jump without connective flow; attention drifts.
+  3 = watchable but even; some flow, but few open loops/turns, little escalation, or a monotone rhythm.
+  4 = pulls you forward: fast payoff + stakes, smooth segues, scenes hook into the next, varied pace,
+      building tension, curiosity-driven text.
+  5 = magnetic; a continuous RISING throughline where every beat makes you need the next — no dead spots.
 
 WITTINESS / ENTERTAINMENT — is it genuinely fun to listen to? (humour rides ON TOP of substance)
   1 = dry, corporate, zero personality.

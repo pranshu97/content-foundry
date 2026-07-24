@@ -21,7 +21,7 @@ SCRIPT_JSON_SHAPE = """{
   "title_options": ["...", "..."],
   "hook": "first ~10s spoken opening that delivers the SAME hook the title and thumbnail promise (the trifecta), specific, opens a curiosity gap",
   "scenes": [
-    {"index": 0, "narration": "3-6 spoken sentences taking ONE point deep as natural speech: what to do, then the how and the why and a concrete, witty example woven together, with NO section labels or headings", "on_screen_text": "short on-screen caption",
+    {"index": 0, "narration": "3-6 spoken sentences that OPEN VERBATIM WITH THE hook ABOVE (the hook is literally the first thing spoken), then take ONE point deep as natural speech: the how, the why, and a concrete, witty example woven together, with NO section labels or headings and NO restating the hook in other words", "on_screen_text": "short on-screen caption",
      "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh", "editor_note": "punch in on the key detail", "cut": "fast"},
     {"index": 1, "narration": "FINAL scene: 3-6 spoken sentences that pay off the idea with your wittiest line, then one natural like/subscribe nudge, then a warm 'see you in the next one' sign-off",
      "on_screen_text": "short on-screen caption",
@@ -90,12 +90,14 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
             f"advice comes from someone with this background). Background: {bio}. Speak it at the "
             "GENERAL level it is written ('as someone who's worked as an AI scientist in big tech', "
             "'from years inside FAANG AI teams', 'having been on the hiring side'), naturally and "
-            "humbly — never a resume brag or title-drop. HARD LINE: use ONLY what that background line "
-            "literally states; do NOT invent SPECIFIC, checkable details it does not give — no named "
-            "project, product, system, team, metric, dollar figure, or dated event, and no 'the time I "
-            "personally did X' story (e.g. from 'AI Scientist at Amazon' you MAY say 'from my time in "
-            "big-tech AI' but you may NOT fabricate 'when I rebuilt Amazon's SageMaker pipeline'). The "
-            "true, general credential is valuable; invented specifics are obvious fakes and a hard REJECT."
+            "humbly, never a resume brag or title-drop. Illustrative, hypothetical, and anonymized "
+            "stories ARE welcome ('I've watched candidates freeze on exactly this'). HARD LINE: do NOT "
+            "fabricate a SPECIFIC, checkable ACHIEVEMENT the background does not give, no claim you "
+            "personally built, led, or shipped a NAMED project, product, or system, and no moving a "
+            "NAMED company's metric by a figure (from 'AI Scientist at Amazon' you MAY say 'from my "
+            "time in big-tech AI' but NOT 'when I rebuilt Amazon's SageMaker pipeline' or 'I improved "
+            "Rekognition accuracy by 20%'). A fake named-and-numbered personal achievement is an "
+            "obvious fake and a hard REJECT; a general credential plus anonymized stories is the goal."
         )
     tag = (
         f'"{title_tag}"' if title_tag else
@@ -193,10 +195,11 @@ class ScriptGenerator:
         previous_script: Script | None = None,
         research: ResearchBrief | None = None,
         affiliate_candidates: list | None = None,
+        instructions: str = "",
     ) -> Script:
         system = self._build_prompt(
             brief, template, perspective_modifier, judge_feedback, idea, previous_script, research,
-            affiliate_candidates,
+            affiliate_candidates, instructions,
         )
         text = self._complete(system)
         parsed = self._parse_json(system, text)
@@ -204,6 +207,7 @@ class ScriptGenerator:
         script = self._dedupe_scenes(script)
         script = self._repair_grounding(script, brief)
         script = self._ensure_min_length(system, script, brief, run_id, template.id)
+        script = self._ensure_spoken_hook(script)
         script = self._prepend_intro(script)
         script = self._ensure_ending(script)
         script = self._stamp_sources(script, brief)
@@ -222,6 +226,7 @@ class ScriptGenerator:
         previous_script: Script | None = None,
         research: ResearchBrief | None = None,
         affiliate_candidates: list | None = None,
+        instructions: str = "",
     ) -> str:
         beats = "\n".join(f"{i + 1}) {b}" for i, b in enumerate(template.beats))
         facts = [
@@ -252,11 +257,26 @@ class ScriptGenerator:
         )
         idea_focus = (
             "THIS VIDEO'S TOPIC — the single most important instruction. The whole script must "
-            f'deliver EXACTLY this specific, helpful video, NOT generic "{brief.niche}" advice. Use '
-            "the data only where it genuinely supports this topic:\n"
+            f'deliver EXACTLY this specific, helpful video, NOT generic "{brief.niche}" advice, and '
+            "NOT a tangent — EVERY scene must be about this exact topic:\n"
             f">>> {idea} <<<\n\n"
+            "The GROUNDING facts below come from a BROAD web search and MAY include tangential or "
+            "off-topic items (adjacent tools, salary/career trivia, a loosely-related subject). "
+            "Use ONLY the facts that DIRECTLY serve the topic above; SILENTLY IGNORE the rest and "
+            "NEVER let an unrelated fact or number pull a scene off this topic. If a fact isn't "
+            "about the topic, drop it — do not mention it.\n\n"
             if idea else ""
         )
+        if (instructions or "").strip():
+            # The creator's extra steer (often a routed, bulleted list from the Instruction Planner):
+            # it shapes the ANGLE, emphasis, what to SHOW/build, and tone — applied ON TOP of, never
+            # instead of, the exact topic above.
+            idea_focus += (
+                "CREATOR'S EXTRA INSTRUCTIONS for THIS video — follow EVERY one of these directions "
+                "(they shape the angle, what to emphasize, what to show or build, and the tone) while "
+                "every scene still stays ON the topic above:\n"
+                f"{instructions.strip()}\n\n"
+            )
         return render_prompt(
             load_prompt("script_generator.system"),
             target_words=eff_words,
@@ -495,6 +515,23 @@ class ScriptGenerator:
         script.word_count = _word_count(script)
         return script
 
+    def _ensure_spoken_hook(self, script: Script) -> Script:
+        """HARD GUARANTEE: the crafted ``hook`` is the FIRST thing spoken. The writer is told to open
+        scene 0 verbatim on the hook; this backstops it — when scene 0 does NOT already lead with the
+        hook (as a verbatim lead OR a clearly reworded restatement of it), the hook is prepended to
+        scene 0 so it is heard. The restatement check is what stops us saying the same opening twice
+        when the writer only lightly reworded it. Runs BEFORE the intro tagline, so the tagline still
+        leads straight into the hook. No-op when the hook is blank or already spoken."""
+        hook = (script.hook or "").strip()
+        if not hook or not script.scenes:
+            return script
+        first = script.scenes[0]
+        if _hook_already_spoken(hook, first.narration):
+            return script  # scene 0 already opens on the hook (verbatim or reworded) — don't duplicate
+        first.narration = f"{hook} {first.narration.lstrip()}".strip()
+        script.word_count = _word_count(script)
+        return script
+
     def _prepend_intro(self, script: Script) -> Script:
         """Fixed channel intro (Ch. 8): every video opens with the same signature line, prepended to
         the first scene so it is the FIRST thing spoken. Guaranteed in code, topic-agnostic, and
@@ -565,9 +602,10 @@ class ScriptGenerator:
         return script
 
     def _stamp_affiliate(self, script: Script, candidates) -> Script:
-        """Persist ONLY the resolved resources the finished script actually references (name-scan of
-        the narration). URLs come from the pre-resolved candidates, never the model — so a link the
-        script promises is guaranteed to be in the description, and vice-versa."""
+        """Persist the affiliate links for the description: the resolved resources the narration NAMES
+        (name-scan), or — when it named none — the single top resolved (relevance-gated) resource as a
+        safety-net, so a relevant video always monetizes. URLs come from the pre-resolved candidates,
+        never the model, so a link the script promises is guaranteed present, and vice-versa."""
         if not candidates:
             return script
         text = " ".join(s.narration or "" for s in script.scenes)
@@ -832,3 +870,41 @@ def _word_count(script: Script) -> int:
     for scene in script.scenes:
         words += len(scene.narration.split())
     return words
+
+
+_HOOK_STOP = frozenset({
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "at", "by", "as", "is",
+    "are", "was", "were", "you", "your", "they", "them", "then", "than", "this", "that", "these",
+    "those", "it", "its", "into", "from", "about", "just", "so", "but", "if", "not", "will",
+    "have", "has", "had", "do", "does", "did", "what", "when", "who", "why", "how", "we", "our",
+    "my", "me", "be", "can", "get",
+})
+
+
+def _hook_content_words(text: str) -> set[str]:
+    """The salient (non-stopword, 3+ char) words of a line — used to measure whether two openings say
+    the same thing."""
+    return {
+        w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(w) >= 3 and w not in _HOOK_STOP
+    }
+
+
+def _hook_already_spoken(hook: str, narration: str) -> bool:
+    """True when ``narration`` already OPENS with ``hook`` — either as a normalized verbatim lead, or
+    as a clearly reworded restatement of it (most of the hook's content words already sit in the
+    scene's opening window) — so prepending the hook would only repeat what is already said."""
+    def _norm(t: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9]+", (t or "").lower()))
+
+    h, n = _norm(hook), _norm(narration)
+    if not h:
+        return True
+    lead = " ".join(h.split()[:8])  # first ~8 words of the hook
+    if lead and n.startswith(lead):
+        return True  # the writer opened verbatim ON the hook
+    hw = _hook_content_words(hook)
+    if not hw:
+        return True
+    window = " ".join(n.split()[: len(h.split()) + 25])  # the scene's opening, ~ the hook's length
+    return len(hw & _hook_content_words(window)) / len(hw) >= 0.6  # a reworded restatement

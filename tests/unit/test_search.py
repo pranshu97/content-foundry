@@ -9,11 +9,10 @@ import respx
 from content_foundry.config import get_settings, reset_settings_cache
 from content_foundry.datasources.registry import build_sources
 from content_foundry.datasources.search import (
-    BraveProvider,
     DuckDuckGoProvider,
+    FallbackSearchProvider,
     SearchResult,
     SearchSource,
-    TavilyProvider,
     _parse_brave,
     _parse_tavily,
     build_search_provider,
@@ -201,26 +200,67 @@ def test_duckduckgo_instant_answer_flattens_related_topics():
     assert any(r.url == "https://x/rt2" for r in results)  # nested topics flattened
 
 
-def test_build_search_provider_selection(monkeypatch):
+def test_build_search_provider_chains_fallbacks(monkeypatch):
+    # DuckDuckGo primary, no keys -> a single key-less provider (nothing to fall back to).
     monkeypatch.setenv("SEARCH_PROVIDER", "duckduckgo")
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     reset_settings_cache()
     assert isinstance(build_search_provider(get_settings()), DuckDuckGoProvider)
 
-    monkeypatch.setenv("SEARCH_PROVIDER", "tavily")
-    monkeypatch.setenv("TAVILY_API_KEY", "k")
+    # DuckDuckGo primary + both keys -> the requested chain: DuckDuckGo -> Tavily -> Brave.
+    monkeypatch.setenv("TAVILY_API_KEY", "tk")
+    monkeypatch.setenv("BRAVE_API_KEY", "bk")
     reset_settings_cache()
-    assert isinstance(build_search_provider(get_settings()), TavilyProvider)
+    chain = build_search_provider(get_settings())
+    assert isinstance(chain, FallbackSearchProvider)
+    assert [p.name for p in chain.providers] == ["duckduckgo", "tavily", "brave"]
+    assert chain.name == "duckduckgo"  # reports the primary
 
-    monkeypatch.setenv("SEARCH_PROVIDER", "brave")
-    monkeypatch.setenv("BRAVE_API_KEY", "k")
+    # A keyed primary leads; key-less DuckDuckGo is always the final safety net.
+    monkeypatch.setenv("SEARCH_PROVIDER", "tavily")
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     reset_settings_cache()
-    assert isinstance(build_search_provider(get_settings()), BraveProvider)
+    chain = build_search_provider(get_settings())
+    assert [p.name for p in chain.providers] == ["tavily", "duckduckgo"]
 
 
 def test_keyed_provider_without_key_falls_back_to_duckduckgo(monkeypatch):
     monkeypatch.setenv("SEARCH_PROVIDER", "tavily")  # selected, but no key set
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     reset_settings_cache()
     assert isinstance(build_search_provider(get_settings()), DuckDuckGoProvider)
+
+
+def test_fallback_search_provider_tries_next_on_error_or_empty():
+    class _Boom:
+        name = "boom"
+
+        def search(self, q, n):
+            raise RuntimeError("rate limited")
+
+    class _Empty:
+        name = "empty"
+
+        def search(self, q, n):
+            return []
+
+    class _Good:
+        name = "good"
+
+        def search(self, q, n):
+            return [SearchResult("hit", "http://x", "snip")]
+
+    # error -> empty -> good: returns the FIRST provider that actually yields results.
+    prov = FallbackSearchProvider([_Boom(), _Empty(), _Good()])
+    assert [r.title for r in prov.search("q", 5)] == ["hit"]
+    assert prov.name == "boom"  # reports the primary
+    # every provider answers but finds nothing -> [] (no error).
+    assert FallbackSearchProvider([_Empty(), _Empty()]).search("q", 5) == []
+    # every provider errors -> the last error propagates so the source counts the failure.
+    with pytest.raises(RuntimeError):
+        FallbackSearchProvider([_Boom(), _Boom()]).search("q", 5)
 
 
 def test_registry_builds_decoupled_search_source(monkeypatch):
@@ -230,8 +270,39 @@ def test_registry_builds_decoupled_search_source(monkeypatch):
     sources = build_sources(settings, niche="ml careers", topic_seed="interviews")
     assert [s.name for s in sources] == ["search"]
     assert sources[0]._query == "ml careers interviews"  # topic = niche + seed (no network)
-    # Multi-query fan-out is wired from config: base query + up to SEARCH_QUERY_COUNT-1 facets.
-    expected_facets = settings.search_facets_list[: settings.search_query_count - 1]
-    assert sources[0]._facets == expected_facets
-    assert len(sources[0]._queries()) == 1 + len(expected_facets)
+    # Base query + up to SEARCH_QUERY_COUNT-1 DISTINCT facets RELEVANCE-picked from the pool.
+    pool = settings.search_facets_list
+    k = settings.search_query_count - 1
+    assert len(sources[0]._facets) == min(k, len(pool))
+    assert set(sources[0]._facets) <= set(pool)  # every chosen facet comes from the pool
+    assert len(set(sources[0]._facets)) == len(sources[0]._facets)  # all distinct
+    assert len(sources[0]._queries()) == 1 + len(sources[0]._facets)
+    # Deterministic for a given topic, so re-running researches the same angles:
+    again = build_sources(settings, niche="ml careers", topic_seed="interviews")
+    assert again[0]._facets == sources[0]._facets
+
+
+def test_select_facets_ranks_by_idea_relevance_not_random():
+    from content_foundry.datasources.registry import _select_facets
+
+    pool = ["how it works", "salary", "common mistakes", "career path",
+            "interview questions", "statistics"]
+    # An interview idea: the 'interview questions' angle (an idea keyword) leads; the subject-shifting
+    # 'salary'/'career path' angles are dropped first at a small budget.
+    picked = _select_facets(pool, 3, idea="ml system design interview")
+    assert "interview questions" in picked
+    assert "salary" not in picked and "career path" not in picked
+    assert _select_facets(pool, 3, idea="ml system design interview") == picked  # deterministic
+    # A salary idea KEEPS the salary angle (its own keyword asks for it):
+    assert "salary" in _select_facets(pool, 2, idea="software engineer salary negotiation")
+    # A stopword shared with the idea ('the') must NOT make a pivot angle look relevant:
+    picked2 = _select_facets(
+        ["how it works", "day in the life", "statistics", "salary"], 2,
+        idea="The ML System Design Interview",
+    )
+    assert "day in the life" not in picked2 and "salary" not in picked2
+    # A pool that fits the budget is used whole; edge cases are safe:
+    assert _select_facets(["x", "y"], 5, idea="anything") == ["x", "y"]
+    assert _select_facets(pool, 0, idea="t") == []
+    assert _select_facets([], 5, idea="t") == []
 

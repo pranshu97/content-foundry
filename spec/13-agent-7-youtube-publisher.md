@@ -3,6 +3,8 @@
 ### 13.1 Purpose
 Upload the finished video to YouTube as a **privacy-gated draft**, attach all metadata and the thumbnail, and **guarantee the synthetic-content disclosure** is handled before anything can go public. This is the compliance backbone of the system.
 
+> **Post-publish comment (current behavior).** Right after upload the publisher posts ONE top comment (needs the `youtube.force-ssl` scope, requested when either comment feature is on): a **"watch next" list** linking the most related PRIOR channel uploads (`RECOMMEND_COMMENT_ENABLED`, the same picks as the `end_screen.json` sidecar, works on long-form + Shorts) plus, when `PUBLISH_TOP_COMMENT` is on, the subscribe/affiliate CTA. Best-effort; the API cannot pin, so pin once in Studio.
+
 ### 13.2 Inputs / outputs
 - **Input:** `VideoAsset` + `Script` (title/description/tags) + `VisualPackage` (thumbnail).
 - **Output:** `PublishResult` artifact → `output/runs/<run_id>/publish_result.json`, and a row in `publish_results`.

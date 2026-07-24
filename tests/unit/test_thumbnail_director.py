@@ -12,19 +12,32 @@ def _settings(monkeypatch, *, enabled: bool):
     return get_settings()
 
 
-def test_thumbnail_director_writes_prompt(monkeypatch, fakes):
+def test_thumbnail_director_writes_prompt_from_the_description(monkeypatch, fakes):
     settings = _settings(monkeypatch, enabled=True)
-    text = "A shocked developer stares at a glowing red screen, dramatic rim lighting, no text"
+    text = "A cinematic thumbnail: a glowing laptop with a red REJECTED stamp, moody blue and orange."
     llm = fakes.LLM(script_json=text)
     out = ThumbnailDirector(settings, llm).compose(
-        "developer shocked at screen", title="Why FAANG Rejects You", niche="tech careers"
+        "some concept", title="A Title", niche="tech careers",
+        description="FAANG interviewers grade you on a hidden scoring matrix and flag 'Hero Behavior'.",
     )
     assert out == text
     assert llm.call_count == 1
-    system = llm.calls[-1]["system"]
-    assert "developer shocked at screen" in system  # concept handed to the model
-    assert "Why FAANG Rejects You" in system  # title handed to the model
-    assert "judge" not in system.lower()  # must not misroute the shared fake / a real judge model
+    user_prompt = llm.calls[-1]["prompt"]
+    # the EXACT Gemini-style instruction + the raw description are the ONLY content input
+    assert user_prompt.startswith(
+        "Write a prompt to generate a thumbnail for a youtube video whose description is given below")
+    assert "hidden scoring matrix" in user_prompt
+    system = (llm.calls[-1]["system"] or "")
+    assert "judge" not in system.lower()
+    assert "EXAMPLE PROMPT" in system  # the worked example is included to drive the quality
+
+
+def test_thumbnail_director_falls_back_to_concept_without_a_description(monkeypatch, fakes):
+    settings = _settings(monkeypatch, enabled=True)
+    llm = fakes.LLM(script_json="a bold cinematic thumbnail")
+    ThumbnailDirector(settings, llm).compose("a laptop with a red scorecard", title="t")
+    # no description => the concept becomes the description-context handed to the model
+    assert "a laptop with a red scorecard" in llm.calls[-1]["prompt"]
 
 
 def test_thumbnail_director_disabled_is_noop(monkeypatch, fakes):
@@ -35,27 +48,18 @@ def test_thumbnail_director_disabled_is_noop(monkeypatch, fakes):
     assert llm.call_count == 0  # disabled -> no LLM call at all
 
 
-def test_thumbnail_director_no_person_asks_for_a_background(monkeypatch, fakes):
-    settings = _settings(monkeypatch, enabled=True)
-    llm = fakes.LLM(script_json="clean subject-free background, no text")
-    ThumbnailDirector(settings, llm).compose("concept", title="t", no_person=True)
-    assert "no people" in llm.calls[-1]["system"].lower()
-
-
-def test_thumbnail_director_injects_avatar_appearance(monkeypatch, fakes):
+def test_thumbnail_director_adds_no_guardrails_or_avatar_details(monkeypatch, fakes):
     monkeypatch.setenv("THUMBNAIL_DIRECTOR_ENABLED", "true")
     monkeypatch.setenv("AVATAR_APPEARANCE", "a bearded man in his late 20s")
     reset_settings_cache()
     settings = get_settings()
-    llm = fakes.LLM(script_json="a bright office scene, no text")
-    # With a person, the operator's look is handed to the model so the swap target resembles them.
-    ThumbnailDirector(settings, llm).compose("developer at a desk", title="t", niche="tech")
-    system = llm.calls[-1]["system"]
-    assert "a bearded man in his late 20s" in system
-    assert "MATCH THE PRESENTER" in system
-    # A people-free background has no face to match, so the appearance clause is omitted.
-    ThumbnailDirector(settings, llm).compose("a desk", title="t", no_person=True)
-    assert "MATCH THE PRESENTER" not in llm.calls[-1]["system"]
+    llm = fakes.LLM(script_json="a bold cinematic thumbnail")
+    ThumbnailDirector(settings, llm).compose(
+        "developer at a desk", title="t", description="A video about ML system design interviews.")
+    blob = ((llm.calls[-1]["system"] or "") + llm.calls[-1]["prompt"]).lower()
+    # the operator's avatar appearance / face-matching is NOT injected anywhere
+    assert "a bearded man in his late 20s" not in blob
+    assert "match the presenter" not in blob
 
 
 def test_thumbnail_director_empty_concept_and_title_is_noop(monkeypatch, fakes):
@@ -80,5 +84,5 @@ def test_sanitize_strips_fences_labels_and_quotes():
 
 
 def test_sanitize_caps_length():
-    out = _sanitize("word " * 400)
-    assert out is not None and len(out) <= 900
+    out = _sanitize("word " * 600)
+    assert out is not None and len(out) <= 1800

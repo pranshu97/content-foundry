@@ -39,9 +39,9 @@ flowchart LR
 | 2 | **generate** | Writes the script from the brief (the one always-on LLM call); also authors optional `sfx` cues | `script.json` | LLM (or **free** local) |
 | 3 | **judge** | Scores the script on 10 dimensions; PASS / REVISE / FAIL | `judge_report.json` | LLM (hybrid) or **free** deterministic |
 | 4 | **voiceover** | Text-to-speech narration + word timings | `voiceover.json`, `assets/narration.mp3` | TTS (or **free** Edge/Piper) |
-| 5 | **visuals** | Thumbnail + per-scene images/B-roll + captions | `visuals.json`, `assets/thumbnail.png`, `assets/scenes/`, `assets/captions.srt` | image API (or **free** cards/Pexels) |
-| 6 | **render** | Assembles audio + visuals + captions into an mp4 (ffmpeg); mixes any `sfx` cues in | `video.json`, `assets/video.mp4` | free (local) |
-| 7 | **publish** | Uploads to YouTube as a Private draft (or dry-run) | `publish_result.json` | free |
+| 5 | **visuals** | Thumbnail + per-scene visuals + captions. B-roll is a clip per narration beat held to a STRICT on-topic bar; a beat with no confidently-relevant clip gets a bespoke GENERATED image (LLM-art-directed, AI-face-avoidant) instead of an off-topic clip | `visuals.json`, `assets/thumbnail.png`, `assets/scenes/`, `assets/captions.srt` | image API (or **free** cards/Pexels) |
+| 6 | **render** | Assembles audio + visuals + captions into an mp4 (ffmpeg); mixes any `sfx` cues in under the voice at a predictable level | `video.json`, `assets/video.mp4` | free (local) |
+| 7 | **publish** | Uploads to YouTube as a Private draft (or dry-run); at publish time posts a "watch next" comment linking related prior uploads and (opt-in) affiliate resource links + disclosure | `publish_result.json` | free |
 
 Generate ⇄ Judge is a **loop**: a REVISE verdict feeds the Judge's critique back into a rewrite, up
 to `MAX_REVISIONS` times. A PASS proceeds to production; exhausting the attempts is a FAIL.

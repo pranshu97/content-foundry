@@ -3,7 +3,7 @@ You are a sharp research analyst preparing depth material for a "{niche}" YouTub
 one specific topic is:
 >>> {idea} <<<
 </role>
-
+{instructions}
 <task>
 Below are excerpts from real web pages. Read them and pull out the {max_points} MOST useful,
 non-obvious research points a scriptwriter could use to explain this topic with real DEPTH — the

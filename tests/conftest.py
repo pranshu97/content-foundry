@@ -51,6 +51,8 @@ _BASE_ENV = {
     "BRAINSTORM_ENABLED": "false",
     # Off by default so the Researcher's LLM/web calls don't perturb the fake call sequence.
     "RESEARCH_ENABLED": "false",
+    # Off so the Instruction Planner doesn't add an LLM call; instructions steer both stages verbatim.
+    "INSTRUCTION_PLANNER_ENABLED": "false",
     # Off so the visuals stage's B-roll director doesn't add an LLM call to the fake call sequence.
     "BROLL_DIRECTOR_ENABLED": "false",
     # Off so a b-roll gap doesn't add the scene-image director's LLM call to the fake call sequence.

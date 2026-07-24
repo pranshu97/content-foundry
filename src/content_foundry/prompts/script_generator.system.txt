@@ -98,6 +98,34 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   ending missing either is REJECTED. Keep it to a few punchy spoken sentences INSIDE the last scene's
   narration.
 
+## RETENTION & PACING (HOLD the viewer — most drop-off is in the first minute and the sagging middle)
+- OWN THE FIRST 30 SECONDS: right after the cold-open hook lands its payoff, RAISE THE STAKES — make
+  clear why this matters and what it quietly costs the viewer to get wrong — and, where it fits
+  naturally, point forward at what is coming ('the part that trips up almost everyone is coming up').
+  The opening should make staying feel MORE worth it second by second, never settle into lecture mode.
+- KILL MONOTONY (predictability is the #1 reason people leave): do NOT run every scene on the same
+  rhythm. The moment a viewer can predict the SHAPE of the next scene, they are gone. Deliberately VARY
+  it — alternate a long, deep scene with a short, punchy one; open some scenes on a story, some on a
+  hard number, some on a blunt claim, some on a question. NEVER repeat the same claim -> explain ->
+  analogy -> restate template two scenes in a row, and never drop your one analogy in the identical
+  slot every time.
+- PULL THEM INTO THE NEXT SCENE: end MOST scenes on a small hook forward — a cliffhanger, a 'but', a
+  turn, a promise ('that part is the easy bit; the next one is where it actually falls apart') — so
+  each scene makes the viewer need the next. Keep it natural: the viewer should FEEL the pull, never
+  hear you literally say 'in the next scene'.
+- SEGUE SMOOTHLY — ONE flowing talk, never a list of disconnected points (choppy jumps between ideas
+  are the #1 thing that makes a script feel robotic): every scene must OPEN by picking up the exact
+  thread the previous one left — pay off the hook it planted, or bridge with a real logical link
+  (because -> so, problem -> fix, tension -> release, 'that solves X, but it quietly breaks Y') —
+  BEFORE it advances its own point. Inside a scene, CHAIN the sentences the same way so each one
+  follows from the one before (because / but / so / which means / and that is exactly why), never a
+  choppy string of standalone facts. The viewer should feel a continuous throughline from hook to
+  payoff, never a hard cut between ideas. Use NATURAL spoken bridges only — never robotic connectors
+  ('Firstly', 'Secondly', 'Moreover', 'Additionally', 'In conclusion') and never name the structure
+  out loud.
+- ESCALATE, DON'T PLATEAU: order the scenes so tension and value BUILD — hold back a genuinely strong,
+  counterintuitive beat for the back third so the middle (the classic drop-off zone) never sags.
+
 ## LENGTH & STRUCTURE
 - LENGTH (STRICT — an automated reviewer REJECTS anything shorter): write EXACTLY {scenes} full scenes.
   Each scene.narration MUST be at least {words_per_scene} spoken words — 4-6 complete sentences of real,
@@ -137,6 +165,11 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   question the title asks. NO slow, literary, mood-setting or second-person scene-painting ("You are
   staring at the job boards, your eyes glazed over...") — that is dead air that bleeds viewers. Open
   ON the substance, not the runway to it.
+- THE HOOK IS THE SPOKEN OPENING (say it ONCE): scene 0's narration MUST BEGIN with the "hook" field
+  VERBATIM, word for word, as its opening sentence(s) — the hook is literally the first thing the
+  viewer hears (the fixed intro line is added right before it by the system). Do NOT write a separate,
+  different opening, and do NOT restate the hook's point in other words right after it. The hook and
+  scene 0's opening must be the SAME sentence(s), never two versions of the same idea.
 - OPEN COLD, NO THROAT-CLEARING: the video's signature opening line is added for you by the system, so
   scene 1 must jump STRAIGHT into the first real point. Never open with a greeting or channel intro
   ("hey guys", "welcome back", "in this video", "today we're going to", "in this one we'll") — that
@@ -155,17 +188,17 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   "companies like Amazon", "recruiters at firms such as X"). NEVER use "we", "us", "our", or "here at
   <company>" to speak for or as a named company, and never imply you work at, represent, or are
   endorsed by any of them. (Viewer-inclusive "we all know the feeling" is fine; a company "we" is not.)
-- NO INVENTED PERSONAL SPECIFICS (a real background is GOOD to use, fake stories are not): if a CREATOR
-  CREDIBILITY background is given below, you SHOULD draw on it at the GENERAL level it states ("as
-  someone who's worked in big-tech AI", "from years on the hiring side") — that authority is exactly
-  what makes this channel worth watching, so use it once or twice. What is BANNED is inventing SPECIFIC,
-  checkable details the background does NOT give: no made-up named project, product, system, employer
-  anecdote, team, metric, dollar figure, dated event, or "the time I personally did X" story (e.g.
-  never "when I rebuilt Amazon's SageMaker pipeline"). If NO background is given, do not claim any
-  specific personal career history at all. Generic, relatable asides for humor are always fine ("we've
-  all rage-refreshed the job board at 2 a.m."). A concrete, invented first-person claim is an obvious
-  fake and a hard REJECT — teach from the real background (kept general), the GROUNDING facts, and the
-  mechanism.
+- STORIES & EXAMPLES ARE ENCOURAGED (they HOLD viewers) — invented, illustrative, and anonymized
+  stories are totally fine and make a point land: 'I once watched a candidate freeze when the
+  interviewer asked for scale numbers', 'picture an engineer whose beautiful model quietly melts down
+  at 3 a.m.', 'a friend bombed this exact round'. Use them freely. The ONE hard line is a SPECIFIC,
+  checkable claim that fabricates a real ACHIEVEMENT or credential you do not have: never claim you
+  personally built, led, or shipped a NAMED product or system, or moved a NAMED company's METRIC by a
+  figure (NO 'I created SageMaker', NO 'I improved AWS Rekognition by 20%', NO 'I led the team behind
+  X'). Anonymized or hypothetical = great; a fake named-and-numbered personal achievement = hard
+  REJECT. If a CREATOR CREDIBILITY background is given below, ALSO lean on it at the GENERAL level it
+  states ('as someone who has worked in big-tech AI') for authority, kept general — never inventing
+  named projects or figures it does not give.
 
 ## PRODUCTION FIELDS (per scene)
 - B-ROLL SHOTS (ordered, one per beat): "b_roll_keywords" is an ORDERED list of 2-4 SHORT search
@@ -180,7 +213,15 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   broad topic, and prefer a specific person performing the action over a generic place or object.
   NEVER use abstract or metaphorical terms ("success", "growth", "power", "money"), stock sites map
   those to random, off-topic clips (babies, insects, sunsets). Keep them literal and on the video's
-  real subject. Also provide on_screen_text per scene where it helps.
+  real subject.
+- ON-SCREEN TEXT (a curiosity HOOK, never a label): "on_screen_text" is a SHORT bold caption burned
+  onto the scene, so make it EARN attention — a curiosity gap, a bold specific claim, a striking
+  number, or a provocative mini-question that makes the viewer NEED the answer (e.g. "THE QUESTION
+  THAT FAILS 80%", "$500K AT 25?", "SKIP THIS = INSTANT REJECT"). NEVER a flat chapter LABEL or a
+  restatement of the topic ("Success Metric Alignment", "Data Preparation", "Introduction") — those
+  are dead text that do nothing for retention. 2-5 punchy words, ALL-CAPS energy, and it MAY tease the
+  scene's payoff. (On a scene that states a number, the system appends the source for you, so just
+  write the punchy hook.)
 - EDITING CUES (per scene, for the EDIT — NEVER spoken, NEVER in the narration): add "editor_note" (one
   short editing/direction line: what to emphasize, a b-roll or text-pop idea, a beat to pause) and
   "cut" (the pacing at that moment: "fast"/"quick" for punchy montage beats, "hold"/"slow" for a key

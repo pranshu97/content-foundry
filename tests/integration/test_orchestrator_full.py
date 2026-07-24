@@ -135,6 +135,71 @@ def test_resume_reuses_saved_idea_and_research(monkeypatch, data_brief, fakes):
     assert orch._resolve_idea("7777", paths, data_brief, "seed", [], force=True) == "seed"
 
 
+def test_run_persists_and_reuses_instructions(settings, sample_signals, fakes):
+    from content_foundry.pipeline.artifacts import load_run_instructions
+
+    def make_orch():
+        return Orchestrator(
+            settings, notifier=NullNotifier(), dry_run=True, llm_provider=fakes.LLM(),
+            sources=[fakes.DataSource("adzuna", sample_signals)], tts_provider=fakes.TTS(),
+            image_provider=None, broll_client=None, render_backend=fakes.Render(),
+            publisher=DryRunPublisher(),
+        )
+
+    orch = make_orch()
+    first = orch.run(from_stage="fetch", to_stage="fetch", niche="tech careers",
+                     instructions="  Focus on remote roles; beginner-friendly  ")
+    # Persisted (trimmed) to the run's sidecar so a later stage/re-run keeps the same steer.
+    assert load_run_instructions(first.run_id, settings.output_dir) == \
+        "Focus on remote roles; beginner-friendly"
+    assert orch._run_instructions == "Focus on remote roles; beginner-friendly"
+    # A re-run WITHOUT --instructions reuses the persisted steer (exactly like the idea).
+    orch2 = make_orch()
+    orch2.run(from_stage="fetch", to_stage="fetch", run_id=first.run_id, niche="tech careers")
+    assert orch2._run_instructions == "Focus on remote roles; beginner-friendly"
+
+
+def test_plan_instructions_routes_research_and_script(monkeypatch, fakes):
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.pipeline.artifacts import ensure_run_dirs, run_paths
+
+    monkeypatch.setenv("INSTRUCTION_PLANNER_ENABLED", "true")
+    reset_settings_cache()
+    s = get_settings()
+    plan_json = {
+        "research_focus": ["find the real scoring-matrix terms and what they mean"],
+        "research_queries": ["engineering interview scoring rubric Strong Hire Lean Hire"],
+        "script_directions": ["show a realistic mocked-up feedback form"],
+    }
+    orch = Orchestrator(s, notifier=NullNotifier(), llm_provider=fakes.LLM(script_json=plan_json))
+    orch._run_instructions = "deliver actual rubrics; show a feedback form; explain the matrix"
+    paths = run_paths("8888", s.output_dir)
+    ensure_run_dirs(paths)
+    orch._plan_instructions("ML system design interview", paths)
+    # research gets the fact-finding focus (bulleted) + the concrete queries; the script gets delivery.
+    assert orch._research_focus_text == "- find the real scoring-matrix terms and what they mean"
+    assert orch._research_queries == ["engineering interview scoring rubric Strong Hire Lean Hire"]
+    assert orch._script_directions_text == "- show a realistic mocked-up feedback form"
+    assert (paths.root / "instruction_plan.json").exists()  # routed plan written for inspection
+
+
+def test_plan_instructions_is_a_noop_when_disabled(monkeypatch, fakes):
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.pipeline.artifacts import ensure_run_dirs, run_paths
+
+    monkeypatch.setenv("INSTRUCTION_PLANNER_ENABLED", "false")
+    reset_settings_cache()
+    s = get_settings()
+    orch = Orchestrator(s, notifier=NullNotifier(), llm_provider=fakes.LLM())
+    orch._run_instructions = orch._research_focus_text = orch._script_directions_text = "raw steer"
+    paths = run_paths("8889", s.output_dir)
+    ensure_run_dirs(paths)
+    orch._plan_instructions("idea", paths)
+    # disabled => the verbatim defaults are untouched and no plan file is written.
+    assert orch._research_focus_text == "raw steer" and orch._script_directions_text == "raw steer"
+    assert not (paths.root / "instruction_plan.json").exists()
+
+
 
 def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
     from content_foundry.config import get_settings, reset_settings_cache

@@ -115,6 +115,69 @@ def test_researcher_fallback_when_no_source_urls(settings, fakes):
     assert research.points[0].point == "A grounded fact"
 
 
+def test_researcher_searches_the_directed_queries(settings, data_brief, fakes, monkeypatch):
+    from content_foundry.datasources.search import SearchResult
+
+    class _FakeSearch:
+        name = "fake"
+
+        def __init__(self):
+            self.queries: list[str] = []
+
+        def search(self, query, max_results):
+            self.queries.append(query)
+            return [SearchResult(f"hit for {query}", f"https://found.example/{len(self.queries)}",
+                                 f"grounded detail about {query}")]
+
+    monkeypatch.setattr(
+        "content_foundry.agents.research.fetch_article_text",
+        lambda url, **kwargs: f"full body for {url}",
+    )
+    search = _FakeSearch()
+    r = Researcher(settings, fakes.LLM(script_json={"points": []}), search_provider=search)
+    r.run("R", data_brief, idea="ML system design interview",
+          research_queries=["scoring rubric Strong Hire Lean Hire", "negative signals debrief"])
+    # each Instruction-Planner query is searched (on TOP of the idea search), so research goes and
+    # FINDS the creator-requested material instead of only what the bare idea surfaced.
+    assert "scoring rubric Strong Hire Lean Hire" in search.queries
+    assert "negative signals debrief" in search.queries
+    # with no queries the directed search is skipped entirely (only the idea is searched).
+    search2 = _FakeSearch()
+    Researcher(settings, fakes.LLM(script_json={"points": []}), search_provider=search2).run(
+        "R", data_brief, idea="ML system design interview")
+    assert search2.queries == ["ML system design interview"]
+
+
+def test_researcher_instructions_steer_the_synthesis_prompt(settings, data_brief, fakes, monkeypatch):
+    monkeypatch.setattr(
+        "content_foundry.agents.research.fetch_article_text",
+        lambda url, **kwargs: f"full article body for {url}",
+    )
+    llm = fakes.LLM(script_json={"points": []})
+    Researcher(settings, llm).run(
+        "R", data_brief, idea="resume tips",
+        instructions="Focus on remote roles and keep it beginner-friendly",
+    )
+    system = llm.calls[-1]["system"]
+    assert "<creator_direction>" in system  # the steer block is rendered into the research prompt
+    assert "Focus on remote roles and keep it beginner-friendly" in system
+    assert "judge" not in system.lower()  # FakeLLM routes on 'judge'; it must never be in this prompt
+
+
+def test_researcher_synthesis_prompt_has_no_steer_block_by_default(
+    settings, data_brief, fakes, monkeypatch
+):
+    monkeypatch.setattr(
+        "content_foundry.agents.research.fetch_article_text",
+        lambda url, **kwargs: f"full article body for {url}",
+    )
+    llm = fakes.LLM(script_json={"points": []})
+    Researcher(settings, llm).run("R", data_brief, idea="resume tips")
+    system = llm.calls[-1]["system"]
+    assert "<creator_direction>" not in system  # no steer block without instructions
+    assert "{instructions}" not in system  # the placeholder was rendered (to empty), not left literal
+
+
 def test_research_key_facts_are_citable():
     from content_foundry.agents.research import research_key_facts
     from content_foundry.models import ResearchBrief, ResearchPoint

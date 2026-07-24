@@ -189,6 +189,25 @@ def test_thumbnail_prompt_is_saved_edited_and_overridable(settings, good_script,
     assert prompt_file.read_text(encoding="utf-8") == "EXPLICIT OVERRIDE"
 
 
+def test_ensure_upload_safe_thumbnail_shrinks_oversize(tmp_path):
+    import os
+
+    from PIL import Image
+
+    from content_foundry.agents.visuals import ensure_upload_safe_thumbnail
+
+    p = tmp_path / "thumb.png"
+    Image.frombytes("RGB", (1280, 720), os.urandom(1280 * 720 * 3)).save(p, "PNG")
+    assert p.stat().st_size > 1_900_000  # a full-noise 720p PNG blows past YouTube's 2 MB limit
+    # A MANUALLY-swapped oversize thumbnail is re-optimized/downscaled in place so thumbnails.set
+    # accepts it — the fix for a custom thumbnail silently failing to upload.
+    assert ensure_upload_safe_thumbnail(p) is True
+    assert p.stat().st_size <= 1_900_000
+    # Now under the limit it's left untouched; a missing file is a no-op and never raises.
+    assert ensure_upload_safe_thumbnail(p) is False
+    assert ensure_upload_safe_thumbnail(tmp_path / "nope.png") is False
+
+
 def test_faceid_thumbnail_degrades_to_none_without_the_heavy_stack(settings, tmp_path):
     from content_foundry.providers.faceid import generate_face_image
 

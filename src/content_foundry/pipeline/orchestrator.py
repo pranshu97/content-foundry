@@ -13,6 +13,7 @@ from ulid import ULID
 from ..agents import (
     Brainstormer,
     DataFetcher,
+    InstructionPlanner,
     Judge,
     Publisher,
     Renderer,
@@ -56,14 +57,19 @@ from .artifacts import (
     ARTIFACT_FILENAMES,
     ensure_run_dirs,
     load_model,
+    load_run_idea,
+    load_run_instructions,
     next_run_id,
     run_paths,
     save_model,
     save_run_format,
+    save_run_idea,
+    save_run_instructions,
     sha256_file,
 )
 from .package import build_package_md
 from .stages import PRODUCTION_STAGES, stages_between
+from .topic_relevance import filter_to_idea
 
 _UNSET = object()
 
@@ -125,6 +131,10 @@ class Orchestrator:
         self._render = render_backend
         self._publisher = publisher
         self._sfx = sfx_client
+        self._run_instructions = ""  # per-run creator steer (raw --instructions)
+        self._research_focus_text = ""  # steer for research synthesis (routed or verbatim)
+        self._script_directions_text = ""  # steer for script generation (routed or verbatim)
+        self._research_queries: list[str] = []  # planner-derived web searches for research
         self.credit = CreditMonitor(
             self.notifier,
             budget_usd=self.s.monthly_budget_usd,
@@ -151,6 +161,7 @@ class Orchestrator:
         niche: str | None = None,
         topic_seed: str | None = None,
         idea: str | None = None,
+        instructions: str | None = None,
     ) -> RunResult:
         start = time.time()
         niche = niche or self.s.target_niche
@@ -161,6 +172,29 @@ class Orchestrator:
         if self.s.run_log_enabled:
             set_run_log_file(str(paths.root / "run.log"))  # tee every log line to a per-run debug file
         save_run_format(paths, self.s.content_format)  # so a re-run/thumbnail keeps this run's shape
+        # Persist + REUSE the run's idea so a re-run (e.g. `--from-stage fetch` without `--idea`) keeps
+        # the SAME topic instead of collapsing to the bare niche — the root of the "ML system design ->
+        # tech career ladder" drift. A --idea/--topic passed now wins and is (re)saved; else reuse it.
+        idea = (idea or topic_seed or load_run_idea(run_id, self.s.output_dir) or "").strip() or None
+        if idea:
+            save_run_idea(paths, idea)
+        # Extra creator instructions: a steer that drives BOTH the research direction and the script's
+        # angle/emphasis. Persisted + reused on a re-run exactly like the idea, so the whole run stays
+        # pointed the way the creator asked even when re-run later without --instructions.
+        self._run_instructions = (
+            instructions or load_run_instructions(run_id, self.s.output_dir) or ""
+        ).strip()
+        if self._run_instructions:
+            save_run_instructions(paths, self._run_instructions)
+        # DEFAULT steer = the raw instructions drive BOTH research and script (no extra queries). When
+        # generating WITH instructions, the Instruction Planner (Agent 1.4) may REFINE this into a
+        # routed plan: fact-finding focus + concrete search queries for research, delivery directions
+        # for the script. Best-effort — a disabled/failed planner leaves these verbatim defaults.
+        self._research_focus_text = self._run_instructions
+        self._script_directions_text = self._run_instructions
+        self._research_queries = []
+        if self._run_instructions and "generate" in stages:
+            self._plan_instructions(idea or niche, paths)
         self.log.info("run_start", run_id=run_id, from_stage=from_stage, to_stage=to_stage)
         self._emit("start", run_id=run_id, from_stage=from_stage, to_stage=to_stage, niche=niche)
 
@@ -378,6 +412,35 @@ class Orchestrator:
         )
         save_model(selection, paths.ideas)
 
+    def _plan_instructions(self, idea, paths) -> None:
+        """Agent 1.4: decompose --instructions into a ROUTED plan so research + the script each act on
+        the right parts (research gets the fact-finding focus + concrete web-search queries; the script
+        gets the delivery directions). Best-effort — the planner falls back to a verbatim plan on
+        failure, so this only REFINES the verbatim defaults set in run()."""
+        if not self.s.instruction_planner_enabled:
+            return
+        self._emit("step", label="Planning your instructions")
+        plan = InstructionPlanner(self.s, self._llm_provider()).plan(idea, self._run_instructions)
+        focus, directions = _bullets(plan.research_focus), _bullets(plan.script_directions)
+        if focus:
+            self._research_focus_text = focus
+        if directions:
+            self._script_directions_text = directions
+        self._research_queries = list(plan.research_queries)
+        self._write_plan_debug(paths, plan)
+        self._emit(
+            "done", label="Instruction plan",
+            detail=f"{len(plan.research_focus)} research · {len(plan.research_queries)} queries · "
+                   f"{len(plan.script_directions)} script",
+        )
+
+    def _write_plan_debug(self, paths, plan) -> None:
+        """Persist the routed plan for inspection (not a loaded artifact). Best-effort."""
+        with contextlib.suppress(Exception):
+            (paths.root / "instruction_plan.json").write_text(
+                plan.model_dump_json(indent=2), encoding="utf-8"
+            )
+
     def _run_research(self, run_id, paths, brief, idea, *, force=False) -> ResearchBrief | None:
         """Agent 1.5: synthesize a source-backed DEPTH report for the chosen idea and persist it. Runs
         ONCE per generate stage (before the revision loop), so all attempts share it. Best-effort —
@@ -399,7 +462,8 @@ class Orchestrator:
         try:
             research = Researcher(
                 self.s, self._llm_provider(), search_provider=self._search_provider()
-            ).run(run_id, brief, idea=idea)
+            ).run(run_id, brief, idea=idea, instructions=self._research_focus_text,
+                  research_queries=self._research_queries)
         except Exception as exc:  # never fatal
             self.log.warning("research_failed", run_id=run_id, error=str(exc))
             return None
@@ -495,13 +559,15 @@ class Orchestrator:
 
     def _augment_brief(self, brief: DataBrief, research: ResearchBrief | None) -> DataBrief:
         """Fold the Researcher's idea-relevant findings into the brief's CITABLE key_facts (prepended,
-        so they rank first). This grounds the script in on-topic, source-backed specifics instead of
-        letting it drift to whatever numbers happen to be in the raw feed. Used for BOTH generation
-        and judging so their fact_refs line up."""
+        so they rank first), and FILTER the broad raw-search facts down to the ones that genuinely
+        belong to the chosen idea — so the larger research volume can't drag the script off topic. Used
+        for BOTH generation and judging so their fact_refs line up."""
         if not research or not research.points:
             return brief
+        idea = (research.idea or brief.topic_seed or brief.niche or "").strip()
+        on_topic = filter_to_idea(list(brief.key_facts), idea=idea, text=lambda kf: kf.statement)
         return brief.model_copy(
-            update={"key_facts": research_key_facts(research) + list(brief.key_facts)}
+            update={"key_facts": research_key_facts(research) + on_topic}
         )
 
     def _load_research(self, paths) -> ResearchBrief | None:
@@ -553,6 +619,7 @@ class Orchestrator:
                 perspective_modifier=perspective, judge_feedback=feedback,
                 attempt_number=attempt_number, idea=idea, previous_script=previous_script,
                 research=research, affiliate_candidates=aff_cands,
+                instructions=self._script_directions_text,
             )
             self.repo.add_attempt(attempt_id, run_id, db_offset + attempt_number, template.id, forced)
             self._persist(
@@ -643,7 +710,7 @@ class Orchestrator:
         attempt_id = str(ULID())
         script = ScriptGenerator(self.s, self._llm_provider()).run(
             run_id, gen_brief, template, attempt_number=1, idea=idea, research=research,
-            affiliate_candidates=aff_cands,
+            affiliate_candidates=aff_cands, instructions=self._script_directions_text,
         )
         self.repo.add_attempt(attempt_id, run_id, 1, template.id, False)
         self._persist(
@@ -1012,6 +1079,11 @@ class Orchestrator:
         return self._publisher
 
 
+def _bullets(items: list[str]) -> str:
+    """Render planner directives as a clean bullet list for a prompt block ('' when empty)."""
+    return "\n".join(f"- {it}" for it in items if it and it.strip())
+
+
 def run_pipeline(
     *,
     run_id: str | None = None,
@@ -1024,6 +1096,7 @@ def run_pipeline(
     niche: str | None = None,
     topic_seed: str | None = None,
     idea: str | None = None,
+    instructions: str | None = None,
     idea_chooser=None,
     orchestrator: Orchestrator | None = None,
     reporter=None,
@@ -1033,4 +1106,5 @@ def run_pipeline(
     return orch.run(
         run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input_path,
         template_id=template_id, force=force, niche=niche, topic_seed=topic_seed, idea=idea,
+        instructions=instructions,
     )

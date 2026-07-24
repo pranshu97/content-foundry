@@ -80,7 +80,7 @@ def test_duplicate_scenes_are_dropped_deterministically(settings, data_brief, fa
     dup = "Everyone says just grind leetcode, but entry postings actually thinned out this past year."
     payload = {
         "title_options": ["t"],
-        "hook": "A specific hook about breaking into big tech right now.",
+        "hook": dup,
         "scenes": [
             {"index": 0, "narration": dup, "fact_ref": 0},
             {"index": 1, "narration": "Median pay for these roles still sits high, which surprises most applicants today.", "fact_ref": 1},
@@ -117,6 +117,24 @@ def test_research_context_absent_when_none(settings, data_brief, fakes):
     llm = fakes.LLM()
     ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
     assert "RESEARCH (source-backed depth" not in llm.calls[-1]["system"]  # no block without research
+
+
+def test_instructions_steer_the_script_prompt_when_provided(settings, data_brief, fakes):
+    llm = fakes.LLM()
+    ScriptGenerator(settings, llm).run(
+        "R", data_brief, get_template("contrarian"),
+        idea="How to pass the ML system design interview",
+        instructions="Focus on remote roles; keep it beginner-friendly",
+    )
+    system = llm.calls[-1]["system"]
+    assert "CREATOR'S EXTRA INSTRUCTIONS" in system  # the steer is rendered into the script prompt
+    assert "Focus on remote roles; keep it beginner-friendly" in system
+
+
+def test_instructions_absent_from_script_prompt_by_default(settings, data_brief, fakes):
+    llm = fakes.LLM()
+    ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
+    assert "CREATOR'S EXTRA INSTRUCTIONS" not in llm.calls[-1]["system"]  # no steer without instructions
 
 
 def test_ending_is_guaranteed_when_model_omits_it(settings, data_brief, fakes):
@@ -170,7 +188,7 @@ def test_intro_tagline_not_doubled_when_already_present(monkeypatch, data_brief,
     settings = get_settings()
     payload = {
         "title_options": ["t"],
-        "hook": "A specific hook about breaking into big tech right now.",
+        "hook": "Everyone says grind leetcode, but entry roles thinned this year.",
         "scenes": [
             {"index": 0, "narration": f"{tag} Everyone says grind leetcode, but entry roles thinned this year.", "fact_ref": 0},
             {"index": 1, "narration": "Referrals beat cold applications because a human vouches before the resume is even read.", "fact_ref": 1},
@@ -196,7 +214,7 @@ def test_intro_not_doubled_when_reworded(monkeypatch, data_brief, fakes):
     settings = get_settings()
     payload = {
         "title_options": ["t"],
-        "hook": "A specific hook about breaking into big tech right now.",
+        "hook": "Entry roles thinned this year, so the old playbook is dead.",
         "scenes": [
             {"index": 0, "narration": "Alright, let us make this worth your time. Entry roles thinned this year, so the old playbook is dead.", "fact_ref": 0},
             {"index": 1, "narration": "Referrals beat cold applications because a human vouches before the resume is even read.", "fact_ref": 1},
@@ -251,6 +269,46 @@ def test_retention_context_is_long_form_only_and_gated(monkeypatch):
     monkeypatch.setenv("RETENTION_OPEN_LOOP_ENABLED", "false")
     reset_settings_cache()
     assert _retention_context(get_settings()) == ""
+
+
+def test_hook_already_spoken_detects_verbatim_reworded_and_different():
+    from content_foundry.agents.script_generator import _hook_already_spoken
+
+    hook = "Most candidates fail the interview because they pick the model first."
+    # Scene 0 opens VERBATIM on the hook -> already spoken (don't prepend).
+    assert _hook_already_spoken(hook, hook + " Here is why that is a death sentence.")
+    # A lightly REWORDED restatement (same content words) -> already spoken -> don't duplicate.
+    assert _hook_already_spoken(
+        hook, "Most candidates fail this interview because they pick their model first, and it shows."
+    )
+    # A genuinely DIFFERENT opening (little overlap) -> NOT yet spoken -> safe to prepend.
+    assert not _hook_already_spoken(
+        hook, "Let us talk about the detective phase and grilling the interviewer on business goals."
+    )
+    assert _hook_already_spoken("", "anything at all")  # blank hook -> nothing to add
+
+
+def test_generator_makes_the_hook_the_spoken_opening(settings, data_brief, fakes):
+    # The crafted hook must be the FIRST thing spoken: scene 0 opened on something else, so the hook is
+    # prepended (intro is off in the test env, so scene 0 starts straight on the hook), said ONCE.
+    payload = {
+        "title_options": ["t"],
+        "hook": "Your resume dies in a silent robot scan you never even get to see.",
+        "scenes": [
+            {"index": 0,
+             "narration": "Let me explain the black hole your application vanishes into after submit.",
+             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0},
+            {"index": 1,
+             "narration": "Postings fell 31% this year. Drop a like and subscribe, see you next one.",
+             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0},
+        ],
+        "cta": "x", "description": "d", "tags": [], "thumbnail_concept": "x", "grounded_fact_refs": [0],
+    }
+    script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
+        "R", data_brief, get_template("contrarian")
+    )
+    assert script.scenes[0].narration.startswith("Your resume dies in a silent robot scan")
+    assert "black hole your application" in script.scenes[0].narration  # original line kept, once
 
 
 def test_ungrounded_stat_is_stripped(settings, data_brief, fakes):
@@ -520,7 +578,9 @@ def test_em_dashes_never_survive_a_run(settings, data_brief, fakes):
         *(s.on_screen_text or "" for s in script.scenes),
     ]
     assert d not in " ".join(parts)  # the hard rule holds across every field
+    # The hook (em-dashes -> commas) is now the spoken opening, then the original scene-0 line follows.
     assert script.scenes[0].narration == (
+        "Here is the shocking truth, recruiters skim resumes incredibly fast. "
         "Tailor your resume, every single bullet point, to the job you want."
     )
 

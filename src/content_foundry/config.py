@@ -103,9 +103,14 @@ class Settings(BaseSettings):
     # facet-augmented variants (e.g. "<topic> salary", "<topic> statistics") and merge + dedupe the
     # hits. This surfaces far more distinct, number-rich results, so the brief does not collapse to a
     # couple of near-duplicate headlines. SEARCH_QUERY_COUNT caps the TOTAL queries (base + facets);
-    # SEARCH_FACETS is the ordered pool of angle suffixes to draw from.
-    search_query_count: int = Field(4, ge=1, le=10)
-    search_facets: str = "statistics,salary,trends 2026,common mistakes,requirements,tips"
+    # SEARCH_FACETS is a BROAD pool of angle suffixes — each run SAMPLES SEARCH_QUERY_COUNT-1 of them
+    # (seeded by the topic, so it's stable per topic yet explores the whole pool across a channel).
+    search_query_count: int = Field(6, ge=1, le=50)
+    search_facets: str = (
+        "statistics,data,case study,real examples,how it works,explained,step by step,"
+        "best practices,common mistakes,pitfalls,myths,comparison,alternatives,pros and cons,"
+        "trends 2026,future outlook,expert advice,tips,tools,requirements"
+    )
     # Drop web-search hits that share NO meaningful word with the run's topic. A generic angle like
     # "trends 2026" can otherwise pull "Fashion Trends Tokyo 2026" or "Blox Fruits Values 2026" into
     # the brief and weaken the script. Deterministic keyword-overlap filter (no LLM). Off => keep all.
@@ -116,13 +121,21 @@ class Settings(BaseSettings):
     # a DEPTH report (mechanisms: how/why) so the script can EXPLAIN, not just list tips. Off => the
     # generator works from the data brief alone. Grounded in fetched pages; failures degrade to snippets.
     research_enabled: bool = True
-    research_max_sources: int = Field(4, ge=1, le=12)
+    research_max_sources: int = Field(4, ge=1, le=100)
     # Over-fetch this many EXTRA candidate pages, then keep only the most on-topic
     # research_max_sources (a relevance buffer so a weak/paywalled fetch doesn't waste a slot).
     research_source_buffer: int = Field(2, ge=0, le=8)
-    research_max_points: int = Field(6, ge=1, le=20)
+    research_max_points: int = Field(6, ge=1, le=100)
     research_max_chars_per_source: int = Field(4000, ge=500, le=20000)
     research_fetch_timeout_sec: float = Field(10.0, ge=1, le=60)
+
+    # ---------- Instruction Planner (Agent 1.4) ----------
+    # When --instructions is given, an LLM decomposes the long-form ask into a ROUTED plan — what the
+    # research should find + concrete search queries for it, and what the script should present — so
+    # both stages act on it precisely instead of getting the raw paragraph. Off => the full
+    # instructions steer both stages verbatim (no extra queries). Only runs when --instructions is
+    # non-empty; best-effort (any failure degrades to the verbatim steer).
+    instruction_planner_enabled: bool = True
 
     # ---------- Pipeline Behaviour ----------
     max_revisions: int = 3
@@ -133,6 +146,9 @@ class Settings(BaseSettings):
     pass_threshold: float = Field(3.75, ge=0, le=5)
     insight_min: float = Field(3.5, ge=0, le=5)
     wittiness_min: float = Field(2.5, ge=0, le=5)
+    # Retention floor: a flat, list-like, or choppy draft (Engagement <= 2) is REVISED. Keep it a LOW
+    # bar (a clear "watchable" 3 clears it) so it catches dead-retention drafts without oscillating.
+    engagement_min: float = Field(2.5, ge=0, le=5)
     ending_min: float = Field(3.0, ge=0, le=5)
     grounding_min: float = Field(4.0, ge=0, le=5)
     # Two scenes whose narration is more similar than this (3-gram Jaccard) are treated as duplicate
@@ -149,7 +165,7 @@ class Settings(BaseSettings):
     # Upper bound on grounded facts distilled into the brief. A richer, multi-query search yields many
     # distinct signals; keeping more of them (not just 8) gives the script more distinct angles to draw
     # on, so it never has to pad by recycling the same one or two numbers across scenes.
-    max_facts: int = Field(12, ge=1, le=50)
+    max_facts: int = Field(12, ge=1, le=300)
     # Completeness gate (Ch. 9.3a): reject stub scripts the quality rubric would otherwise pass. A
     # grounded single-scene draft scores well on every dimension but is far too short for a video.
     min_scenes: int = Field(3, ge=1)

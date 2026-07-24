@@ -3,6 +3,8 @@
 ### 10.1 Purpose
 Convert the approved script's narration into a single, clean narration track **with word-level timings**. Those timings drive caption sync (Agent 5) and scene cuts (Agent 6), so this stage is the timing backbone of the whole video.
 
+> **Voice cloning + pause normalization (current behavior).** `TTS_PROVIDER=chatterbox` runs free, local, zero-shot **voice cloning** (MIT-licensed) from a short reference clip; long scenes are voiced in sentence-sized chunks and stitched. Each chunk's leading/trailing silence is trimmed to a `TTS_SILENCE_PAD_MS` pad, and any abnormally long INTERNAL pause the cloner emits (longer than `TTS_MAX_PAUSE_MS`, default 1 s) is collapsed to that same beat — so rare 2-3 s dead-air outliers are removed while every normal pause is left byte-identical (0 disables). Cloned voices have even-split word timings (leave burned captions off; YouTube auto-CC covers them).
+
 ### 10.2 Inputs / outputs
 - **Input:** approved `Script` artifact.
 - **Output:** `VoiceoverAsset` artifact → `output/runs/<run_id>/voiceover.json`, plus audio at `assets/narration.mp3`.

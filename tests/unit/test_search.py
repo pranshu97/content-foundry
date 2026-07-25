@@ -263,6 +263,21 @@ def test_fallback_search_provider_tries_next_on_error_or_empty():
         FallbackSearchProvider([_Boom(), _Boom()]).search("q", 5)
 
 
+def test_split_site_filters_extracts_domains_for_native_filtering():
+    from content_foundry.datasources.search import _split_site_filters
+
+    # A site: operator is pulled OUT of the query text and returned as a bare domain (path stripped),
+    # so a provider like Tavily can restrict via its native include_domains instead of the ignored
+    # inline operator.
+    clean, domains = _split_site_filters("cracking the coding interview site:amazon.com")
+    assert clean == "cracking the coding interview" and domains == ["amazon.com"]
+    # Path / wildcards are stripped down to the registrable domain:
+    clean, domains = _split_site_filters("grokking course site:educative.io/courses")
+    assert clean == "grokking course" and domains == ["educative.io"]
+    # A plain research query (no site:) is returned unchanged, with NO domains (so it's untouched):
+    assert _split_site_filters("ml system design statistics") == ("ml system design statistics", [])
+
+
 def test_registry_builds_decoupled_search_source(monkeypatch):
     monkeypatch.setenv("ENABLED_SOURCES", "search")  # search-only, fully decoupled
     reset_settings_cache()

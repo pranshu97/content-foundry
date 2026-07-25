@@ -10,6 +10,7 @@ from content_foundry.production.affiliate import (
     affiliate_context,
     amazon_search_query,
     candidate_platforms,
+    curated_candidates,
     resolve_amazon,
     resolve_candidates,
     resolve_designgurus,
@@ -348,6 +349,21 @@ def test_affiliate_block_shows_the_real_resource_name(monkeypatch):
     assert "https://www.amazon.com/dp/B0/?tag=t-20" in block
 
 
+def test_affiliate_block_pins_the_amazon_link_to_the_bottom(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true")
+    amazon = AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
+                           "a book", mention="Cracking the Coding Interview")
+    course = AffiliateLink("DesignGurus", "https://www.designgurus.io/course/grokking?aff=8jh38a",
+                           "a course", mention="Grokking the Coding Interview")
+    fenzo = AffiliateLink("Fenzo AI", "https://fenzo.ai/?ref=Z", "generates a course", mention="Fenzo AI")
+    # Amazon is FIRST in the input, but the rendered list must ALWAYS put it LAST (even below Fenzo):
+    res = [ln for ln in affiliate_block([amazon, course, fenzo], s).splitlines() if ln.startswith("→")]
+    assert len(res) == 3
+    assert "amazon.com" in res[-1]  # the Amazon book is pinned to the bottom
+    assert "amazon.com" not in res[0]  # ...never the first item
+    assert "designgurus.io" in res[0]  # a course leads
+
+
 def test_book_and_course_mentions_strip_trailing_ellipsis():
     from content_foundry.production.affiliate import _book_mention, _course_title
 
@@ -399,3 +415,86 @@ def test_resolve_candidates_combines_platforms_and_amazon(monkeypatch):
     mentions = [c.mention for c in cands]
     assert "LeetCode" in mentions
     assert any("System Design Interview" in m for m in mentions)
+
+
+def test_resolve_candidates_issues_a_grokking_course_query(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    seen: list[str] = []
+
+    class _Rec:
+        def search(self, query, max_results=5):
+            seen.append(query)
+            return []
+
+    # "software engineering" makes DesignGurus a candidate but matches NOTHING in the curated catalog,
+    # so we fall back to the web search. Both Educative and DesignGurus host the "Grokking the ..."
+    # courses, so a "grokking <topic>" query is issued to land the exact course page, and the site:
+    # filter is DOMAIN-level (not path-restricted) so the search actually returns results.
+    resolve_candidates(s, idea="software engineering", niche="tech careers", search_provider=_Rec())
+    assert any(q.lower().startswith("grokking") for q in seen)
+    assert any(q.endswith("site:designgurus.io") for q in seen)  # domain-level, not .../course
+
+
+def test_curated_list_matched_before_any_web_search(monkeypatch):
+    # The verified catalog is consulted FIRST: a system-design video gets the REAL Grokking course URL
+    # (with our aff id) offline, without a single web request.
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    cands = curated_candidates(s, idea="the system design interview", niche="faang")
+    dg = [c for c in cands if c.label == "DesignGurus"]
+    assert dg, cands
+    assert dg[0].url == "https://www.designgurus.io/course/grokking-the-system-design-interview?aff=8jh38a"
+    assert "System Design Interview" in dg[0].mention
+
+
+def test_curated_amazon_book_is_tagged(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="crackedstudio-20")
+    cands = curated_candidates(s, idea="machine learning system design interview")
+    book = [c for c in cands if c.label == "Recommended book (Amazon)"]
+    assert book, cands
+    assert book[0].url == "https://www.amazon.com/dp/1736049127/?tag=crackedstudio-20"
+    assert "Machine Learning System Design Interview" in book[0].mention
+
+
+def test_curated_matching_is_intelligent_not_first_row(monkeypatch):
+    # "behavioral" must win over the coding course even though both share the generic word "interview".
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    cands = curated_candidates(s, idea="the behavioral interview", niche="faang")
+    dg = [c for c in cands if c.label == "DesignGurus"]
+    assert dg and dg[0].url.endswith("grokking-behavioral-interview?aff=8jh38a"), dg
+
+
+def test_curated_hit_skips_the_web_search(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    seen: list[str] = []
+
+    class _Rec:
+        def search(self, query, max_results=5):
+            seen.append(query)
+            return []
+
+    cands = resolve_candidates(
+        s, idea="the system design interview", niche="faang", search_provider=_Rec()
+    )
+    # curated already supplied the DesignGurus course, so we DON'T web-search designgurus.io
+    assert not any("designgurus.io" in q for q in seen)
+    dg = [c for c in cands if c.label == "DesignGurus"]
+    assert dg and dg[0].url.endswith("grokking-the-system-design-interview?aff=8jh38a")
+
+
+def test_curated_ignores_unrelated_topics(monkeypatch):
+    # Intelligent match: an off-niche video attaches nothing from the catalog (no weak/forced matches).
+    s = _settings(
+        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a",
+        AFFILIATE_EDUCATIVE_ID="BXmM", AMAZON_ASSOC_TAG="crackedstudio-20",
+    )
+    assert curated_candidates(s, idea="watercolor painting for beginners", niche="art") == []
+
+
+def test_curated_is_empty_when_affiliate_disabled(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="false", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    assert curated_candidates(s, idea="system design interview") == []
+
+
+def test_curated_needs_a_configured_platform(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true")  # enabled, but no ids/tag to build a link
+    assert curated_candidates(s, idea="system design interview") == []

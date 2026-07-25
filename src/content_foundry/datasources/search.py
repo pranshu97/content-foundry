@@ -96,8 +96,28 @@ class DuckDuckGoProvider:
         return results[:max_results]
 
 
+_SITE_OP = re.compile(r"\bsite:(\S+)", re.IGNORECASE)
+
+
+def _split_site_filters(query: str) -> tuple[str, list[str]]:
+    """Pull any ``site:<domain>`` operators out of ``query`` and return the cleaned query plus the bare
+    domains (path / wildcards stripped). APIs like Tavily IGNORE an inline ``site:`` string but accept a
+    native domain filter, so this lets a ``"foo site:amazon.com"`` query restrict to that domain
+    RELIABLY. A query with no ``site:`` comes back unchanged with no domains (so plain research queries
+    are untouched)."""
+    domains = [
+        m.group(1).strip().rstrip("/").split("/")[0].lstrip("*.")
+        for m in _SITE_OP.finditer(query or "")
+    ]
+    cleaned = re.sub(r"\s{2,}", " ", _SITE_OP.sub("", query or "")).strip()
+    return cleaned, [d for d in domains if d]
+
+
 class TavilyProvider:
-    """Tavily — a search API purpose-built for AI grounding (clean snippets). Free tier + key."""
+    """Tavily — a search API purpose-built for AI grounding (clean snippets). Free tier + key.
+
+    A ``site:<domain>`` operator in the query is translated to Tavily's native ``include_domains``
+    filter (Tavily ignores the inline operator), so domain-scoped searches actually restrict."""
 
     name = "tavily"
 
@@ -105,12 +125,12 @@ class TavilyProvider:
         self._key = api_key
 
     def search(self, query: str, max_results: int) -> list[SearchResult]:  # pragma: no cover - net
+        clean, domains = _split_site_filters(query)
+        payload: dict = {"api_key": self._key, "query": clean or query, "max_results": max_results}
+        if domains:
+            payload["include_domains"] = domains  # native, reliable domain restriction
         try:
-            resp = httpx.post(
-                "https://api.tavily.com/search",
-                json={"api_key": self._key, "query": query, "max_results": max_results},
-                timeout=DEFAULT_TIMEOUT,
-            )
+            resp = httpx.post("https://api.tavily.com/search", json=payload, timeout=DEFAULT_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
         except Exception as exc:

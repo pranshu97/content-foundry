@@ -12,3 +12,12 @@ repos:
         additional_dependencies: [pydantic>=2.7]
         args: [--ignore-missing-imports]
         files: ^src/
+  # Last line of defence before a secret or personal file becomes a commit. Runs on the staged
+  # files only, so it stays fast; tests/unit/test_repo_hygiene.py re-checks everything tracked.
+  - repo: local
+    hooks:
+      - id: no-secrets-or-personal-data
+        name: block secrets, credentials and personal/channel files
+        entry: python scripts/check_no_secrets.py
+        language: system
+        pass_filenames: true

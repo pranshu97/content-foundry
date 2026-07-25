@@ -1,0 +1,23 @@
+[
+  {
+    "platform": "amazon",
+    "name": "Your Recommended Book Title",
+    "url": "https://www.amazon.com/dp/ASIN0000000",
+    "topics": "space separated topic words this book fits",
+    "blurb": "one short line on why it's worth reading"
+  },
+  {
+    "platform": "educative",
+    "name": "Your Recommended Course Title",
+    "url": "https://www.educative.io/courses/your-course-slug",
+    "topics": "space separated topic words this course fits",
+    "blurb": "one short line on what the course teaches"
+  },
+  {
+    "platform": "designgurus",
+    "name": "Another Recommended Course",
+    "url": "https://www.designgurus.io/course/your-course-slug",
+    "topics": "space separated topic words this course fits",
+    "blurb": "one short line on what the course teaches"
+  }
+]

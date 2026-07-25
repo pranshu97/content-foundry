@@ -94,7 +94,7 @@ version = { attr = "content_foundry.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-content_foundry = ["prompts/*.txt", "data/sounds/*", "py.typed"]
+content_foundry = ["prompts/*.txt", "data/sounds/*", "data/env.example", "data/affiliate_catalog.example.json", "py.typed"]
 
 # ---------------------------------------------------------------------------
 # Tooling

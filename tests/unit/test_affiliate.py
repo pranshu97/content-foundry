@@ -12,6 +12,7 @@ from content_foundry.production.affiliate import (
     candidate_platforms,
     resolve_amazon,
     resolve_candidates,
+    resolve_designgurus,
     resolve_educative,
     resolve_links,
     select_referrals,
@@ -228,6 +229,43 @@ def test_resolve_educative_none_without_id_or_provider(monkeypatch):
     assert resolve_educative(s, queries=["x"], search_provider=None) is None
     s_noid = _settings(monkeypatch, AFFILIATE_ENABLED="true")
     assert resolve_educative(s_noid, queries=["x"], search_provider=_FakeSearch([])) is None
+
+
+def test_resolve_designgurus_finds_a_real_course_and_sets_our_aff(monkeypatch):
+    from content_foundry.production.affiliate import _is_specific_resource
+
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    provider = _FakeSearch([
+        _result("DesignGurus blog", "https://www.designgurus.io/blog/system-design"),  # not a course
+        _result("Grokking the Coding Interview - DesignGurus",
+                "https://www.designgurus.io/course/grokking-the-coding-interview/?aff=someoneelse"),
+    ])
+    link = resolve_designgurus(s, queries=["coding interview"], search_provider=provider)
+    assert link is not None
+    # Real /course/ page (singular), OUR aff appended, any pre-existing aff REPLACED (not duplicated);
+    # the slug regex normalises off the trailing slash + old query:
+    assert link.url == "https://www.designgurus.io/course/grokking-the-coding-interview?aff=8jh38a"
+    assert link.mention == "Grokking the Coding Interview"  # clean course name for the scan
+    assert _is_specific_resource(link)  # a /course/ page counts as a concrete resolved resource
+
+
+def test_resolve_designgurus_none_without_id_or_provider(monkeypatch):
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    assert resolve_designgurus(s, queries=["x"], search_provider=None) is None
+    s_noid = _settings(monkeypatch, AFFILIATE_ENABLED="true")
+    assert resolve_designgurus(s_noid, queries=["x"], search_provider=_FakeSearch([])) is None
+
+
+def test_designgurus_affiliate_id_builds_the_courses_url(monkeypatch):
+    from content_foundry.production.affiliate import _referral_url, enabled_platforms
+
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+    # No documented topic-search URL -> the bare ID builds the generic courses page:
+    urls = {p.key: _referral_url(s, p) for p in enabled_platforms(s)}
+    assert urls["designgurus"] == "https://www.designgurus.io/courses/?aff=8jh38a"
+    # Tag-gated to interview/course topics -> a candidate for a fitting video:
+    labels = [c.label for c in candidate_platforms(s, tags=["system design interview"], niche="tech")]
+    assert "DesignGurus" in labels
 
 
 def test_resolve_amazon_none_when_off_or_no_provider(monkeypatch):

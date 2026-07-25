@@ -187,6 +187,9 @@ picks which to show per video (no per-video product curation). Blank platforms a
   → `AFFILIATE_COURSERA_URL=`.
 - [ ] **Udemy**: join Udemy Affiliate (via Impact / other networks) → `AFFILIATE_UDEMY_URL=`.
 - [ ] **Educative** (`educative.io`): join their affiliate program → `AFFILIATE_EDUCATIVE_URL=`.
+- [ ] **DesignGurus** (`designgurus.io`): join their affiliate program → set `AFFILIATE_DESIGNGURUS_URL=`
+  (a full referral URL) or `AFFILIATE_DESIGNGURUS_ID=` (just your affiliate id; a real Grokking course
+  link is resolved per video when the topic fits).
 - [ ] Turn it on: `AFFILIATE_ENABLED=true` (tune `AFFILIATE_MAX_LINKS`, `AFFILIATE_IN_COMMENT`).
 - [ ] **Comment + pin:** set `PUBLISH_TOP_COMMENT=true` to post the resources as a comment (needs the
   `youtube.force-ssl` scope — delete your `YOUTUBE_TOKEN_FILE` once to re-consent). The Data API

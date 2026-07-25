@@ -432,6 +432,8 @@ class Settings(BaseSettings):
     affiliate_udemy_url: str = ""        # your Udemy affiliate/deep link
     affiliate_educative_url: str = ""    # your Educative referral link (a full URL)
     affiliate_educative_id: str = ""     # OR just the Educative affiliate ID (built into a URL)
+    affiliate_designgurus_url: str = ""  # your DesignGurus.io referral link (a full URL)
+    affiliate_designgurus_id: str = ""   # OR just the DesignGurus affiliate ID (built into a URL)
     affiliate_fenzo_url: str = ""        # your Fenzo AI referral link (a full URL)
     affiliate_fenzo_id: str = ""         # OR the Fenzo affiliate ID (Educative's new venture)
     affiliate_max_links: int = Field(4, ge=1, le=10)

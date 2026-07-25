@@ -82,6 +82,18 @@ _PLATFORMS: tuple[_Platform, ...] = (
         topic_template="https://www.educative.io/search?query={topic}&aff={id}",
     ),
     _Platform(
+        "designgurus", "DesignGurus",
+        "Grokking courses for coding, system-design and OO/API design interviews",
+        frozenset({"course", "courses", "learn", "learning", "system", "design", "coding",
+                   "interview", "interviews", "grokking", "algorithms", "algorithm", "dsa", "faang",
+                   "object", "oriented", "api", "software", "engineer", "engineering"}),
+        "affiliate_designgurus_url", ("design gurus",),
+        id_attr="affiliate_designgurus_id",
+        # No documented topic-search URL, so the ID builds the generic courses page; resolve_designgurus
+        # upgrades it to a REAL, specific /course/<slug> when the topic fits.
+        id_template="https://www.designgurus.io/courses/?aff={id}",
+    ),
+    _Platform(
         "fenzo", "Fenzo AI",
         "AI that spins up a free, interactive course on THIS exact topic in about a minute",
         frozenset({"course", "courses", "learn", "learning", "ai", "ml", "machine", "data",
@@ -240,10 +252,11 @@ def _topic_overlap(title: str, topic_words: set[str]) -> int:
 
 
 def _is_specific_resource(link: AffiliateLink) -> bool:
-    """A concrete, topic-RESOLVED product/course (a real Amazon /dp/ book or an Educative /courses/
-    page) as opposed to a generic platform landing/search page — the safety-net attaches these."""
+    """A concrete, topic-RESOLVED product/course (a real Amazon /dp/ book, an Educative /courses/ or a
+    DesignGurus /course/ page) as opposed to a generic platform landing/search page — the safety-net
+    attaches these."""
     u = (link.url or "").lower()
-    return "/dp/" in u or "/gp/product/" in u or "/courses/" in u
+    return "/dp/" in u or "/gp/product/" in u or "/courses/" in u or "/course/" in u
 
 
 def _book_mention(title: str) -> str:
@@ -326,9 +339,9 @@ def _set_query_param(url: str, param: str, value: str) -> str:
 
 
 def _course_title(title: str) -> str:
-    """A clean, scannable course name from a messy Educative search-result title."""
+    """A clean, scannable course name from a messy Educative/DesignGurus search-result title."""
     text = re.split(r"\s[|\u2013\-]\s", (title or "").strip())[0].strip()  # keep the first clause
-    text = re.sub(r"(?i)\s*[-|]\s*educative(\.io)?\s*$", "", text).strip()
+    text = re.sub(r"(?i)\s*[-|]\s*(educative|designgurus)(\.io)?\s*$", "", text).strip()
     text = re.sub(r"[\s.\u2026|\u2013\u2014\-]+$", "", text)  # drop a trailing ellipsis / dangling punctuation
     return text[:70].strip()
 
@@ -367,6 +380,44 @@ def resolve_educative(settings, *, queries, search_provider, topic: str = "") ->
     return best
 
 
+# A REAL DesignGurus COURSE page (…/course/<slug>, singular); the aff param appends to ANY DG URL.
+_DESIGNGURUS_COURSE = re.compile(r"https?://(?:www\.)?designgurus\.io/course/[a-z0-9][a-z0-9-]*", re.I)
+
+
+def resolve_designgurus(settings, *, queries, search_provider, topic: str = "") -> AffiliateLink | None:
+    """Find a REAL, specific DesignGurus COURSE for the topic (like the Educative flow) and append our
+    affiliate id — REPLACING any existing ``aff`` — so the link is a concrete, relevant Grokking course
+    rather than a generic landing page. Prefer the course whose title/slug best matches ``topic``.
+    ``None`` when off / no id / no provider / nothing found."""
+    aff_id = (getattr(settings, "affiliate_designgurus_id", "") or "").strip()
+    if not _enabled(settings) or not aff_id or search_provider is None:
+        return None
+    topic_words = _salient(topic)
+    best: AffiliateLink | None = None
+    best_score = -1
+    for query in queries or []:
+        q = (query or "").strip()
+        if not q:
+            continue
+        try:
+            results = search_provider.search(f"{q} course site:designgurus.io/course", max_results=6)
+        except Exception:
+            continue
+        for result in results or []:
+            m = _DESIGNGURUS_COURSE.search(getattr(result, "url", "") or "")
+            if not m:
+                continue
+            title = _course_title(getattr(result, "title", "")) or "DesignGurus"
+            score = _topic_overlap(f"{title} {m.group(0)}", topic_words)  # title + slug words
+            if score > best_score:
+                best_score = score
+                best = AffiliateLink(
+                    "DesignGurus", _set_query_param(m.group(0), "aff", aff_id),
+                    "the Grokking course on exactly this", mention=title,
+                )
+    return best
+
+
 def resolve_candidates(
     settings, *, idea: str = "", niche: str = "", tags=None, search_provider=None, amazon_queries=None
 ) -> list[AffiliateLink]:
@@ -388,6 +439,14 @@ def resolve_candidates(
         if edu:
             plats = [c for c in plats if c.label != "Educative"]
             specific.append(edu)
+    # DesignGurus: same idea — when it fits the topic, upgrade its generic link to a REAL Grokking
+    # course found via search + our aff (replacing any existing aff).
+    if search_provider is not None and any(c.label == "DesignGurus" for c in plats):
+        dg_q = [q for q in dict.fromkeys([_topic_query(seed, niche), (idea or "").strip()]) if q]
+        dg = resolve_designgurus(settings, queries=dg_q, search_provider=search_provider, topic=topic)
+        if dg:
+            plats = [c for c in plats if c.label != "DesignGurus"]
+            specific.append(dg)
     queries = list(amazon_queries or []) or [amazon_search_query(seed, niche)]
     amazon = resolve_amazon(settings, queries=queries, search_provider=search_provider, topic=topic)
     if amazon:

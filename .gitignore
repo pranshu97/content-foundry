@@ -5,12 +5,15 @@
 secrets/
 
 # ---- Data & generated output ----
-/data/*                      # repo-root runtime data (DB, dev sound cache); packaged sounds live under src/
-!/data/affiliate_catalog.example.json   # ...but DO ship the example curated-catalog shape (real one stays local)
+# (git has NO trailing/inline comments on patterns — keep each comment on its OWN line or the rule breaks)
+# repo-root runtime data (DB, dev cache) + the operator's LOCAL curated catalog; packaged sounds live under src/
+/data/*
+!/data/affiliate_catalog.example.json
 output/
 *.db
 *.sqlite3
-*.cutout.png                 # derived transparent avatar cutouts (regenerated from the source avatar)
+# derived transparent avatar cutouts (regenerated from the source avatar)
+*.cutout.png
 
 # ---- Python ----
 __pycache__/
@@ -40,8 +43,9 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-# ---- Personal / AI working files (never push) ----
+# ---- Personal / channel-specific / AI working files (never push) ----
 Future_Plans.txt
+Video_ideas.txt
 Reference.md
 Claude.md
 CLAUDE.md
@@ -50,3 +54,7 @@ AGENTS.md
 GEMINI.md
 .memory/
 memories/
+# the operator's own face + voice sample — every user supplies their own; never ship these
+assets/avatar.png
+assets/avatar.cutout.png
+assets/voice_reference.wav

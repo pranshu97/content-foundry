@@ -5,7 +5,8 @@
 secrets/
 
 # ---- Data & generated output ----
-/data/                       # repo-root runtime data (DB, dev sound cache); packaged sounds live under src/
+/data/*                      # repo-root runtime data (DB, dev sound cache); packaged sounds live under src/
+!/data/affiliate_catalog.example.json   # ...but DO ship the example curated-catalog shape (real one stays local)
 output/
 *.db
 *.sqlite3

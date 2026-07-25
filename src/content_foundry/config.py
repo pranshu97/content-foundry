@@ -437,6 +437,12 @@ class Settings(BaseSettings):
     affiliate_fenzo_url: str = ""        # your Fenzo AI referral link (a full URL)
     affiliate_fenzo_id: str = ""         # OR the Fenzo affiliate ID (Educative's new venture)
     affiliate_max_links: int = Field(4, ge=1, le=10)
+    # OPTIONAL path to an operator-supplied JSON catalog of verified resources for YOUR niche, matched to
+    # each video BEFORE any web search. A list of rows, each:
+    # {"platform": "educative"|"amazon"|<any _PLATFORMS key>, "name": "...", "url": "...",
+    #  "topics": "space separated words", "blurb": "..."}. Blank = no catalog (fully generic; the repo
+    # ships none and falls back to web search). See data/affiliate_catalog.example.json for the shape.
+    affiliate_curated_catalog: str = ""
     affiliate_in_comment: bool = True    # also include the resources block in the top comment
     # A casual line appended to the resources block (e.g. "some of these get you a discount via my
     # link"). Default empty = off/generic; the operator opts in via AFFILIATE_PERK_TEXT.

@@ -1,8 +1,9 @@
 """Affiliate links (optional monetization) — reliable by design.
 
 The platform CATALOG (what each service is good for + the topics it fits) is built in here; the
-operator supplies ONLY their referral URL / tracking tag per platform in the config, so there is NO
-per-video product curation. Links are chosen DETERMINISTICALLY by topic — a platform is included when
+operator supplies their referral URL / tracking tag per platform (and, optionally, a verified resource
+catalog for their OWN niche via AFFILIATE_CURATED_CATALOG — the repo ships none, staying domain-neutral).
+Links are chosen DETERMINISTICALLY by topic — a platform is included when
 its tags overlap the video's topic OR the script itself named it — never invented by an LLM. Amazon
 products come from a REAL product URL found by the search provider (the associate tag is then
 appended), so the URL is genuine, not hallucinated (that network step lives in the Publisher; this
@@ -11,8 +12,11 @@ module is pure). A required FTC-style disclosure line is always appended.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -418,158 +422,91 @@ def resolve_designgurus(settings, *, queries, search_provider, topic: str = "") 
     return best
 
 
-# ------------------------------------------------ curated catalog (verified, matched BEFORE any search)
+# ------------------------------------ curated catalog (operator-supplied JSON, matched BEFORE any search)
 @dataclass(frozen=True)
 class _Curated:
-    platform: str  # "designgurus" | "educative" | "amazon"
+    platform: str  # a platform key from _PLATFORMS (e.g. "educative"), or "amazon" for a book
     name: str  # the resource's real title (the writer's mention)
-    url: str  # VERIFIED base URL; the operator's aff id / tag is appended at selection time
+    url: str  # the resource URL; the operator's aff id / Amazon tag is appended at selection time
     topics: str  # space-separated topic words matched against the video's topic
-    blurb: str  # "good for ..." shown to the writer + in the description line
+    blurb: str = ""  # optional "good for ..." shown to the writer + in the description line
 
 
-# Hand-verified best-in-class resources for this channel's niche (coding / system-design / ML-design /
-# behavioral / FAANG interviews). URLs confirmed live; platform-specific affiliate params are appended
-# at selection time (DesignGurus/Educative ?aff=<id>, Amazon /dp/<ASIN>?tag=<tag>). Extend freely — a
-# new row is picked automatically when its topics match a video and its platform is configured.
-_DG = "https://www.designgurus.io/course/"
-_EDU = "https://www.educative.io/courses/"
-_AMZ = "https://www.amazon.com/dp/"
-_CURATED: tuple[_Curated, ...] = (
-    # DesignGurus — the Grokking course catalog (?aff= works on any DG URL)
-    _Curated("designgurus", "Grokking the Coding Interview", _DG + "grokking-the-coding-interview",
-             "coding interview leetcode algorithms data structures dsa patterns faang",
-             "the 24 patterns behind every coding-interview question"),
-    _Curated("designgurus", "Grokking Data Structures & Algorithms for Coding Interviews",
-             _DG + "grokking-data-structures-for-coding-interviews",
-             "data structures algorithms dsa coding interview", "core data structures & algorithms for interviews"),
-    _Curated("designgurus", "Grokking 75: Top Coding Interview Questions",
-             _DG + "grokking-75-top-coding-interview-questions",
-             "coding interview questions leetcode faang patterns", "the 75 most-asked coding-interview questions"),
-    _Curated("designgurus", "Grokking Dynamic Programming",
-             _DG + "grokking-dynamic-programming", "dynamic programming coding interview algorithms patterns",
-             "dynamic-programming patterns for interviews"),
-    _Curated("designgurus", "Grokking Graph Algorithms for Coding Interviews",
-             _DG + "grokking-graph-algorithms-for-coding-interviews", "graph algorithms coding interview",
-             "graph algorithms for coding interviews"),
-    _Curated("designgurus", "Grokking the System Design Interview",
-             _DG + "grokking-the-system-design-interview",
-             "system design interview scalability distributed architecture faang",
-             "the #1 system-design course, by ex-FAANG hiring managers"),
-    _Curated("designgurus", "Grokking System Design Fundamentals",
-             _DG + "grokking-system-design-fundamentals", "system design fundamentals scalability distributed beginner",
-             "the building blocks of scalable systems"),
-    _Curated("designgurus", "Grokking the Advanced System Design Interview",
-             _DG + "grokking-system-design-interview-ii",
-             "advanced system design interview distributed scalability senior staff", "advanced system design for L5/L6"),
-    _Curated("designgurus", "Grokking the AI System Design Interview",
-             _DG + "grokking-the-ai-system-design-interview",
-             "ai ml machine learning system design interview llm rag recommendation",
-             "ML / LLM / agentic system-design interviews"),
-    _Curated("designgurus", "Grokking Microservices Design Patterns",
-             _DG + "grokking-microservices-design-patterns", "microservices design patterns architecture system",
-             "microservices patterns for scalable systems"),
-    _Curated("designgurus", "Grokking the Object Oriented Design Interview",
-             _DG + "grokking-the-object-oriented-design-interview",
-             "object oriented design ood low level lld interview", "object-oriented / low-level design interviews"),
-    _Curated("designgurus", "Grokking the Behavioral Interview",
-             _DG + "grokking-behavioral-interview", "behavioral interview leadership stories star communication",
-             "a practical roadmap for behavioral interviews"),
-    _Curated("designgurus", "Grokking SQL for Tech Interviews",
-             _DG + "grokking-sql-for-tech-interviews", "sql database databases interview data queries",
-             "SQL for tech interviews"),
-    _Curated("designgurus", "Grokking Tech Salary Negotiations",
-             _DG + "grokking-tech-salary-negotiations", "salary negotiation compensation offer career",
-             "negotiate the compensation you deserve"),
-    _Curated("designgurus", "Grokking the Amazon Coding Interview",
-             _DG + "grokking-amazon-coding-interview", "amazon coding interview faang", "crack the Amazon coding interview"),
-    _Curated("designgurus", "Grokking the Google Coding Interview",
-             _DG + "grokking-google-coding-interview", "google coding interview faang", "crack the Google coding interview"),
-    _Curated("designgurus", "Grokking the Meta Coding Interview",
-             _DG + "grokking-meta-coding-interview", "meta facebook coding interview faang", "crack the Meta coding interview"),
-    _Curated("designgurus", "Grokking the Microsoft Coding Interview",
-             _DG + "grokking-microsoft-coding-interview", "microsoft coding interview faang", "crack the Microsoft coding interview"),
-    # Educative — Grokking courses (?aff= works on any Educative URL)
-    _Curated("educative", "Grokking the System Design Interview", _EDU + "grokking-the-system-design-interview",
-             "system design interview scalability distributed architecture faang", "the classic interactive system-design course"),
-    _Curated("educative", "Grokking the Machine Learning System Design Interview",
-             _EDU + "grokking-the-machine-learning-system-design-interview",
-             "machine learning ml system design interview recommendation", "ML system-design interview, end to end"),
-    # Amazon — canonical books (real /dp/ASIN; the associate tag is appended)
-    _Curated("amazon", "Cracking the Coding Interview", _AMZ + "0984782850",
-             "coding interview algorithms data structures faang programming", "189 coding-interview questions & solutions"),
-    _Curated("amazon", "Coding Interview Patterns", _AMZ + "1736049135",
-             "coding interview patterns algorithms leetcode", "nail your next coding interview with patterns"),
-    _Curated("amazon", "Elements of Programming Interviews in Python", _AMZ + "1537713949",
-             "coding interview programming python algorithms", "insider coding-interview problems in Python"),
-    _Curated("amazon", "System Design Interview – An Insider's Guide", _AMZ + "B08CMF2CQF",
-             "system design interview scalability distributed", "the best-selling system-design interview guide"),
-    _Curated("amazon", "System Design Interview – An Insider's Guide: Volume 2", _AMZ + "1736049119",
-             "system design interview advanced distributed scalability", "13 more real system-design questions"),
-    _Curated("amazon", "Designing Data-Intensive Applications", _AMZ + "1449373321",
-             "system design distributed data databases scalability architecture", "the definitive distributed-systems book"),
-    _Curated("amazon", "Machine Learning System Design Interview", _AMZ + "1736049127",
-             "machine learning ml system design interview recommendation", "ML system-design interview questions & solutions"),
-    _Curated("amazon", "Designing Machine Learning Systems", _AMZ + "1098107969",
-             "machine learning ml systems production data", "a holistic approach to production ML (Chip Huyen)"),
-    _Curated("amazon", "AI Engineering", _AMZ + "1098166302",
-             "ai llm foundation models machine learning genai engineering", "building applications with foundation models"),
-    _Curated("amazon", "Generative AI System Design Interview", _AMZ + "1736049143",
-             "generative ai genai llm system design interview", "GenAI / LLM system-design interviews"),
-    _Curated("amazon", "Object-Oriented Design Interview", _AMZ + "173604916X",
-             "object oriented design ood interview", "OO design interview, an insider's guide"),
-    _Curated("amazon", "Ace the Data Science Interview", _AMZ + "0578973839",
-             "data science interview statistics machine learning faang", "201 real data-science interview questions"),
-    _Curated("amazon", "Introduction to Algorithms (CLRS)", _AMZ + "026204630X",
-             "algorithms data structures computer science", "the classic algorithms textbook"),
-    _Curated("amazon", "Hands-On Machine Learning", _AMZ + "1098125975",
-             "machine learning ml data science python", "hands-on ML with scikit-learn, Keras & TensorFlow"),
-    _Curated("amazon", "The Algorithm Design Manual", _AMZ + "3030542556",
-             "algorithms data structures coding interview", "a practical guide to algorithm design"),
-)
+_PLATFORM_BY_KEY = {p.key: p for p in _PLATFORMS}
 
-_CURATED_LABEL = {"designgurus": "DesignGurus", "educative": "Educative"}
+
+@lru_cache(maxsize=16)
+def _load_catalog(path: str) -> tuple[_Curated, ...]:
+    """Load the operator's curated resource catalog from a JSON file: a list of rows, each
+    ``{"platform", "name", "url", "topics", "blurb"?}``. DOMAIN-AGNOSTIC — the repo ships NO catalog;
+    the operator points ``AFFILIATE_CURATED_CATALOG`` at their own verified list for THEIR niche.
+    Returns ``()`` when the path is blank / missing / malformed (best-effort, never raises)."""
+    if not path:
+        return ()
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ()
+    rows: list[_Curated] = []
+    for item in raw if isinstance(raw, list) else ():
+        if not isinstance(item, dict):
+            continue
+        platform = str(item.get("platform", "")).strip().lower()
+        name = str(item.get("name", "")).strip()
+        url = str(item.get("url", "")).strip()
+        if platform and name and url:
+            rows.append(_Curated(
+                platform, name, url,
+                str(item.get("topics", "")).strip(),
+                str(item.get("blurb", "")).strip(),
+            ))
+    return tuple(rows)
 
 
 def _curated_platform(link: AffiliateLink) -> str:
-    """Which resolvable platform a link belongs to (so curated + web-searched results dedup by platform)."""
+    """The platform a link belongs to (so curated + web-searched results dedup by platform)."""
     if _is_amazon(link):
         return "amazon"
-    if link.label == "Educative":
-        return "educative"
-    if link.label == "DesignGurus":
-        return "designgurus"
+    for p in _PLATFORMS:
+        if link.label == p.label:
+            return p.key
     return ""
 
 
 def _curated_link(settings, entry: _Curated, *, tag: str) -> AffiliateLink | None:
-    """Build the affiliate link for a curated entry, or ``None`` when that platform is not configured
-    (Amazon needs the associate tag; a course needs the platform's affiliate ID)."""
+    """Build the affiliate link for a curated row, or ``None`` when that platform isn't configured
+    (Amazon needs the associate tag; any other platform needs its affiliate ID). Generic: the label
+    and the affiliate-ID setting both come from the platform's own definition in ``_PLATFORMS``."""
     if entry.platform == "amazon":
         url = tag_amazon_url(entry.url, tag)
         return AffiliateLink("Recommended book (Amazon)", url, entry.blurb, mention=entry.name) if url else None
-    aff_id = (getattr(settings, f"affiliate_{entry.platform}_id", "") or "").strip()
+    plat = _PLATFORM_BY_KEY.get(entry.platform)
+    if plat is None or not plat.id_attr:
+        return None
+    aff_id = (getattr(settings, plat.id_attr, "") or "").strip()
     if not aff_id:
         return None
-    return AffiliateLink(
-        _CURATED_LABEL[entry.platform], _set_query_param(entry.url, "aff", aff_id), entry.blurb, mention=entry.name
-    )
+    return AffiliateLink(plat.label, _set_query_param(entry.url, "aff", aff_id), entry.blurb, mention=entry.name)
 
 
 def curated_candidates(settings, *, idea="", niche="", tags=None, min_score=2, per_platform=1) -> list[AffiliateLink]:
-    """SEARCH THE CURATED LIST FIRST. Intelligently match the video's topic against the hand-verified
-    catalog and return the best on-topic resource per platform (a real DesignGurus / Educative course
-    and Amazon book) — so the reliable, pre-vetted link is used before any web lookup. Matching =
-    shared salient topic words (>= ``min_score``, so an unrelated video attaches nothing). Empty when
-    affiliate is off, nothing fits, or no matching platform is configured."""
+    """SEARCH THE OPERATOR'S CURATED LIST FIRST. Intelligently match the video's topic against the
+    operator-supplied catalog (``AFFILIATE_CURATED_CATALOG``, a JSON list of verified resources for
+    THEIR niche) and return the best on-topic resource per platform — so a reliable, pre-vetted link
+    is used before any web lookup. Matching = shared salient topic words (>= ``min_score``, so an
+    unrelated video attaches nothing). Empty when affiliate is off, no catalog is configured, nothing
+    fits, or the matching platform isn't set up."""
     if not _enabled(settings):
+        return []
+    catalog = _load_catalog((getattr(settings, "affiliate_curated_catalog", "") or "").strip())
+    if not catalog:
         return []
     tag = (getattr(settings, "amazon_assoc_tag", "") or "").strip()
     topic_words = _salient(f"{idea} {niche} {' '.join(tags or [])}")
     if not topic_words:
         return []
     scored: dict[str, list[tuple[int, int, AffiliateLink]]] = {}
-    for entry in _CURATED:
+    for entry in catalog:
         if entry.platform == "amazon" and not tag:
             continue
         score = len(topic_words & _salient(f"{entry.name} {entry.topics}"))

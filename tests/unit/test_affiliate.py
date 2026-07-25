@@ -3,6 +3,8 @@ FakeLLM-safe script context."""
 
 from __future__ import annotations
 
+import json
+
 from content_foundry.config import get_settings, reset_settings_cache
 from content_foundry.production.affiliate import (
     AffiliateLink,
@@ -27,6 +29,13 @@ def _settings(monkeypatch, **env):
         monkeypatch.setenv(k, v)
     reset_settings_cache()
     return get_settings()
+
+
+def _catalog_file(tmp_path, rows):
+    """Write a temp curated-catalog JSON (the operator supplies this per-niche) and return its path."""
+    path = tmp_path / "affiliate_catalog.json"
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    return str(path)
 
 
 def test_affiliate_disabled_is_a_noop(monkeypatch):
@@ -426,19 +435,25 @@ def test_resolve_candidates_issues_a_grokking_course_query(monkeypatch):
             seen.append(query)
             return []
 
-    # "software engineering" makes DesignGurus a candidate but matches NOTHING in the curated catalog,
-    # so we fall back to the web search. Both Educative and DesignGurus host the "Grokking the ..."
-    # courses, so a "grokking <topic>" query is issued to land the exact course page, and the site:
-    # filter is DOMAIN-level (not path-restricted) so the search actually returns results.
-    resolve_candidates(s, idea="software engineering", niche="tech careers", search_provider=_Rec())
+    # No curated catalog is configured, so a coding-interview topic (a DesignGurus candidate) falls
+    # through to the web search. Both Educative and DesignGurus host the "Grokking the ..." courses, so
+    # a "grokking <topic>" query is issued to land the exact course page, and the site: filter is
+    # DOMAIN-level (not path-restricted) so the search actually returns results.
+    resolve_candidates(s, idea="the coding interview", niche="tech careers", search_provider=_Rec())
     assert any(q.lower().startswith("grokking") for q in seen)
     assert any(q.endswith("site:designgurus.io") for q in seen)  # domain-level, not .../course
 
 
-def test_curated_list_matched_before_any_web_search(monkeypatch):
-    # The verified catalog is consulted FIRST: a system-design video gets the REAL Grokking course URL
-    # (with our aff id) offline, without a single web request.
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+def test_curated_list_matched_before_any_web_search(monkeypatch, tmp_path):
+    # The operator's catalog is consulted FIRST: a system-design video gets the REAL course URL (with
+    # our aff id) offline, without a single web request.
+    cat = _catalog_file(tmp_path, [
+        {"platform": "designgurus", "name": "Grokking the System Design Interview",
+         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+         "topics": "system design interview scalability distributed architecture faang"},
+    ])
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a",
+                  AFFILIATE_CURATED_CATALOG=cat)
     cands = curated_candidates(s, idea="the system design interview", niche="faang")
     dg = [c for c in cands if c.label == "DesignGurus"]
     assert dg, cands
@@ -446,8 +461,14 @@ def test_curated_list_matched_before_any_web_search(monkeypatch):
     assert "System Design Interview" in dg[0].mention
 
 
-def test_curated_amazon_book_is_tagged(monkeypatch):
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="crackedstudio-20")
+def test_curated_amazon_book_is_tagged(monkeypatch, tmp_path):
+    cat = _catalog_file(tmp_path, [
+        {"platform": "amazon", "name": "Machine Learning System Design Interview",
+         "url": "https://www.amazon.com/dp/1736049127",
+         "topics": "machine learning ml system design interview"},
+    ])
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="crackedstudio-20",
+                  AFFILIATE_CURATED_CATALOG=cat)
     cands = curated_candidates(s, idea="machine learning system design interview")
     book = [c for c in cands if c.label == "Recommended book (Amazon)"]
     assert book, cands
@@ -455,16 +476,32 @@ def test_curated_amazon_book_is_tagged(monkeypatch):
     assert "Machine Learning System Design Interview" in book[0].mention
 
 
-def test_curated_matching_is_intelligent_not_first_row(monkeypatch):
-    # "behavioral" must win over the coding course even though both share the generic word "interview".
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
-    cands = curated_candidates(s, idea="the behavioral interview", niche="faang")
+def test_curated_matching_is_intelligent_not_first_row(monkeypatch, tmp_path):
+    # Both rows tie on topic-word count for a coding video (the first row is over-tagged with "coding"),
+    # so the TITLE-overlap tiebreak must pick the actual coding course, not merely the first-listed row.
+    cat = _catalog_file(tmp_path, [
+        {"platform": "designgurus", "name": "Grokking the Behavioral Interview",
+         "url": "https://www.designgurus.io/course/grokking-behavioral-interview",
+         "topics": "behavioral interview coding faang"},
+        {"platform": "designgurus", "name": "Grokking the Coding Interview",
+         "url": "https://www.designgurus.io/course/grokking-the-coding-interview",
+         "topics": "coding interview faang"},
+    ])
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a",
+                  AFFILIATE_CURATED_CATALOG=cat)
+    cands = curated_candidates(s, idea="the coding interview", niche="faang")
     dg = [c for c in cands if c.label == "DesignGurus"]
-    assert dg and dg[0].url.endswith("grokking-behavioral-interview?aff=8jh38a"), dg
+    assert dg and dg[0].url.endswith("grokking-the-coding-interview?aff=8jh38a"), dg
 
 
-def test_curated_hit_skips_the_web_search(monkeypatch):
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+def test_curated_hit_skips_the_web_search(monkeypatch, tmp_path):
+    cat = _catalog_file(tmp_path, [
+        {"platform": "designgurus", "name": "Grokking the System Design Interview",
+         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+         "topics": "system design interview scalability distributed faang"},
+    ])
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a",
+                  AFFILIATE_CURATED_CATALOG=cat)
     seen: list[str] = []
 
     class _Rec:
@@ -481,20 +518,49 @@ def test_curated_hit_skips_the_web_search(monkeypatch):
     assert dg and dg[0].url.endswith("grokking-the-system-design-interview?aff=8jh38a")
 
 
-def test_curated_ignores_unrelated_topics(monkeypatch):
+def test_curated_ignores_unrelated_topics(monkeypatch, tmp_path):
     # Intelligent match: an off-niche video attaches nothing from the catalog (no weak/forced matches).
+    cat = _catalog_file(tmp_path, [
+        {"platform": "designgurus", "name": "Grokking the System Design Interview",
+         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+         "topics": "system design interview scalability distributed faang"},
+        {"platform": "amazon", "name": "Cracking the Coding Interview",
+         "url": "https://www.amazon.com/dp/0984782850", "topics": "coding interview algorithms"},
+    ])
     s = _settings(
         monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a",
         AFFILIATE_EDUCATIVE_ID="BXmM", AMAZON_ASSOC_TAG="crackedstudio-20",
+        AFFILIATE_CURATED_CATALOG=cat,
     )
     assert curated_candidates(s, idea="watercolor painting for beginners", niche="art") == []
 
 
-def test_curated_is_empty_when_affiliate_disabled(monkeypatch):
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="false", AFFILIATE_DESIGNGURUS_ID="8jh38a")
+def test_curated_is_empty_when_affiliate_disabled(monkeypatch, tmp_path):
+    cat = _catalog_file(tmp_path, [
+        {"platform": "designgurus", "name": "Grokking the System Design Interview",
+         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+         "topics": "system design interview"},
+    ])
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="false", AFFILIATE_DESIGNGURUS_ID="8jh38a",
+                  AFFILIATE_CURATED_CATALOG=cat)
     assert curated_candidates(s, idea="system design interview") == []
 
 
-def test_curated_needs_a_configured_platform(monkeypatch):
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true")  # enabled, but no ids/tag to build a link
+def test_curated_needs_a_configured_platform(monkeypatch, tmp_path):
+    # Catalog set + affiliate on, but the platform's affiliate ID isn't configured -> nothing to build.
+    cat = _catalog_file(tmp_path, [
+        {"platform": "designgurus", "name": "Grokking the System Design Interview",
+         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+         "topics": "system design interview"},
+    ])
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_CURATED_CATALOG=cat)
     assert curated_candidates(s, idea="system design interview") == []
+
+
+def test_curated_is_empty_without_a_catalog(monkeypatch):
+    # DOMAIN-NEUTRAL DEFAULT: with no AFFILIATE_CURATED_CATALOG the repo curates nothing (it ships no
+    # catalog) and simply falls back to the web search.
+    s = _settings(
+        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="8jh38a", AMAZON_ASSOC_TAG="t-20",
+    )
+    assert curated_candidates(s, idea="the system design interview", niche="faang") == []

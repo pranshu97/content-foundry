@@ -302,12 +302,6 @@ def visuals(run_id: str = typer.Option(..., "--run-id")) -> None:
 @app.command()
 def thumbnail(
     run_id: str = typer.Option(..., "--run-id"),
-    face_id: bool | None = typer.Option(
-        None, "--face-id/--no-face-id", help="Override THUMBNAIL_FACE_ID_ENABLED just for this regen"
-    ),
-    scale: float | None = typer.Option(
-        None, "--scale", help="Override FACEID_SCALE (identity strength 0-1.5; lower = more scene, less face)"
-    ),
     prompt: str | None = typer.Option(
         None, "--prompt", help="Use this EXACT image prompt (overrides the saved/auto prompt) and save it"
     ),
@@ -323,13 +317,6 @@ def thumbnail(
     from .models import Script
     from .pipeline.artifacts import run_paths
     from .providers import build_image_provider, build_llm_provider
-
-    if face_id is not None:
-        os.environ["THUMBNAIL_FACE_ID_ENABLED"] = "true" if face_id else "false"
-    if scale is not None:
-        os.environ["FACEID_SCALE"] = str(scale)
-    if face_id is not None or scale is not None:
-        reset_settings_cache()
 
     _apply_run_format(run_id)  # a Short's thumbnail stays vertical on a refinement, without --format
     settings = get_settings()

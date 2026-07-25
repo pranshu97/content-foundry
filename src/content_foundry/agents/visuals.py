@@ -79,7 +79,7 @@ def _fallback_thumb_text(title: str) -> str:
     return " ".join(words[:6]) if words else (title or "").strip()
 
 
-def _thumbnail_prompt(concept: str, *, no_person: bool = False, appearance: str = "") -> str:
+def _thumbnail_prompt(concept: str, *, no_person: bool = False) -> str:
     """Turn the script's thumbnail concept into a punchy, high-CTR YouTube-thumbnail image prompt for a
     text-to-image model: ONE hero person (face visible, facing camera) inside a TOPIC-RELEVANT setting
     with concrete props, a big emotion, bright clean face light, saturated color in the environment,
@@ -102,10 +102,6 @@ def _thumbnail_prompt(concept: str, *, no_person: bool = False, appearance: str 
             "smoothed surfaces. Bright, not dark or muddy. Absolutely no text, letters, numbers, "
             "watermark, logos, UI, or real/famous people."
         )
-    look = (
-        f" The main person LOOKS like {appearance}: keep that same age, gender, skin tone, hair, "
-        "and facial hair (their real face is swapped in afterwards)." if appearance else ""
-    )
     return (
         f"A real, professional DSLR PHOTOGRAPH used as a high-CTR YouTube thumbnail, 16:9, about: "
         f"{concept}. Stage it in a REAL, topic-relevant setting with concrete props (for a tech-career "
@@ -124,7 +120,7 @@ def _thumbnail_prompt(concept: str, *, no_person: bool = False, appearance: str 
         "two eyes, no doubled/warped/extra facial features. Bright, not "
         "dark or muddy. Leave a calmer area for a large title overlay. Absolutely no text, letters, "
         "numbers, watermark, logos, UI, or real/famous people."
-    ) + look
+    )
 
 
 def ensure_upload_safe_thumbnail(path: Path, *, max_bytes: int = 1_900_000) -> bool:
@@ -151,37 +147,6 @@ def ensure_upload_safe_thumbnail(path: Path, *, max_bytes: int = 1_900_000) -> b
         return True
     except Exception:  # best-effort: an oversize thumb must never crash render or publish
         return False
-
-
-def _faceid_prompt(concept: str) -> str:
-    """Build the FaceID image prompt from the script's per-video ``thumbnail_concept`` — high-CTR
-    YouTube style, with the CONCEPT driving the scene (that is the dynamic, per-video part). Kept
-    within CLIP's ~77-token budget (the SD1.5 text encoder truncates beyond it, so the concept leads).
-    No baked-in text (the title is overlaid; the negative prompt drops stray text). To take full
-    control, edit ``assets/thumbnail_prompt.txt`` and re-run ``content-foundry thumbnail``."""
-    words = (concept or "a person reacting to a glowing screen").strip().rstrip(".").split()
-    concept = " ".join(words[:18])  # the concept leads; ~18 words leaves room under CLIP's 77 tokens
-    return (
-        f"high-CTR YouTube thumbnail, real DSLR photo, {concept}, one prominent person facing camera in "
-        "a relevant tech office / cubicles setting, huge readable emotion, face clearly visible and "
-        "sharp, bright clean neutral light, colorful background, realistic skin, not a 3d render, no text"
-    )
-
-
-def _scene_brightness_score(png: bytes) -> float:
-    """A 'is the subject brightly, cleanly lit?' proxy for ranking thumbnail scene candidates. Returns
-    the mean LUMA of the center of the frame (where the face sits): a bright, clean face scores high,
-    while a dark or heavy-neon face (blue/red gels read LOW in luma) scores low — so the best-lit
-    candidate wins. Any decode problem scores 0 so it is never chosen over a valid image."""
-    try:
-        from PIL import Image, ImageStat
-
-        img = Image.open(BytesIO(png)).convert("L")
-        w, h = img.size
-        center = img.crop((int(w * 0.28), int(h * 0.08), int(w * 0.72), int(h * 0.92)))
-        return float(ImageStat.Stat(center).mean[0])
-    except Exception:
-        return 0.0
 
 
 def _broll_source(url: str) -> str:
@@ -528,52 +493,14 @@ class Visuals:
         giving full manual control over the thumbnail."""
         size = self._settings.effective_thumbnail_wh
         avatar = self._avatar_thumbnail_path(_detect_emotion(concept))
-        scene_cloud_failed = False  # the network image provider itself failed (outage) — skip re-tries
-        if avatar is not None and self._settings.thumbnail_face_id_enabled:
-            if self._settings.thumbnail_face_method == "swap":
-                # Two-stage: a rich scene WITH a person from the normal image provider (LONG prompt, no
-                # 77-token limit, so it follows the scene), then swap the operator's real face onto it.
-                prompt = override_prompt or self._scene_prompt(
-                    concept, title, no_person=False, description=description
-                )
-                scene = self._best_scene(prompt)
-                if scene and not self._settings.thumbnail_face_swap_enabled:
-                    # Face-swap OFF (opt-out): use the AI-generated person AS-IS. Guided by
-                    # AVATAR_APPEARANCE it already resembles the operator, with none of the swap /
-                    # restore artifacts (e.g. doubled eyebrows), and it skips the whole GPU stack.
-                    self._log.info("thumbnail_face_swap_disabled")
-                    _write_card(text, size, target, base_png=scene, punchy=True)
-                    return prompt
-                if scene:
-                    from ..providers.faceswap import swap_face
-
-                    swapped = swap_face(self._settings, scene_png=scene, face_path=str(avatar))
-                    if swapped:
-                        _write_card(text, size, target, base_png=swapped, punchy=True)
-                        return prompt
-                else:
-                    scene_cloud_failed = True  # provider outage — don't retry it in the fallback
-                self._log.warning("faceswap_thumbnail_fell_back")
-            else:
-                # "generate": SD1.5 + IP-Adapter-FaceID in one local pass (bound by CLIP's 77 tokens).
-                from ..providers.faceid import generate_face_image
-
-                prompt = override_prompt or _faceid_prompt(concept)
-                face_png = generate_face_image(
-                    self._settings, prompt=prompt, face_path=str(avatar),
-                    size=self._settings.effective_thumbnail_size,
-                )
-                if face_png:
-                    _write_card(text, size, target, base_png=face_png, punchy=True)
-                    return prompt
-                self._log.warning("faceid_thumbnail_fell_back")
-        # Fallback: background image + composited avatar cut-out (the default path). Skip re-calling a
-        # provider that just failed (outage) so we go straight to the DESIGNED card instead of waiting.
+        # Background image + optionally a composited avatar cut-out (the operator's OWN face pasted in,
+        # not AI-generated). When an avatar is composited the scene is generated people-free
+        # (no_person) so the pasted face is the only one; otherwise the scene includes the person.
         prepared = self._prepare_avatar(avatar) if avatar is not None else None
         prompt = override_prompt or self._scene_prompt(
             concept, title, no_person=prepared is not None, description=description
         )
-        base = None if scene_cloud_failed else self._generate_image(prompt)
+        base = self._generate_image(prompt)
         # With no AI scene the face carries the designed card, so show it big; over a real scene it
         # stays a small corner tag.
         avatar_scale = (
@@ -599,29 +526,6 @@ class Visuals:
         except Exception as exc:
             self._log.warning("thumbnail_image_failed", error=str(exc))
             return None
-
-    def _best_scene(self, prompt: str) -> bytes | None:
-        """Generate several scene candidates and keep the BEST-LIT one. Pollinations/flux is high-
-        variance — one call returns a clean, bright face and the next a dark, neon-muddy 'AI-slop' one
-        — so picking the brightest of N reliably lands a scroll-stopping thumbnail (and a cleanly-lit
-        face is also what the ONNX restorer needs to avoid artifacts). Costs N provider calls; 1 = off."""
-        n = max(1, int(getattr(self._settings, "thumbnail_scene_candidates", 1)))
-        if n == 1:
-            return self._generate_image(prompt)
-        best: bytes | None = None
-        best_score = -1.0
-        for _ in range(n):
-            img = self._generate_image(prompt)
-            if not img:
-                continue
-            score = _scene_brightness_score(img)
-            if score > best_score:
-                best, best_score = img, score
-        if best is not None:
-            self._log.info(
-                "thumbnail_scene_selected", candidates=n, brightness=round(best_score, 1)
-            )
-        return best
 
     def _scene_prompt(self, concept: str, title: str, *, no_person: bool, description: str = "") -> str:
         """The thumbnail SCENE image prompt. When the thumbnail director is enabled and an LLM is
@@ -649,11 +553,7 @@ class Visuals:
                 hint="the Thumbnail Director produced no prompt (the LLM call likely failed) — using "
                      "the built-in template instead; retry, or check the LLM provider",
             )
-        return _thumbnail_prompt(
-            concept, no_person=no_person,
-            appearance=(self._settings.avatar_appearance or "").strip()
-            if self._settings.thumbnail_use_avatar else "",
-        )
+        return _thumbnail_prompt(concept, no_person=no_person)
 
     def _prepare_avatar(self, path: Path) -> Path:
         """Return a TRANSPARENT-background avatar for the thumbnail. If the source already has real

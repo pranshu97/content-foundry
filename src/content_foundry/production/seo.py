@@ -12,7 +12,6 @@ import re
 from dataclasses import dataclass
 
 from ..models import Script, VisualPackage
-from .timebox import timebox_title
 
 _MAX_TAG_LEN = 30
 _MAX_TAGS_CHARS = 480  # YouTube's combined-tag budget is ~500 chars
@@ -81,17 +80,13 @@ def _truncate(title: str, max_chars: int) -> str:
     return f"{clipped}…"
 
 
-def optimize_title(
-    title_options: list[str], *, year: int, time_box: bool, time_sensitive: bool, max_chars: int
-) -> str:
-    """Pick, optionally year-stamp (only when the writer flagged the topic ``time_sensitive``), and
-    length-bound the published title."""
-    title = pick_title(title_options, max_chars=max_chars)
-    if time_box and time_sensitive:
-        stamped = timebox_title(title, year)
-        if len(stamped) <= max_chars:
-            title = stamped
-    return _truncate(title, max_chars)
+def optimize_title(title_options: list[str], *, max_chars: int) -> str:
+    """Pick the strongest title option and length-bound it. The title is deliberately NOT
+    year-stamped: a mechanical ``(2026)`` suffix dates an otherwise evergreen title (the recurring
+    complaint that the year showed up on every video). When a topic genuinely is a specific-year
+    ranking/salary/trend, the writer weaves the year into a title option itself, which reads far
+    better than a bolted-on parenthetical."""
+    return _truncate(pick_title(title_options, max_chars=max_chars), max_chars)
 
 
 # ----------------------------------------------------------------- chapters
@@ -210,13 +205,7 @@ def optimize_metadata(
     script: Script, visuals: VisualPackage, settings, *, affiliate_block: str = ""
 ) -> OptimizedMetadata:
     """Full deterministic metadata pass for the Publisher."""
-    title = optimize_title(
-        script.title_options,
-        year=settings.effective_content_year,
-        time_box=settings.time_box_enabled,
-        time_sensitive=script.time_sensitive,
-        max_chars=settings.seo_title_max_chars,
-    )
+    title = optimize_title(script.title_options, max_chars=settings.seo_title_max_chars)
     tags = optimize_tags(
         script.tags,
         niche=settings.target_niche,

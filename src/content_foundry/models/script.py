@@ -40,7 +40,9 @@ class Script(BaseModel):
     word_count: int = 0
     grounded_fact_refs: list[int] = Field(default_factory=list)
     synthetic_disclosure: bool = True
-    time_sensitive: bool = False  # LLM's call: is the topic time-bound? (drives year-stamping)
+    # LLM's call: is the topic genuinely dated (a specific-year ranking/salary/trend)? Guides the
+    # writer to keep evergreen topics yearless; titles are never mechanically year-stamped.
+    time_sensitive: bool = False
     # The specific end-payoff the script promised early to lift retention ("" = no open loop). A
     # deterministic Judge gate verifies a declared payoff is actually delivered in the final scenes,
     # so an open loop can never become a bait-and-switch.

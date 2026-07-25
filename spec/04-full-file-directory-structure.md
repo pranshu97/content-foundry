@@ -74,7 +74,7 @@ career-advice-channel/
 │       │   ├── subscribe.py       # Subscribe-nudge badge (Pillow) + overlay spec
 │       │   ├── overlay.py         # avatar overlay spec
 │       │   ├── seo.py             # title/description/tag optimization
-│       │   └── timebox.py         # time-context / year-stamping
+│       │   └── timebox.py         # time-context for the writer (evergreen-by-default)
 │       │
 │       ├── prompts/               # Exact prompt text (see Ch. 15)
 │       │   ├── __init__.py        # loader: load_prompt(name) -> str

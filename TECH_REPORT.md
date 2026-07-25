@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Version** | 1.0.0 |
+| **Version** | 1.0.1 |
 | **Language** | Python ≥ 3.11 |
-| **Source** | 72 modules · ~5,300 LOC |
-| **Tests** | 425 passing · `ruff` clean |
+| **Source** | 70 modules · ~5,200 LOC |
+| **Tests** | 440 passing · `ruff` clean |
 | **Design spec** | 26 chapters (`spec/`) |
 | **License** | MIT |
 
@@ -461,8 +461,8 @@ Cost is a first-class configuration axis, tunable per stage:
 
 | Metric | Value |
 |--------|-------|
-| Test files | 27 |
-| Tests | **150 passing** |
+| Test files | 46 |
+| Tests | **440 passing** |
 | Coverage | **~91%** (gate: 85%) |
 | Lint | `ruff` (E, F, I, UP, B, C4, SIM) — clean |
 | Type hints | throughout; `mypy` in dev deps |
@@ -548,7 +548,7 @@ A selection of decisions and hardening that shaped the current system:
 | | |
 |---|---|
 | Source modules | 72 files · ~5,288 LOC |
-| Tests | 27 files · ~1,785 LOC · 150 passing |
+| Tests | 46 files · 440 passing |
 | Design spec | 26 chapters |
 | Coverage / lint | ~91% / `ruff` clean |
 

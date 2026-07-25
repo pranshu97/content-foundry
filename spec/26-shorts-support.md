@@ -157,18 +157,13 @@ Tune in `.env`: `SHORTS_TARGET_WORDS`, `SHORTS_SCENES`, `SHORTS_SCENE_TRANSITION
 - **LLM thumbnail prompt (Thumbnail Director, Agent 5.6).** `THUMBNAIL_DIRECTOR_ENABLED` (default on)
   has an LLM write a rich, per-video image-generation prompt with a hard no-text rule that stops the
   image model baking in gibberish lettering (see [11](11-agent-5-visuals-thumbnail.md)).
-- **Thumbnail relevance + regen.** `_faceid_prompt` now leads with a single prominent subject and sets
-  the **scene from the script's `thumbnail_concept`**, so the FaceID thumbnail matches the content (at
-  a moderate `FACEID_SCALE` ~0.6). Regenerate just the thumbnail — no full re-render — with
-  `content-foundry thumbnail --run-id <id> [--face-id/--no-face-id] [--scale N]`.
+- **Thumbnail relevance + regen.** The Thumbnail Director (`THUMBNAIL_DIRECTOR_ENABLED`) writes the
+  image prompt from the video's own **description**, so the thumbnail matches the content. Regenerate
+  just the thumbnail — no full re-render — with `content-foundry thumbnail --run-id <id>`.
 - **Editable thumbnail prompt.** The exact image prompt used is saved to `assets/thumbnail_prompt.txt`;
   `render_thumbnail` reads it back on the next render, so you can hand-tune the wording and re-run
   `content-foundry thumbnail` for full control. `--prompt "..."` overrides it directly; `--reset`
-  rebuilds it from the script's `thumbnail_concept`. (FaceID uses SD1.5, whose CLIP encoder truncates
-  beyond ~77 tokens, so the concept leads; the composited `--no-face-id` path takes a longer prompt.)
-- **Face into the thumbnail — two methods** (`THUMBNAIL_FACE_METHOD`, when `THUMBNAIL_FACE_ID_ENABLED`):
-  **`swap`** (default, recommended) generates a rich scene with the FULL long prompt via the normal
-  image provider (no 77-token limit — follows the scene) then swaps your REAL face onto it with
-  insightface's `inswapper_128.onnx` (best identity + instruction-following; the model auto-downloads,
-  ~530 MB, or set `FACESWAP_MODEL_PATH`). **`generate`** is the older SD1.5 + IP-Adapter-FaceID single
-  pass. Both fall back to the composited paste if their models are unavailable.
+  rebuilds it from the script's `thumbnail_concept`.
+- **Your face in the thumbnail (optional).** By default (`THUMBNAIL_USE_AVATAR=false`) the thumbnail is
+  a single-stage AI image straight from the prompt. Set `THUMBNAIL_USE_AVATAR=true` to composite your
+  own avatar PNG (`AVATAR_IMAGE_PATH`, background auto-removed) onto a people-free generated background.

@@ -32,6 +32,8 @@ Things a **human** must do to get this running from scratch. The agent can write
   pip install -r requirements.txt
   pip install -e .            # exposes the `content-foundry` CLI
   ```
+  _(Just the CLI, without the full local-ML stack? `pip install content-foundry` from PyPI. The
+  from-source install above is recommended here because it also pins the GPU voice-clone stack.)_
 - [ ] Verify the CLI: `content-foundry --help`. If it's not on PATH, call the env's script directly:
   ```powershell
   & "$env:USERPROFILE\.conda\envs\content_foundry\Scripts\content-foundry.exe" --help

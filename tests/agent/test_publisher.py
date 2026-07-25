@@ -87,15 +87,14 @@ def _visuals_with_scenes(duration: float) -> VisualPackage:
 
 
 def test_seo_optimizes_metadata(settings, good_script):
-    good_script.title_options = ["Best Career Advice"]  # yearless => optimizer stamps the year
-    good_script.time_sensitive = True  # flagged time-sensitive => the year gets stamped
+    good_script.title_options = ["Best Career Advice"]  # never mechanically year-stamped
+    good_script.time_sensitive = True  # even flagged dated, the title stays yearless
     pub = _FakePub(disclosure=True)
     result = Publisher(settings, pub).run(
         "R", _video(), good_script, _visuals_with_scenes(12.0), run_root=Path(".")
     )
     _, kwargs = next(c for c in pub.calls if c[0] == "upload")
-    year = settings.effective_content_year
-    assert kwargs["title"] == f"Best Career Advice ({year})"  # time-boxed
+    assert kwargs["title"] == "Best Career Advice"  # no bolted-on "(year)"
     assert all(t == t.lower() for t in kwargs["tags"])  # normalised
     assert "tech careers" in kwargs["tags"]  # niche seeded
     assert "Chapters:" in kwargs["description"]  # 3 x 12s scenes qualify

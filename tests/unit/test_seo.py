@@ -41,23 +41,16 @@ def test_pick_title_falls_back_when_empty():
     assert pick_title([], max_chars=70) == "Career Advice"
 
 
-def test_optimize_title_year_stamps_when_time_sensitive():
-    assert optimize_title(
-        ["Best Career Advice"], year=2026, time_box=True, time_sensitive=True, max_chars=70
-    ) == "Best Career Advice (2026)"
-
-
-def test_optimize_title_skips_year_when_not_time_sensitive():
-    # No year stamp when the writer didn't flag the topic time-sensitive, even with time_box on.
-    # (A how/why/what title that IS time-bound gets flagged true by the LLM instead of guessed here.)
-    assert optimize_title(
-        ["How Recommendation Engines Work"], year=2026, time_box=True, time_sensitive=False,
-        max_chars=70,
-    ) == "How Recommendation Engines Work"
+def test_optimize_title_never_year_stamps():
+    # The published title is never mechanically year-stamped (the recurring "(2026) on every title"
+    # complaint) — a genuinely dated topic gets its year woven into a title option by the writer.
+    assert optimize_title(["Best Career Advice"], max_chars=70) == "Best Career Advice"
+    # A year the writer put in a title option itself is preserved untouched.
+    assert optimize_title(["2026 Salary Report"], max_chars=70) == "2026 Salary Report"
 
 
 def test_optimize_title_truncates_overlong():
-    out = optimize_title(["x" * 100], year=2026, time_box=False, time_sensitive=False, max_chars=20)
+    out = optimize_title(["x" * 100], max_chars=20)
     assert len(out) <= 20 and out.endswith("…")
 
 
@@ -127,11 +120,10 @@ def _visuals(duration: float) -> VisualPackage:
 
 
 def test_optimize_metadata_end_to_end(settings, good_script):
-    good_script.title_options = ["Best Career Advice"]  # yearless => optimizer stamps the year
-    good_script.time_sensitive = True  # flagged time-sensitive => year stamped
+    good_script.title_options = ["Best Career Advice"]  # never mechanically year-stamped
+    good_script.time_sensitive = True  # even so, the title stays yearless (writer weaves years, not us)
     meta = optimize_metadata(good_script, _visuals(12.0), settings)
-    year = settings.effective_content_year
-    assert meta.title == f"Best Career Advice ({year})"
+    assert meta.title == "Best Career Advice"
     assert "tech careers" in meta.tags
     assert "Chapters:" in meta.description  # 3 scenes x 12s qualifies
 

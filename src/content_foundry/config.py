@@ -258,47 +258,6 @@ class Settings(BaseSettings):
     # (YouTube ignores a custom uploaded thumbnail for Shorts). It doubles as a bold hook card. ~0.5s
     # balances "reliably a selectable/auto-sampled frame" against retention; 0 = off. Best-effort.
     shorts_thumbnail_intro_sec: float = Field(0.5, ge=0, le=3)
-    # ---------- Face-identity thumbnail (option B: YOUR face, generated not pasted) ----------
-    # Generate the thumbnail WITH the operator's own face + the prompt's emotion in one local model
-    # pass (SD1.5 + IP-Adapter-FaceID on the GPU) instead of compositing a cut-out. OFF by default; it
-    # needs a one-time install (see providers/faceid.py) and falls back to the composited thumbnail
-    # whenever the model/deps are unavailable, so nothing ever breaks.
-    thumbnail_face_id_enabled: bool = False
-    # HOW to put your face in. "swap" (recommended): generate a rich scene with a LONG prompt via the
-    # normal image provider (Pollinations/Imagen — NO 77-token limit, so it follows the scene
-    # instructions), then swap YOUR real face onto the person with insightface's inswapper (high
-    # identity fidelity). "generate": the older SD1.5 + IP-Adapter-FaceID single pass (bound by CLIP's
-    # 77 tokens, weaker instruction-following). Either falls back to the composited thumbnail if its
-    # models are unavailable, so nothing ever breaks.
-    thumbnail_face_method: Literal["swap", "generate"] = "swap"
-    # Master switch for the FACE-SWAP + restore stages (opt-out). true = swap the operator's real face
-    # onto the generated person (+ optional restore). FALSE = use the AI-generated person AS-IS — with
-    # AVATAR_APPEARANCE it already resembles the operator and avoids swap/restore artifacts (e.g.
-    # doubled eyebrows). Scene generation, text, and the punch pass are unchanged either way.
-    thumbnail_face_swap_enabled: bool = True
-    faceswap_model_path: str = ""  # inswapper_128.onnx path; blank => auto-locate/download (~530 MB)
-    # After the swap, RESTORE/upscale the soft 128 px swapped face with an offline ONNX enhancer
-    # (GFPGAN/CodeFormer/GPEN) so it looks sharp and REAL instead of AI-soft. Aligns to the FFHQ/512
-    # template with a RANSAC fit and blends the crop back through a feathered box mask (the facefusion
-    # method) so it no longer cracks or seams. Best-effort + OOM-safe (frees the swapper's GPU memory
-    # first); ANY problem keeps the un-restored swap. Model auto-downloads (~325 MB).
-    thumbnail_face_restore: bool = True
-    face_restore_model: Literal["gfpgan_1.4", "codeformer", "gpen_bfr_512"] = "gfpgan_1.4"
-    face_restore_model_path: str = ""  # explicit .onnx path; blank => auto-download by face_restore_model
-    # QUALITY vs TIME: generate this many thumbnail SCENE candidates and keep the best-lit one (the
-    # brightest, clearest face) before the face-swap. Pollinations/flux is high-variance — some scenes
-    # come out dark / neon-muddy ("AI slop") — so best-of-N reliably lands a bright, clean, high-CTR
-    # thumbnail (a cleanly-lit face is also what the restorer needs). 1 = off. Costs N provider calls.
-    thumbnail_scene_candidates: int = Field(3, ge=1, le=6)
-    faceid_base_model: str = "SG161222/Realistic_Vision_V5.1_noVAE"  # any photoreal SD1.5 checkpoint
-    faceid_ip_repo: str = "h94/IP-Adapter-FaceID"
-    faceid_ip_weight: str = "ip-adapter-faceid_sd15.bin"
-    faceid_scale: float = Field(0.6, ge=0.0, le=1.5)  # identity strength (higher = more like you)
-    faceid_steps: int = Field(30, ge=10, le=60)
-    faceid_guidance: float = Field(7.5, ge=1.0, le=15.0)
-    faceid_gen_size: str = "768x448"  # SD-friendly generation size, upscaled to THUMBNAIL_SIZE
-    faceid_device: str = "auto"  # auto | cuda | cpu
-    faceid_negative_prompt: str = "multiple people, two people, extra person, crowd, text, watermark, logo, extra fingers, deformed, blurry, low quality, 3d render, cgi, plastic skin, waxy skin, airbrushed, over-smooth, illustration, cartoon, painting, oversaturated, uncanny"
 
     # ---------- Content format (long-form video vs vertical Shorts) ----------
     # ONE switch selects the whole output shape. "long" = the standard 16:9 long-form video (every
@@ -412,12 +371,6 @@ class Settings(BaseSettings):
     # AI-generated face — a consistent real face lifts click-through. Skipped when the file is absent.
     thumbnail_use_avatar: bool = True
     thumbnail_avatar_scale: float = Field(0.9, ge=0.15, le=1.0)  # face height as a fraction of the thumb (big = main-region reaction, flush right)
-    # A short physical description of YOU (whose face is swapped into the thumbnail), e.g. "a bearded
-    # South Asian man in his late 20s with short dark hair and glasses". Injected into the thumbnail's
-    # person prompt so the AI generates someone who ALREADY resembles you — the face-swap only
-    # transplants the inner face and keeps the generated head's age/gender/hair, so a matching base is
-    # what makes the swap actually look like you. Blank => a generic person (much weaker likeness).
-    avatar_appearance: str = ""
 
     # ---------- Publishing (YouTube) ----------
     youtube_client_secrets_file: str = "secrets/client_secrets.json"

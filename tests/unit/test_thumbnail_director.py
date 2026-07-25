@@ -49,16 +49,12 @@ def test_thumbnail_director_disabled_is_noop(monkeypatch, fakes):
 
 
 def test_thumbnail_director_adds_no_guardrails_or_avatar_details(monkeypatch, fakes):
-    monkeypatch.setenv("THUMBNAIL_DIRECTOR_ENABLED", "true")
-    monkeypatch.setenv("AVATAR_APPEARANCE", "a bearded man in his late 20s")
-    reset_settings_cache()
-    settings = get_settings()
+    settings = _settings(monkeypatch, enabled=True)
     llm = fakes.LLM(script_json="a bold cinematic thumbnail")
     ThumbnailDirector(settings, llm).compose(
         "developer at a desk", title="t", description="A video about ML system design interviews.")
     blob = ((llm.calls[-1]["system"] or "") + llm.calls[-1]["prompt"]).lower()
-    # the operator's avatar appearance / face-matching is NOT injected anywhere
-    assert "a bearded man in his late 20s" not in blob
+    # No operator face-matching / avatar guardrails are injected into the director prompt.
     assert "match the presenter" not in blob
 
 

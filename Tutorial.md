@@ -55,6 +55,8 @@ RENDERED → PUBLISHED` (plus `REVISING` during the loop and `FAILED`).
 
 **Prerequisites** (one time):
 - Python 3.11+, and ffmpeg (`winget install Gyan.FFmpeg` — then **fully restart your editor**).
+- Install the CLI: `pip install content-foundry` (from PyPI), or from source for development
+  (`pip install -r requirements.txt && pip install -e .`).
 - [Ollama](https://ollama.com) for a free local LLM: `ollama pull qwen2.5:7b-instruct`
 - `pip install edge-tts` (free voice; already a dependency).
 
@@ -150,7 +152,7 @@ Global flags go **before** the command: `content-foundry --profile cheap --dry-r
 | `judge --input script.json` | Stage 3 only |
 | `voiceover --run-id <id>` | Stage 4 |
 | `visuals --run-id <id>` | Stage 5 |
-| `thumbnail --run-id <id> [--prompt "..."] [--reset] [--no-face-id] [--scale 0.7]` | Regenerate ONLY the thumbnail; the exact prompt is saved to `assets/thumbnail_prompt.txt` — edit it and re-run to control the look |
+| `thumbnail --run-id <id> [--prompt "..."] [--reset]` | Regenerate ONLY the thumbnail; the exact prompt is saved to `assets/thumbnail_prompt.txt` — edit it and re-run to control the look |
 | `render --run-id <id> [--backend ffmpeg]` | Stage 6 |
 | `publish --run-id <id> [--dry-run] [--privacy private] [--mode draft]` | Stage 7 |
 | `resume --run-id <id> [--to-stage publish]` | **Continue a run from its next stage automatically** |

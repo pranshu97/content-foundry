@@ -19,9 +19,10 @@ Watch the output live: **[youtube.com/@TheCrackedEng](https://www.youtube.com/@T
 ## Quickstart
 
 ```bash
-# 1. Create & activate a Python 3.11+ environment, then install
-pip install -r requirements.txt
-pip install -e .            # exposes the `content-foundry` CLI
+# 1. Install (Python 3.11+). From PyPI:
+pip install content-foundry            # the `content-foundry` CLI + the default pipeline
+# …or from source for local development (also installs the pinned local-ML stack):
+#   pip install -r requirements.txt && pip install -e .
 
 # 2. Configure
 cp .env.example .env        # fill in your keys (see Human_Tasks.md)
@@ -47,7 +48,7 @@ src/content_foundry/    # the engine (models, agents, providers, pipeline, ...)
 dashboard/            # Streamlit review dashboard
 scripts/              # init_db, seed_demo
 tests/                # unit / agent / integration / e2e (dry-run)
-spec/                 # the authoritative specification (25 chapters)
+spec/                 # the authoritative specification (26 chapters)
 output/runs/<run_id>/ # per-run artifacts + media + package.md
 ```
 

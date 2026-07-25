@@ -1,0 +1,21 @@
+name: security
+
+# The pre-commit hook only protects clones where someone ran `pre-commit install`.
+# This job always runs, so a contributor (or a fresh clone) can never leak a secret
+# or personal file through a push or pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  no-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # The guard is pure stdlib on purpose, so there is nothing to install.
+      - name: Scan every tracked file for secrets and personal data
+        run: python scripts/check_no_secrets.py --all

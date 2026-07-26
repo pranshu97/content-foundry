@@ -42,17 +42,20 @@ class FallbackProvider:
         max_tokens: int = 4096,
         model: str | None = None,
     ) -> LLMResponse:
-        kwargs = {
-            "system": system,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "model": model,
-        }
+        def _complete(provider: LLMProvider) -> LLMResponse:
+            return provider.complete(
+                prompt,
+                system=system,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                model=model,
+            )
+
         # Once the primary has been rate-limited this run, skip it entirely and serve from the fallback.
         if self._primary_disabled and self.secondary is not None:
-            return self.secondary.complete(prompt, **kwargs)
+            return _complete(self.secondary)
         try:
-            return self.primary.complete(prompt, **kwargs)
+            return _complete(self.primary)
         except LLMError as exc:
             if self.secondary is None:
                 raise
@@ -67,4 +70,4 @@ class FallbackProvider:
                 latched=latch,
                 reason=str(exc)[:200],
             )
-            return self.secondary.complete(prompt, **kwargs)
+            return _complete(self.secondary)

@@ -49,27 +49,32 @@ class Renderer:
         audio_real = str(run_root / voiceover.audio_path)
         _, _, frame_h = self._settings.effective_resolution.partition("x")
         subscribe = build_subscribe_spec(
-            self._settings, run_root=run_root,
-            total_duration=voiceover.duration_sec, frame_height=int(frame_h or 0) or 1080,
+            self._settings,
+            run_root=run_root,
+            total_duration=voiceover.duration_sec,
+            frame_height=int(frame_h or 0) or 1080,
         )
         like = build_like_spec(
-            self._settings, run_root=run_root,
-            total_duration=voiceover.duration_sec, frame_height=int(frame_h or 0) or 1080,
+            self._settings,
+            run_root=run_root,
+            total_duration=voiceover.duration_sec,
+            frame_height=int(frame_h or 0) or 1080,
         )
         if self._sfx is not None and getattr(self._sfx, "enabled", False):
-            cues = [(seg.start, seg.sfx) for seg in segments if seg.sfx]
+            sfx_cues = [(seg.start, seg.sfx) for seg in segments if seg.sfx]
             # Ring a bell the instant the Subscribe badge fades in at the midpoint.
             if subscribe is not None and self._settings.subscribe_bell_enabled:
-                cues.append((subscribe.start, self._settings.subscribe_bell_sound))
-            if cues:
+                sfx_cues.append((subscribe.start, self._settings.subscribe_bell_sound))
+            if sfx_cues:
                 mixed = run_root / "assets/narration_mixed.mp3"
                 if mix_sfx(
-                    audio_real, cues, self._sfx, mixed, gain_db=self._settings.sfx_volume_db
+                    audio_real, sfx_cues, self._sfx, mixed, gain_db=self._settings.sfx_volume_db
                 ):
                     audio_real = str(mixed)
         captions_real = (
             str(run_root / visuals.captions_path)
-            if self._settings.effective_captions_enabled else None
+            if self._settings.effective_captions_enabled
+            else None
         )
         citations_rel = "assets/citations.srt"
         # Each source citation appears the instant its statistic is spoken and clears after a brief
@@ -90,8 +95,9 @@ class Renderer:
 
         overlay = build_overlay_spec(self._settings)
         if self._settings.avatar_overlay_enabled and overlay is None:
-            self._log.warning("avatar_overlay_skipped_missing_image",
-                              path=self._settings.avatar_image_path)
+            self._log.warning(
+                "avatar_overlay_skipped_missing_image", path=self._settings.avatar_image_path
+            )
 
         path = self._backend.render(
             segments=resolved,
@@ -120,9 +126,13 @@ class Renderer:
 
             thumb = run_root / visuals.thumbnail_path
             applied = bool(thumb.exists()) and prepend_image_intro(
-                video_path=path, image_path=str(thumb), seconds=intro_sec,
-                resolution=self._settings.effective_resolution, fps=self._settings.video_fps,
-                ffmpeg_path=self._settings.ffmpeg_path, video_encoder=self._settings.video_encoder,
+                video_path=path,
+                image_path=str(thumb),
+                seconds=intro_sec,
+                resolution=self._settings.effective_resolution,
+                fps=self._settings.video_fps,
+                ffmpeg_path=self._settings.ffmpeg_path,
+                video_encoder=self._settings.video_encoder,
             )
             self._log.info("shorts_thumbnail_intro", seconds=intro_sec, applied=bool(applied))
             intro_extra = intro_sec if applied else 0.0

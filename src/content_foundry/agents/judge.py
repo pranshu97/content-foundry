@@ -107,8 +107,8 @@ class Judge:
         code_justif = {
             "specificity": specificity_why(script),
             "grounding": f"grounding scored {g5}/5 (floor {s.grounding_min}); "
-                         f"floor {'met' if g5 >= s.grounding_min else 'NOT met'}. "
-                         "Tie every stated number to a fact_ref from the DataBrief.",
+            f"floor {'met' if g5 >= s.grounding_min else 'NOT met'}. "
+            "Tie every stated number to a fact_ref from the DataBrief.",
             "hook": hook_why(script),
             "freshness": freshness_why(script.template_id, fresh, recent_template_ids),
             "compliance": "synthetic_disclosure flag is not set.",
@@ -157,9 +157,7 @@ class Judge:
             for name in WEIGHTS
         ]
 
-        weighted_total = round(
-            sum(d.score * d.weight for d in dimensions) / _TOTAL_WEIGHT, 2
-        )
+        weighted_total = round(sum(d.score * d.weight for d in dimensions) / _TOTAL_WEIGHT, 2)
 
         # ---- gate relief: a genuinely excellent draft earns a little slack on the *quality/quantity*
         # floors (insight & length) — NEVER on grounding, compliance, or anti-repetition. ----
@@ -168,9 +166,7 @@ class Judge:
         factor = 1.0 - relief
         word_floor = int(strict_floor * factor)
         min_scenes_eff = max(2, round(s.effective_min_scenes * factor))
-        completeness_ok = (
-            len(script.scenes) >= min_scenes_eff and script.word_count >= word_floor
-        )
+        completeness_ok = len(script.scenes) >= min_scenes_eff and script.word_count >= word_floor
         insight_ok = ins >= s.insight_min * factor
         wittiness_ok = wit >= s.wittiness_min * factor
         engagement_ok = eng >= s.engagement_min * factor
@@ -219,7 +215,10 @@ class Judge:
             None
             if verdict == Verdict.PASS
             else self._revision_instructions(
-                dimensions, fresh, forced_template_id, length_note,
+                dimensions,
+                fresh,
+                forced_template_id,
+                length_note,
                 None if redundancy_ok else redundancy_note,
                 None if open_loop_ok else open_loop_note,
             )
@@ -239,9 +238,7 @@ class Judge:
             verdict=verdict,
             summary=self._summary(verdict, weighted_total, fresh.fatigue, gates_relaxed),
             revision_instructions=revision_instructions,
-            provenance=Provenance(
-                produced_by="judge", model=used_model, config_hash=s.config_hash
-            ),
+            provenance=Provenance(produced_by="judge", model=used_model, config_hash=s.config_hash),
         )
 
     # ------------------------------------------------------------- subjective
@@ -256,7 +253,7 @@ class Judge:
 
         if want_llm and self._llm is not None:
             try:
-                data = self._llm_scores(script)
+                data = self._llm_scores(script, self._llm)
                 scores, s15, evidence, justif = {}, {}, {}, {}
                 for name in self._SUBJECTIVE:
                     d = data.get(name) or {}
@@ -290,13 +287,13 @@ class Judge:
         """Discrete 1-5 scoring is mechanical — route it to the light tier (Ch. — future plan 2)."""
         return select_model(self._settings, TaskTier.LIGHT, fallback=self._settings.judge_model)
 
-    def _llm_scores(self, script: Script) -> dict[str, dict]:
+    def _llm_scores(self, script: Script, llm: LLMProvider) -> dict[str, dict]:
         system = render_prompt(
             load_prompt("judge.system"),
             rubric_text=load_prompt("judge.rubric"),
             script_json=script.model_dump_json(),
         )
-        resp = self._llm.complete(
+        resp = llm.complete(
             "Return ONLY the JSON now.",
             system=system,
             temperature=self._settings.judge_temperature,
@@ -392,7 +389,11 @@ class Judge:
 
     @staticmethod
     def _revision_instructions(
-        dimensions, fresh, forced_template_id, length_note=None, redundancy_note=None,
+        dimensions,
+        fresh,
+        forced_template_id,
+        length_note=None,
+        redundancy_note=None,
         open_loop_note=None,
     ) -> str:
         """A per-dimension critique the Generator can act on — reuses the judge's own reasoning
@@ -419,7 +420,9 @@ class Judge:
         for d in dimensions:
             if d.passed and d.score >= 3.5:  # only critique what needs work
                 continue
-            flag = " (BELOW REQUIRED FLOOR)" if d.minimum is not None and d.score < d.minimum else ""
+            flag = (
+                " (BELOW REQUIRED FLOOR)" if d.minimum is not None and d.score < d.minimum else ""
+            )
             why = (d.justification or "").strip()
             quote = f' Reviewer flagged: "{d.evidence.strip()}".' if d.evidence else ""
             fix = f" → {d.fix_suggestion}" if d.fix_suggestion else ""

@@ -49,51 +49,244 @@ def _pick_page(rng: random.Random, *, base: int = 1) -> int:
 # OWN tags/slug name one of these AND the query never asked for it, so a clip whose subject the query
 # really did request (an astronomy video that queries "moon") is still kept. Deliberately EXCLUDES
 # tech-ambiguous words (cloud, star, tree, network, data) so genuine B-roll is never filtered.
-_OFF_TOPIC_SUBJECTS = frozenset({
-    # celestial / sky scenery
-    "moon", "lunar", "galaxy", "galaxies", "planet", "planets", "nebula", "cosmos", "cosmic",
-    "universe", "aurora", "eclipse", "meteor", "comet", "sunset", "sunrise", "twilight", "dusk",
-    # beauty / cosmetics
-    "lipstick", "makeup", "mascara", "eyeshadow", "eyeliner", "cosmetic", "cosmetics", "skincare",
-    "manicure", "pedicure", "perfume", "salon", "spa", "lipgloss",
-    # animals / wildlife
-    "cat", "cats", "kitten", "dog", "dogs", "puppy", "pet", "pets", "wildlife", "bird", "birds",
-    "horse", "cow", "sheep", "goat", "insect", "insects", "butterfly", "bee", "spider", "fish",
-    "dolphin", "whale", "lion", "tiger", "elephant", "monkey", "deer", "rabbit",
-    # nature / travel scenery
-    "flower", "flowers", "floral", "blossom", "waterfall", "beach", "ocean", "sea", "seascape",
-    "seaside", "mountain", "mountains", "jungle", "forest", "meadow", "sunflower", "tulip", "rose",
-    "coral", "safari", "vineyard",
-    # food / drink
-    "pizza", "burger", "cake", "dessert", "cupcake", "cocktail", "smoothie", "sushi", "pancake",
-    "wine", "beer", "champagne",
-    # romance / celebration clichés
-    "wedding", "bride", "groom", "kiss", "kissing", "romantic", "romance", "honeymoon", "fireworks",
-    "confetti", "balloon", "balloons", "cupid", "engagement", "engaged", "proposal", "flirt",
-    "flirting", "cuddle", "cuddling", "hug", "hugging", "sweetheart", "affection",
-    # love / valentine / holidays / greetings (stock "greeting-card" padding)
-    "valentine", "valentines", "love", "heart", "hearts", "dating", "couple", "couples",
-    "girlfriend", "boyfriend",
-    "christmas", "xmas", "santa", "halloween", "easter", "thanksgiving", "holiday", "holidays",
-    "festive", "festival", "birthday", "party", "celebration", "celebrate", "anniversary",
-    "gift", "gifts", "present", "greeting", "greetings",
-    # lifestyle / people fluff
-    "yoga", "meditation", "baby", "babies", "toddler", "newborn", "fashion",
-    "dance", "dancing", "concert", "nightclub", "disco", "karaoke",
-    # medical / anatomy / biology — the classic "diagram"/"chart"/"model"/"scan" mismatch (a stock
-    # anatomy diagram padded in for "whiteboard diagram"). Safe for a medical niche: a clip is only
-    # dropped when the QUERY itself never used the term (see _off_topic). Tech-ambiguous words
-    # (cell, virus, dna, molecule) are deliberately EXCLUDED.
-    "anatomy", "anatomical", "intestine", "intestines", "intestinal", "digestive",
-    "gastrointestinal", "colon", "bowel", "stomach", "liver", "kidney", "kidneys", "pancreas",
-    "bladder", "artery", "arteries", "cardiovascular", "respiratory", "lung", "lungs", "skeleton",
-    "skeletal", "vertebrae", "ribcage", "pelvis", "cranium", "esophagus", "abdomen", "organs",
-    "surgery", "surgical", "surgeon", "medical", "medicine", "clinic", "clinical", "patient",
-    "disease", "diagnosis", "dental", "dentist", "tooth", "teeth", "stethoscope", "syringe",
-    "vaccine", "vaccination", "ultrasound", "pathology", "prescription", "pharmacy", "biology",
-    "biological", "bacteria", "bacterial", "microscope", "microscopic", "embryo", "fetus",
-    "hormone",
-})
+_OFF_TOPIC_SUBJECTS = frozenset(
+    {
+        # celestial / sky scenery
+        "moon",
+        "lunar",
+        "galaxy",
+        "galaxies",
+        "planet",
+        "planets",
+        "nebula",
+        "cosmos",
+        "cosmic",
+        "universe",
+        "aurora",
+        "eclipse",
+        "meteor",
+        "comet",
+        "sunset",
+        "sunrise",
+        "twilight",
+        "dusk",
+        # beauty / cosmetics
+        "lipstick",
+        "makeup",
+        "mascara",
+        "eyeshadow",
+        "eyeliner",
+        "cosmetic",
+        "cosmetics",
+        "skincare",
+        "manicure",
+        "pedicure",
+        "perfume",
+        "salon",
+        "spa",
+        "lipgloss",
+        # animals / wildlife
+        "cat",
+        "cats",
+        "kitten",
+        "dog",
+        "dogs",
+        "puppy",
+        "pet",
+        "pets",
+        "wildlife",
+        "bird",
+        "birds",
+        "horse",
+        "cow",
+        "sheep",
+        "goat",
+        "insect",
+        "insects",
+        "butterfly",
+        "bee",
+        "spider",
+        "fish",
+        "dolphin",
+        "whale",
+        "lion",
+        "tiger",
+        "elephant",
+        "monkey",
+        "deer",
+        "rabbit",
+        # nature / travel scenery
+        "flower",
+        "flowers",
+        "floral",
+        "blossom",
+        "waterfall",
+        "beach",
+        "ocean",
+        "sea",
+        "seascape",
+        "seaside",
+        "mountain",
+        "mountains",
+        "jungle",
+        "forest",
+        "meadow",
+        "sunflower",
+        "tulip",
+        "rose",
+        "coral",
+        "safari",
+        "vineyard",
+        # food / drink
+        "pizza",
+        "burger",
+        "cake",
+        "dessert",
+        "cupcake",
+        "cocktail",
+        "smoothie",
+        "sushi",
+        "pancake",
+        "wine",
+        "beer",
+        "champagne",
+        # romance / celebration clichés
+        "wedding",
+        "bride",
+        "groom",
+        "kiss",
+        "kissing",
+        "romantic",
+        "romance",
+        "honeymoon",
+        "fireworks",
+        "confetti",
+        "balloon",
+        "balloons",
+        "cupid",
+        "engagement",
+        "engaged",
+        "proposal",
+        "flirt",
+        "flirting",
+        "cuddle",
+        "cuddling",
+        "hug",
+        "hugging",
+        "sweetheart",
+        "affection",
+        # love / valentine / holidays / greetings (stock "greeting-card" padding)
+        "valentine",
+        "valentines",
+        "love",
+        "heart",
+        "hearts",
+        "dating",
+        "couple",
+        "couples",
+        "girlfriend",
+        "boyfriend",
+        "christmas",
+        "xmas",
+        "santa",
+        "halloween",
+        "easter",
+        "thanksgiving",
+        "holiday",
+        "holidays",
+        "festive",
+        "festival",
+        "birthday",
+        "party",
+        "celebration",
+        "celebrate",
+        "anniversary",
+        "gift",
+        "gifts",
+        "present",
+        "greeting",
+        "greetings",
+        # lifestyle / people fluff
+        "yoga",
+        "meditation",
+        "baby",
+        "babies",
+        "toddler",
+        "newborn",
+        "fashion",
+        "dance",
+        "dancing",
+        "concert",
+        "nightclub",
+        "disco",
+        "karaoke",
+        # medical / anatomy / biology — the classic "diagram"/"chart"/"model"/"scan" mismatch (a stock
+        # anatomy diagram padded in for "whiteboard diagram"). Safe for a medical niche: a clip is only
+        # dropped when the QUERY itself never used the term (see _off_topic). Tech-ambiguous words
+        # (cell, virus, dna, molecule) are deliberately EXCLUDED.
+        "anatomy",
+        "anatomical",
+        "intestine",
+        "intestines",
+        "intestinal",
+        "digestive",
+        "gastrointestinal",
+        "colon",
+        "bowel",
+        "stomach",
+        "liver",
+        "kidney",
+        "kidneys",
+        "pancreas",
+        "bladder",
+        "artery",
+        "arteries",
+        "cardiovascular",
+        "respiratory",
+        "lung",
+        "lungs",
+        "skeleton",
+        "skeletal",
+        "vertebrae",
+        "ribcage",
+        "pelvis",
+        "cranium",
+        "esophagus",
+        "abdomen",
+        "organs",
+        "surgery",
+        "surgical",
+        "surgeon",
+        "medical",
+        "medicine",
+        "clinic",
+        "clinical",
+        "patient",
+        "disease",
+        "diagnosis",
+        "dental",
+        "dentist",
+        "tooth",
+        "teeth",
+        "stethoscope",
+        "syringe",
+        "vaccine",
+        "vaccination",
+        "ultrasound",
+        "pathology",
+        "prescription",
+        "pharmacy",
+        "biology",
+        "biological",
+        "bacteria",
+        "bacterial",
+        "microscope",
+        "microscopic",
+        "embryo",
+        "fetus",
+        "hormone",
+    }
+)
 
 
 def _off_topic(query: str, meta) -> bool:
@@ -101,7 +294,7 @@ def _off_topic(query: str, meta) -> bool:
     sunset…) that the query never asked for — so an unrelated clip the API padded results with is
     dropped, while a clip whose subject the query DID request is kept. No metadata => never off-topic
     (we only drop on positive evidence)."""
-    if isinstance(meta, (list, tuple)):
+    if isinstance(meta, list | tuple):
         meta = " ".join(str(m) for m in meta)
     meta_words = set(re.findall(r"[a-z]+", str(meta).lower()))
     stray = meta_words & _OFF_TOPIC_SUBJECTS
@@ -111,7 +304,9 @@ def _off_topic(query: str, meta) -> bool:
     return bool(stray - query_words)
 
 
-_SLUG_STOP = frozenset({"http", "https", "www", "com", "pexels", "video", "videos", "photo", "photos"})
+_SLUG_STOP = frozenset(
+    {"http", "https", "www", "com", "pexels", "video", "videos", "photo", "photos"}
+)
 
 
 def _slug_words(url: str) -> str:
@@ -126,14 +321,63 @@ def _slug_words(url: str) -> str:
 # with a person, a body part, or a framing word, so a match on ONLY one of these is not evidence. The
 # concrete subject/action words in a beat (office, chart, laptop, server, handshake, whiteboard) are
 # what must match — see _clip_ok's high-confidence gate.
-_GENERIC_SUBJECTS = frozenset({
-    "person", "people", "man", "woman", "men", "women", "guy", "girl", "boy", "kid", "child",
-    "human", "adult", "someone", "somebody", "worker", "professional", "team", "group", "crowd",
-    "everyone", "hand", "hands", "finger", "fingers", "arm", "arms", "face", "head", "body",
-    "closeup", "close", "shot", "footage", "video", "clip", "background", "view", "scene", "angle",
-    "indoor", "indoors", "outdoor", "outdoors", "camera", "looking", "using", "working", "sitting",
-    "standing", "walking", "talking", "holding",
-})
+_GENERIC_SUBJECTS = frozenset(
+    {
+        "person",
+        "people",
+        "man",
+        "woman",
+        "men",
+        "women",
+        "guy",
+        "girl",
+        "boy",
+        "kid",
+        "child",
+        "human",
+        "adult",
+        "someone",
+        "somebody",
+        "worker",
+        "professional",
+        "team",
+        "group",
+        "crowd",
+        "everyone",
+        "hand",
+        "hands",
+        "finger",
+        "fingers",
+        "arm",
+        "arms",
+        "face",
+        "head",
+        "body",
+        "closeup",
+        "close",
+        "shot",
+        "footage",
+        "video",
+        "clip",
+        "background",
+        "view",
+        "scene",
+        "angle",
+        "indoor",
+        "indoors",
+        "outdoor",
+        "outdoors",
+        "camera",
+        "looking",
+        "using",
+        "working",
+        "sitting",
+        "standing",
+        "walking",
+        "talking",
+        "holding",
+    }
+)
 
 
 def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
@@ -151,7 +395,7 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
         return False
     if not vocab:
         return True
-    if isinstance(meta, (list, tuple)):
+    if isinstance(meta, list | tuple):
         meta = " ".join(str(m) for m in meta)
     meta_words = set(re.findall(r"[a-z]+", str(meta).lower()))
     if not meta_words:
@@ -168,7 +412,8 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
     # back to a bespoke GENERATED image that depicts the WHOLE beat. Monotonic tightening: the floor is
     # 1, so a 1-2 word beat still needs just one match — nothing the looser gate accepted is newly cut.
     specific = {
-        w for w in re.findall(r"[a-z]+", (query or "").lower())
+        w
+        for w in re.findall(r"[a-z]+", (query or "").lower())
         if len(w) >= 3 and w not in _GENERIC_SUBJECTS
     }
     if specific and len(meta_words & specific) < max(1, (len(specific) + 1) // 2):
@@ -178,7 +423,10 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
 
 @runtime_checkable
 class BrollClient(Protocol):
-    enabled: bool
+    # Read-only on purpose: MultiBrollClient derives `enabled` from its sub-clients, so declaring a
+    # settable attribute here would exclude it from the protocol.
+    @property
+    def enabled(self) -> bool: ...
 
     def search(self, query: str, *, context: str = "") -> list[str]:
         """Return candidate downloadable clip URLs for the query (best first; [] if no match).
@@ -207,7 +455,9 @@ class PexelsBrollClient:
     name = "pexels"
     _SEARCH_URL = "https://api.pexels.com/videos/search"
 
-    def __init__(self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None) -> None:
+    def __init__(
+        self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None
+    ) -> None:
         self._api_key = api_key
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
@@ -247,7 +497,9 @@ class PixabayBrollClient:
     name = "pixabay"
     _SEARCH_URL = "https://pixabay.com/api/videos/"
 
-    def __init__(self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None) -> None:
+    def __init__(
+        self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None
+    ) -> None:
         self._api_key = api_key
         self._pool_size = min(200, max(3, pool_size))  # Pixabay requires per_page in [3, 200]
         self._rng = rng or random.Random()
@@ -291,7 +543,9 @@ class CoverrBrollClient:
     name = "coverr"
     _SEARCH_URL = "https://api.coverr.co/videos"
 
-    def __init__(self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None) -> None:
+    def __init__(
+        self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None
+    ) -> None:
         self._api_key = api_key
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()

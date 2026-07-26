@@ -9,7 +9,7 @@ repos:
     rev: v1.11.2
     hooks:
       - id: mypy
-        additional_dependencies: [pydantic>=2.7]
+        additional_dependencies: [pydantic>=2.7, types-python-dateutil]
         # follow-imports=silent: type-check the files being COMMITTED, but do not fail the commit on
         # pre-existing errors in modules they merely import (this repo has type debt in datasources/,
         # providers/ and renderer.py that is unrelated to any given change).

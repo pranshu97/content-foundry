@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 
@@ -57,7 +58,7 @@ class BLSSource:
 
 
 def _period_dt(point: dict):
-    year = point.get("year")
+    year: Any = point.get("year")
     period = point.get("period", "M01")
     try:
         month = int(period.lstrip("M")) if period.startswith("M") else 1

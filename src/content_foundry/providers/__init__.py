@@ -58,8 +58,10 @@ def _make_single_llm(name: str, settings: Settings) -> LLMProvider:
         return _chain_llms(
             [
                 GoogleProvider(
-                    api_key=settings.google_api_key, model=m,
-                    top_p=settings.llm_top_p, thinking=settings.google_thinking,
+                    api_key=settings.google_api_key,
+                    model=m,
+                    top_p=settings.llm_top_p,
+                    thinking=settings.google_thinking,
                 )
                 for m in models
             ],
@@ -151,7 +153,7 @@ def build_image_provider(settings: Settings) -> ImageProvider | None:
 
 
 def build_broll_client(settings: Settings) -> BrollClient:
-    clients = []
+    clients: list[BrollClient] = []
     if settings.pexels_api_key:
         from .broll import PexelsBrollClient
 
@@ -224,7 +226,8 @@ def build_publisher(settings: Settings, *, dry_run: bool = False) -> Publisher:
     from .youtube import YouTubePublisher
 
     return YouTubePublisher(
-        settings.youtube_client_secrets_file, settings.youtube_token_file,
+        settings.youtube_client_secrets_file,
+        settings.youtube_token_file,
         comment_enabled=settings.publish_top_comment or settings.recommend_comment_enabled,
     )
 

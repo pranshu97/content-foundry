@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sys
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -65,14 +66,14 @@ class _RunReporter:
 
     def __init__(self, con: Console) -> None:
         self._c = con
-        self._status = None
+        self._status: Any = None  # rich Status, created per step
 
     def close(self) -> None:
         if self._status is not None:
             self._status.stop()
             self._status = None
 
-    def __call__(self, event: str, **d: object) -> None:
+    def __call__(self, event: str, **d: Any) -> None:
         if event == "start":
             self._c.print(
                 f"\n[bold cyan]▶ content-foundry[/]  [dim]niche[/] {d.get('niche')}  "
@@ -142,6 +143,7 @@ def _infer_next_stage(run_id: str) -> str:
 def _make_idea_chooser(reporter: _RunReporter):
     """An interactive picker: show the brainstormed ideas and let the operator pick one — or choose
     0 to type their own idea instead."""
+
     def _choose(ideas: list[str]) -> str:
         reporter.close()  # stop the spinner before prompting
         console.print("\n[bold]Pick a video idea:[/]")
@@ -218,14 +220,41 @@ def _run(**kwargs):
 def run(
     niche: str | None = typer.Option(None),
     topic: str | None = typer.Option(None),
-    idea: str | None = typer.Option(None, "--idea", help="Your video idea/topic; used AS-IS by default. Add --brainstorm to explore angles around it instead."),
-    instructions: str | None = typer.Option(None, "--instructions", help="Extra guidance for THIS video that STEERS both the research direction and the script's angle/emphasis/tone (e.g. 'focus on remote roles, keep it beginner-friendly'). Persisted per run and reused on a re-run."),
-    brainstorm: bool = typer.Option(False, "--brainstorm/--no-brainstorm", help="Explore ideas with the Brainstormer (+ YouTube outlier mining, if enabled) around --idea instead of using it verbatim. OFF by default."),
+    idea: str | None = typer.Option(
+        None,
+        "--idea",
+        help="Your video idea/topic; used AS-IS by default. Add --brainstorm to explore angles around it instead.",
+    ),
+    instructions: str | None = typer.Option(
+        None,
+        "--instructions",
+        help="Extra guidance for THIS video that STEERS both the research direction and the script's angle/emphasis/tone (e.g. 'focus on remote roles, keep it beginner-friendly'). Persisted per run and reused on a re-run.",
+    ),
+    data: str | None = typer.Option(
+        None,
+        "--data",
+        help="YOUR OWN data to ground the video in: literal text, or a path to a .txt file (one fact per line). Used ALONGSIDE the researched facts but ranked ABOVE them, so the script builds on your material first. Persisted per run and reused on a re-run.",
+    ),
+    brainstorm: bool = typer.Option(
+        False,
+        "--brainstorm/--no-brainstorm",
+        help="Explore ideas with the Brainstormer (+ YouTube outlier mining, if enabled) around --idea instead of using it verbatim. OFF by default.",
+    ),
     template: str | None = typer.Option(None),
-    fmt: str | None = typer.Option(None, "--format", help="long | short (a vertical YouTube Short); overrides CONTENT_FORMAT"),
+    fmt: str | None = typer.Option(
+        None, "--format", help="long | short (a vertical YouTube Short); overrides CONTENT_FORMAT"
+    ),
     from_stage: str = typer.Option("fetch", "--from-stage"),
-    to_stage: str = typer.Option("render", "--to-stage", help="Last stage to run; defaults to 'render' (a finished, UNPUBLISHED video)"),
-    publish: bool = typer.Option(False, "--publish", help="Also publish to YouTube after rendering (off by default; the run otherwise stops at a finished video — publish later with 'content-foundry publish --run-id ...')"),
+    to_stage: str = typer.Option(
+        "render",
+        "--to-stage",
+        help="Last stage to run; defaults to 'render' (a finished, UNPUBLISHED video)",
+    ),
+    publish: bool = typer.Option(
+        False,
+        "--publish",
+        help="Also publish to YouTube after rendering (off by default; the run otherwise stops at a finished video — publish later with 'content-foundry publish --run-id ...')",
+    ),
     input: str | None = typer.Option(None),
     run_id: str | None = typer.Option(None, "--run-id"),
     force: bool = typer.Option(False),
@@ -238,7 +267,9 @@ def run(
         if fmt not in ("long", "short"):
             raise typer.BadParameter("--format must be 'long' or 'short'")
         os.environ["CONTENT_FORMAT"] = fmt
-        _STATE["format_explicit"] = True  # an explicit --format wins over the run's persisted format
+        _STATE["format_explicit"] = (
+            True  # an explicit --format wins over the run's persisted format
+        )
         reset_settings_cache()
     # Idea exploration is OPT-IN: by default the --idea is used verbatim (no brainstorming, and no
     # YouTube outlier mining, which lives behind the brainstormer). --brainstorm turns exploration on.
@@ -247,9 +278,19 @@ def run(
     if publish:
         to_stage = "publish"
     _run(
-        run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input,
-        template_id=template, force=force, dry_run=dry_run or _STATE["dry_run"],
-        niche=niche, topic_seed=topic, idea=idea, instructions=instructions, interactive_idea=True,
+        run_id=run_id,
+        from_stage=from_stage,
+        to_stage=to_stage,
+        input_path=input,
+        template_id=template,
+        force=force,
+        dry_run=dry_run or _STATE["dry_run"],
+        niche=niche,
+        topic_seed=topic,
+        idea=idea,
+        instructions=instructions,
+        data=data,
+        interactive_idea=True,
     )
 
 
@@ -267,12 +308,28 @@ def fetch(
 def generate(
     input: str = typer.Option(..., help="data_brief.json"),
     template: str | None = typer.Option(None),
-    instructions: str | None = typer.Option(None, "--instructions", help="Extra guidance that STEERS the research + script direction for this run."),
+    instructions: str | None = typer.Option(
+        None,
+        "--instructions",
+        help="Extra guidance that STEERS the research + script direction for this run.",
+    ),
+    data: str | None = typer.Option(
+        None,
+        "--data",
+        help="YOUR OWN data to ground the script in: literal text, or a path to a .txt file (one fact per line). Ranked ABOVE the researched facts.",
+    ),
     run_id: str | None = typer.Option(None, "--run-id"),
 ) -> None:
     """Stage 2 only (needs a brief)."""
-    _run(run_id=run_id, from_stage="generate", to_stage="generate", input_path=input,
-         template_id=template, instructions=instructions)
+    _run(
+        run_id=run_id,
+        from_stage="generate",
+        to_stage="generate",
+        input_path=input,
+        template_id=template,
+        instructions=instructions,
+        data=data,
+    )
 
 
 @app.command()
@@ -303,10 +360,14 @@ def visuals(run_id: str = typer.Option(..., "--run-id")) -> None:
 def thumbnail(
     run_id: str = typer.Option(..., "--run-id"),
     prompt: str | None = typer.Option(
-        None, "--prompt", help="Use this EXACT image prompt (overrides the saved/auto prompt) and save it"
+        None,
+        "--prompt",
+        help="Use this EXACT image prompt (overrides the saved/auto prompt) and save it",
     ),
     reset: bool = typer.Option(
-        False, "--reset", help="Rebuild the prompt from the script's thumbnail_concept, discarding saved edits"
+        False,
+        "--reset",
+        help="Rebuild the prompt from the script's thumbnail_concept, discarding saved edits",
     ),
 ) -> None:
     """Regenerate ONLY the thumbnail for a run — fast iteration without re-running the whole visuals
@@ -318,7 +379,9 @@ def thumbnail(
     from .pipeline.artifacts import run_paths
     from .providers import build_image_provider, build_llm_provider
 
-    _apply_run_format(run_id)  # a Short's thumbnail stays vertical on a refinement, without --format
+    _apply_run_format(
+        run_id
+    )  # a Short's thumbnail stays vertical on a refinement, without --format
     settings = get_settings()
     paths = run_paths(run_id, settings.output_dir)
     script_path = paths.artifact("script")
@@ -340,9 +403,13 @@ def thumbnail(
     try:
         llm = build_llm_provider(settings)
     except Exception:
-        llm = None  # the thumbnail director is optional; without an LLM the built-in template is used
+        llm = (
+            None  # the thumbnail director is optional; without an LLM the built-in template is used
+        )
     Visuals(settings, build_image_provider(settings), None, llm).render_thumbnail(
-        script, run_root=paths.root, prompt=prompt,
+        script,
+        run_root=paths.root,
+        prompt=prompt,
     )
     typer.echo(f"Thumbnail regenerated: {paths.root / 'assets' / 'thumbnail.png'}")
     typer.echo(f"Prompt used: {prompt_source}")
@@ -375,8 +442,13 @@ def publish(
         os.environ["PUBLISH_MODE"] = mode
     if privacy or mode:
         reset_settings_cache()
-    _run(run_id=run_id, from_stage="publish", to_stage="publish", force=True,
-         dry_run=dry_run or _STATE["dry_run"])
+    _run(
+        run_id=run_id,
+        from_stage="publish",
+        to_stage="publish",
+        force=True,
+        dry_run=dry_run or _STATE["dry_run"],
+    )
 
 
 @app.command()
@@ -392,8 +464,13 @@ def resume(
         raise typer.Exit(code=1)
     next_stage = _NEXT_STAGE.get(run.state) or _infer_next_stage(run_id)
     console.print(f"Resuming {run_id} from [cyan]{next_stage}[/cyan] (state={run.state})")
-    _run(run_id=run_id, from_stage=next_stage, to_stage=to_stage, force=True,
-         dry_run=dry_run or _STATE["dry_run"])
+    _run(
+        run_id=run_id,
+        from_stage=next_stage,
+        to_stage=to_stage,
+        force=True,
+        dry_run=dry_run or _STATE["dry_run"],
+    )
 
 
 @app.command()
@@ -408,8 +485,11 @@ def status(run_id: str = typer.Option(..., "--run-id")) -> None:
     table = Table("attempt", "template", "verdict", "insight", "weighted")
     for att in repo.get_attempts(run_id):
         table.add_row(
-            str(att.attempt_number), att.template_id, str(att.verdict),
-            str(att.insight_score), str(att.weighted_total),
+            str(att.attempt_number),
+            att.template_id,
+            str(att.verdict),
+            str(att.insight_score),
+            str(att.weighted_total),
         )
     console.print(table)
 
@@ -438,8 +518,10 @@ def report(run_id: str = typer.Option(..., "--run-id")) -> None:
         raise typer.Exit(code=1)
     jr = load_model(JudgeReport, path, expected_stage="judge_report")
     color = {"PASS": "green", "REVISE": "yellow", "FAIL": "red"}.get(jr.verdict.value, "cyan")
-    console.print(f"[{color}]{jr.verdict.value}[/{color}] weighted={jr.weighted_total} "
-                  f"insight={jr.insight_score} grounding={jr.grounding_score}")
+    console.print(
+        f"[{color}]{jr.verdict.value}[/{color}] weighted={jr.weighted_total} "
+        f"insight={jr.insight_score} grounding={jr.grounding_score}"
+    )
     table = Table("dimension", "score", "weight", "passed")
     for d in jr.scores:
         table.add_row(d.dimension, str(d.score), str(d.weight), "✓" if d.passed else "✗")

@@ -24,8 +24,12 @@ def test_full_pipeline_dry_run(settings, sample_signals, fakes):
         render_backend=fakes.Render(),
         publisher=DryRunPublisher(),
     )
-    result = orch.run(from_stage="fetch", to_stage="publish", niche="tech careers",
-                      topic_seed="junior developer hiring")
+    result = orch.run(
+        from_stage="fetch",
+        to_stage="publish",
+        niche="tech careers",
+        topic_seed="junior developer hiring",
+    )
 
     assert result.final_state == RunState.PUBLISHED
     assert result.verdict == Verdict.PASS
@@ -51,9 +55,15 @@ def test_full_pipeline_dry_run(settings, sample_signals, fakes):
 def test_render_artifact_written(settings, sample_signals, fakes):
     render = fakes.Render()
     orch = Orchestrator(
-        settings, notifier=NullNotifier(), dry_run=True, llm_provider=fakes.LLM(),
-        sources=[fakes.DataSource("adzuna", sample_signals)], tts_provider=fakes.TTS(),
-        image_provider=None, broll_client=None, render_backend=render,
+        settings,
+        notifier=NullNotifier(),
+        dry_run=True,
+        llm_provider=fakes.LLM(),
+        sources=[fakes.DataSource("adzuna", sample_signals)],
+        tts_provider=fakes.TTS(),
+        image_provider=None,
+        broll_client=None,
+        render_backend=render,
         publisher=DryRunPublisher(),
     )
     result = orch.run(from_stage="fetch", to_stage="render", niche="tech")
@@ -72,10 +82,16 @@ def test_require_script_approval_pauses_then_resumes(monkeypatch, sample_signals
 
     def make_orch():
         return Orchestrator(
-            s, notifier=NullNotifier(), dry_run=True, llm_provider=fakes.LLM(),
+            s,
+            notifier=NullNotifier(),
+            dry_run=True,
+            llm_provider=fakes.LLM(),
             sources=[fakes.DataSource("adzuna", sample_signals)],
-            tts_provider=fakes.TTS(with_timings=True), image_provider=None, broll_client=None,
-            render_backend=fakes.Render(), publisher=DryRunPublisher(),
+            tts_provider=fakes.TTS(with_timings=True),
+            image_provider=None,
+            broll_client=None,
+            render_backend=fakes.Render(),
+            publisher=DryRunPublisher(),
         )
 
     # A PASS pauses BEFORE production: state APPROVED, script written, no voiceover yet.
@@ -96,13 +112,51 @@ def test_augment_brief_prepends_research_facts(data_brief, fakes):
 
     reset_settings_cache()
     orch = Orchestrator(get_settings(), notifier=NullNotifier(), llm_provider=fakes.LLM())
-    research = ResearchBrief(run_id="R", idea="x", points=[
-        ResearchPoint(point="Referrals help 10-15x", evidence="10-15x", source_url="https://x/1")])
+    research = ResearchBrief(
+        run_id="R",
+        idea="x",
+        points=[
+            ResearchPoint(
+                point="Referrals help 10-15x", evidence="10-15x", source_url="https://x/1"
+            )
+        ],
+    )
     merged = orch._augment_brief(data_brief, research)
     # research facts are PREPENDED (rank first) so the script grounds the idea, not the raw feed
     assert merged.key_facts[0].statement == "Referrals help 10-15x"
     assert len(merged.key_facts) == len(data_brief.key_facts) + 1
     assert orch._augment_brief(data_brief, None) is data_brief  # no research -> unchanged
+
+
+def test_augment_brief_ranks_creator_data_above_research(data_brief, fakes):
+    """--data is hand-picked by the creator, so it outranks BOTH the researched facts and the feed."""
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.models import ResearchBrief, ResearchPoint
+
+    reset_settings_cache()
+    orch = Orchestrator(get_settings(), notifier=NullNotifier(), llm_provider=fakes.LLM())
+    orch._run_data = "Our churn fell 12%\nReferrals drive 40% of hires"
+    research = ResearchBrief(
+        run_id="R",
+        idea="x",
+        points=[
+            ResearchPoint(
+                point="Referrals help 10-15x", evidence="10-15x", source_url="https://x/1"
+            )
+        ],
+    )
+    merged = orch._augment_brief(data_brief, research)
+    assert [kf.statement for kf in merged.key_facts[:3]] == [
+        "Our churn fell 12%",
+        "Referrals drive 40% of hires",
+        "Referrals help 10-15x",  # researched material ranks BELOW the creator's own
+    ]
+    assert merged.key_facts[0].creator_supplied is True  # what earns it the extra weight
+    assert merged.key_facts[0].citation.source == ""  # no source given, none invented
+    # Creator data still lands (unfiltered) when there is no research at all.
+    only_creator = orch._augment_brief(data_brief, None)
+    assert only_creator.key_facts[0].statement == "Our churn fell 12%"
+    assert len(only_creator.key_facts) == len(data_brief.key_facts) + 2
 
 
 def test_resume_reuses_saved_idea_and_research(monkeypatch, data_brief, fakes):
@@ -122,8 +176,11 @@ def test_resume_reuses_saved_idea_and_research(monkeypatch, data_brief, fakes):
         paths.ideas,
     )
     save_model(
-        ResearchBrief(run_id="7777", idea="Interview prep in 30 days",
-                      points=[ResearchPoint(point="Referrals 10-15x", source_url="https://x/1")]),
+        ResearchBrief(
+            run_id="7777",
+            idea="Interview prep in 30 days",
+            points=[ResearchPoint(point="Referrals 10-15x", source_url="https://x/1")],
+        ),
         paths.research,
     )
     # Resuming generate reuses the saved pick (no re-brainstorm) and the saved research (no LLM call).
@@ -140,23 +197,68 @@ def test_run_persists_and_reuses_instructions(settings, sample_signals, fakes):
 
     def make_orch():
         return Orchestrator(
-            settings, notifier=NullNotifier(), dry_run=True, llm_provider=fakes.LLM(),
-            sources=[fakes.DataSource("adzuna", sample_signals)], tts_provider=fakes.TTS(),
-            image_provider=None, broll_client=None, render_backend=fakes.Render(),
+            settings,
+            notifier=NullNotifier(),
+            dry_run=True,
+            llm_provider=fakes.LLM(),
+            sources=[fakes.DataSource("adzuna", sample_signals)],
+            tts_provider=fakes.TTS(),
+            image_provider=None,
+            broll_client=None,
+            render_backend=fakes.Render(),
             publisher=DryRunPublisher(),
         )
 
     orch = make_orch()
-    first = orch.run(from_stage="fetch", to_stage="fetch", niche="tech careers",
-                     instructions="  Focus on remote roles; beginner-friendly  ")
+    first = orch.run(
+        from_stage="fetch",
+        to_stage="fetch",
+        niche="tech careers",
+        instructions="  Focus on remote roles; beginner-friendly  ",
+    )
     # Persisted (trimmed) to the run's sidecar so a later stage/re-run keeps the same steer.
-    assert load_run_instructions(first.run_id, settings.output_dir) == \
-        "Focus on remote roles; beginner-friendly"
+    assert (
+        load_run_instructions(first.run_id, settings.output_dir)
+        == "Focus on remote roles; beginner-friendly"
+    )
     assert orch._run_instructions == "Focus on remote roles; beginner-friendly"
     # A re-run WITHOUT --instructions reuses the persisted steer (exactly like the idea).
     orch2 = make_orch()
     orch2.run(from_stage="fetch", to_stage="fetch", run_id=first.run_id, niche="tech careers")
     assert orch2._run_instructions == "Focus on remote roles; beginner-friendly"
+
+
+def test_run_resolves_persists_and_reuses_creator_data(settings, sample_signals, fakes, tmp_path):
+    from content_foundry.pipeline.artifacts import load_run_data
+
+    def make_orch():
+        return Orchestrator(
+            settings,
+            notifier=NullNotifier(),
+            dry_run=True,
+            llm_provider=fakes.LLM(),
+            sources=[fakes.DataSource("adzuna", sample_signals)],
+            tts_provider=fakes.TTS(),
+            image_provider=None,
+            broll_client=None,
+            render_backend=fakes.Render(),
+            publisher=DryRunPublisher(),
+        )
+
+    notes = tmp_path / "my_notes.txt"
+    notes.write_text("Our churn fell 12%\nReferrals drive 40% of hires\n", encoding="utf-8")
+    orch = make_orch()
+    first = orch.run(from_stage="fetch", to_stage="fetch", niche="tech careers", data=str(notes))
+    # The FILE'S CONTENTS are persisted (not the path), so the run still grounds correctly even if
+    # that file is later edited or deleted.
+    assert (
+        load_run_data(first.run_id, settings.output_dir)
+        == "Our churn fell 12%\nReferrals drive 40% of hires"
+    )
+    # A re-run WITHOUT --data reuses the creator's material (exactly like the idea/instructions).
+    orch2 = make_orch()
+    orch2.run(from_stage="fetch", to_stage="fetch", run_id=first.run_id, niche="tech careers")
+    assert orch2._run_data == "Our churn fell 12%\nReferrals drive 40% of hires"
 
 
 def test_plan_instructions_routes_research_and_script(monkeypatch, fakes):
@@ -200,7 +302,6 @@ def test_plan_instructions_is_a_noop_when_disabled(monkeypatch, fakes):
     assert not (paths.root / "instruction_plan.json").exists()
 
 
-
 def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
     from content_foundry.config import get_settings, reset_settings_cache
     from content_foundry.models import IdeaSelection
@@ -216,7 +317,8 @@ def test_idea_chooser_picks_from_proposed(monkeypatch, data_brief, fakes):
         return ideas[-1]  # deliberately pick the last
 
     orch = Orchestrator(
-        settings, notifier=NullNotifier(),
+        settings,
+        notifier=NullNotifier(),
         llm_provider=fakes.LLM(script_json=["Idea A", "Idea B", "Idea C"]),
         idea_chooser=chooser,
     )
@@ -246,7 +348,8 @@ def test_idea_chosen_index_is_correct_for_a_proven_pick(monkeypatch, data_brief,
     proven = MinedIdea(title="Proven One", channel_title="X", views=1_000_000, multiple=5.0)
 
     orch = Orchestrator(
-        settings, notifier=NullNotifier(),
+        settings,
+        notifier=NullNotifier(),
         llm_provider=fakes.LLM(script_json=["Idea A", "Idea B"]),
         idea_chooser=lambda ideas: ideas[0],  # pick the proven (tagged) line
     )

@@ -65,7 +65,9 @@ class RunPaths:
 
 def run_paths(run_id: str, output_dir: str) -> RunPaths:
     root = Path(output_dir) / run_id
-    return RunPaths(run_id=run_id, root=root, assets=root / "assets", scenes=root / "assets" / "scenes")
+    return RunPaths(
+        run_id=run_id, root=root, assets=root / "assets", scenes=root / "assets" / "scenes"
+    )
 
 
 def next_run_id(output_dir: str) -> str:
@@ -140,6 +142,23 @@ def load_run_instructions(run_id: str, output_dir: str) -> str | None:
     """The persisted extra creator instructions for an EXISTING run, or ``None`` — so a re-run reuses
     the same steer for research + script direction."""
     val = _read_run_meta(run_paths(run_id, output_dir)).get("instructions")
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return None
+
+
+def save_run_data(paths: RunPaths, data: str) -> None:
+    """Persist the creator's own ``--data`` (already RESOLVED to text, so the run stays reproducible
+    even if the source file is later edited or deleted) — a re-run without ``--data`` reuses it.
+    Best-effort; a blank is ignored."""
+    if (data or "").strip():
+        _write_run_meta(paths, creator_data=data.strip())
+
+
+def load_run_data(run_id: str, output_dir: str) -> str | None:
+    """The creator's persisted ``--data`` text for an EXISTING run, or ``None`` — so a re-run keeps
+    grounding on the same hand-supplied material."""
+    val = _read_run_meta(run_paths(run_id, output_dir)).get("creator_data")
     if isinstance(val, str) and val.strip():
         return val.strip()
     return None

@@ -11,7 +11,7 @@ from .provenance import Provenance, utcnow
 
 
 class Citation(BaseModel):
-    source: str  # adzuna | layoffs | news | bls
+    source: str = ""  # adzuna | layoffs | news | bls | research; BLANK when none was supplied
     url: str | None = None
     observed_at: datetime
     snippet: str  # exact normalized signal text supporting the fact
@@ -22,6 +22,7 @@ class KeyFact(BaseModel):
     metric: str | None = None
     value: str | None = None
     citation: Citation  # MUST reference a real fetched signal
+    creator_supplied: bool = False  # came from --data: weighed slightly above researched facts
 
 
 class ContentAngle(BaseModel):

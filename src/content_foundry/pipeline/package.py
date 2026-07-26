@@ -36,9 +36,7 @@ def build_package_md(
         else (script.title_options[0] if script.title_options else "Untitled")
     )
     verdict = (
-        f"{judge_report.verdict.value} ({judge_report.weighted_total}/5)"
-        if judge_report
-        else "n/a"
+        f"{judge_report.verdict.value} ({judge_report.weighted_total}/5)" if judge_report else "n/a"
     )
     if publish_result and publish_result.video_url:
         yt = f"{publish_result.video_url} — status: **{publish_result.privacy_status.upper()}**"
@@ -76,7 +74,8 @@ def build_package_md(
     if brief and brief.key_facts:
         for fact in brief.key_facts:
             url = fact.citation.url or "n/a"
-            lines.append(f"- {fact.statement} — {fact.citation.source}, {url}")
+            source = fact.citation.source or "no source given"
+            lines.append(f"- {fact.statement} — {source}, {url}")
     else:
         lines.append("- (brief not available)")
 

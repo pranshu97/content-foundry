@@ -10,7 +10,10 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [pydantic>=2.7]
-        args: [--ignore-missing-imports]
+        # follow-imports=silent: type-check the files being COMMITTED, but do not fail the commit on
+        # pre-existing errors in modules they merely import (this repo has type debt in datasources/,
+        # providers/ and renderer.py that is unrelated to any given change).
+        args: [--ignore-missing-imports, --follow-imports=silent]
         files: ^src/
   # Last line of defence before a secret or personal file becomes a commit. Runs on the staged
   # files only, so it stays fast; tests/unit/test_repo_hygiene.py re-checks everything tracked.

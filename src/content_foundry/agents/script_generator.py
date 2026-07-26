@@ -100,8 +100,9 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
             "obvious fake and a hard REJECT; a general credential plus anonymized stories is the goal."
         )
     tag = (
-        f'"{title_tag}"' if title_tag else
-        "a SHORT, accurate credential you can infer from that background (e.g. 'FAANG AI Scientist')"
+        f'"{title_tag}"'
+        if title_tag
+        else "a SHORT, accurate credential you can infer from that background (e.g. 'FAANG AI Scientist')"
     )
     parts.append(
         "- TITLE / THUMBNAIL: on SOME (not all) of the title options, you MAY append a short "
@@ -156,12 +157,12 @@ def _retention_context(settings) -> str:
         "reason to stay to the end — tease a SPECIFIC, valuable payoff that lands LATER (e.g. 'there is "
         "one mistake that quietly sinks most offers, and by the end I'll show you exactly how to dodge "
         "it', 'the last step is the one almost nobody does'). An unresolved question is what keeps "
-        "people watching. Put the EXACT payoff you promise in the \"open_loop\" field (or leave it \"\" "
+        'people watching. Put the EXACT payoff you promise in the "open_loop" field (or leave it "" '
         "when you plant none).\n"
         "HARD GUARDRAILS (breaking any is a REJECT):\n"
         "- CONDITIONAL: only plant it when it fits the topic NATURALLY and genuinely helps. Never bolt "
         "on a forced, generic 'stay till the end!'. If nothing here earns a real payoff to tease, plant "
-        "NONE and set open_loop to \"\" — that is the correct, common choice, and a forced tease reads "
+        'NONE and set open_loop to "" — that is the correct, common choice, and a forced tease reads '
         "worse than none.\n"
         "- NEVER A BAIT-AND-SWITCH: if you tease it, you MUST DELIVER it. The exact payoff MUST actually "
         "appear, clearly and specifically, in a LATER scene (ideally the final one before the sign-off). "
@@ -198,8 +199,15 @@ class ScriptGenerator:
         instructions: str = "",
     ) -> Script:
         system = self._build_prompt(
-            brief, template, perspective_modifier, judge_feedback, idea, previous_script, research,
-            affiliate_candidates, instructions,
+            brief,
+            template,
+            perspective_modifier,
+            judge_feedback,
+            idea,
+            previous_script,
+            research,
+            affiliate_candidates,
+            instructions,
         )
         text = self._complete(system)
         parsed = self._parse_json(system, text)
@@ -229,16 +237,22 @@ class ScriptGenerator:
         instructions: str = "",
     ) -> str:
         beats = "\n".join(f"{i + 1}) {b}" for i, b in enumerate(template.beats))
-        facts = [
-            {
+        facts = []
+        for i, kf in enumerate(brief.key_facts):
+            # A fact with no stated source carries none at all: showing an empty or placeholder
+            # source would invite the model to invent one.
+            citation = {"source": kf.citation.source} if kf.citation.source else {}
+            citation["snippet"] = kf.citation.snippet
+            entry = {
                 "index": i,
                 "statement": kf.statement,
                 "metric": kf.metric,
                 "value": kf.value,
-                "citation": {"source": kf.citation.source, "snippet": kf.citation.snippet},
+                "citation": citation,
             }
-            for i, kf in enumerate(brief.key_facts)
-        ]
+            if kf.creator_supplied:
+                entry["creator_supplied"] = True
+            facts.append(entry)
         perspective = perspective_modifier or f"PERSPECTIVE: {template.default_perspective}"
         revision = self._revision_clause(judge_feedback, previous_script)
         time_context = (
@@ -265,7 +279,8 @@ class ScriptGenerator:
             "Use ONLY the facts that DIRECTLY serve the topic above; SILENTLY IGNORE the rest and "
             "NEVER let an unrelated fact or number pull a scene off this topic. If a fact isn't "
             "about the topic, drop it — do not mention it.\n\n"
-            if idea else ""
+            if idea
+            else ""
         )
         if (instructions or "").strip():
             # The creator's extra steer (often a routed, bulleted list from the Instruction Planner):
@@ -443,9 +458,7 @@ class ScriptGenerator:
         floor = int(self._settings.min_script_word_ratio * self._settings.effective_target_words)
         if len(script.scenes) >= self._settings.effective_min_scenes and script.word_count >= floor:
             return script
-        self._log.warning(
-            "script_too_short", words=script.word_count, scenes=len(script.scenes)
-        )
+        self._log.warning("script_too_short", words=script.word_count, scenes=len(script.scenes))
         eff_words = self._settings.effective_target_words
         eff_scenes = self._settings.effective_scenes
         per_scene = max(
@@ -460,7 +473,9 @@ class ScriptGenerator:
         )
         try:
             resp = self._llm.complete(
-                boost, system=system, temperature=self._settings.llm_temperature,
+                boost,
+                system=system,
+                temperature=self._settings.llm_temperature,
                 max_tokens=self._settings.llm_max_tokens,
                 model=select_model(
                     self._settings, TaskTier.HEAVY, fallback=self._settings.generator_model
@@ -527,7 +542,9 @@ class ScriptGenerator:
             return script
         first = script.scenes[0]
         if _hook_already_spoken(hook, first.narration):
-            return script  # scene 0 already opens on the hook (verbatim or reworded) — don't duplicate
+            return (
+                script  # scene 0 already opens on the hook (verbatim or reworded) — don't duplicate
+            )
         first.narration = f"{hook} {first.narration.lstrip()}".strip()
         script.word_count = _word_count(script)
         return script
@@ -595,6 +612,8 @@ class ScriptGenerator:
             if ref is None or not (0 <= ref < len(brief.key_facts)):
                 continue  # ungrounded stats are stripped in _repair_grounding
             label = _source_label(brief.key_facts[ref].citation)
+            if not label:
+                continue  # the creator gave no source for this point — never invent one
             caption = (scene.on_screen_text or "").strip()
             if _has_source(caption, label):
                 continue
@@ -670,11 +689,22 @@ def _domain_from_url(url: str | None) -> str:
 def _source_label(citation) -> str:
     """A short, human-readable source for the on-screen citation. Facts without a fixed label (e.g.
     web-search results) show the site's domain from the URL — 'Source: msoe.edu' beats a generic
-    'Source: Search' — falling back to the capitalised source name only when there is no URL."""
+    'Source: Search' — falling back to the capitalised source name only when there is no URL.
+
+    Returns "" when the fact carries NO source (a creator data point that named none), so the caller
+    skips the stamp instead of printing a meaningless 'Source: Source'.
+    """
     key = (citation.source or "").lower()
     if key in _SOURCE_LABELS:
         return _SOURCE_LABELS[key]
-    return _domain_from_url(getattr(citation, "url", None)) or (citation.source or "source").title()
+    domain = _domain_from_url(getattr(citation, "url", None))
+    if domain:
+        return domain
+    source = (citation.source or "").strip()
+    # A one-word internal key ("research") reads better capitalised, but a creator's own wording is
+    # left exactly as typed so acronyms survive — .title() would turn "internal ATS export" into
+    # "Internal Ats Export".
+    return source.title() if source.islower() and " " not in source else source
 
 
 def _has_source(caption: str, label: str) -> bool:
@@ -769,8 +799,14 @@ _LABEL_LEADIN_RE = re.compile(
 # third person. Bounded to the "at/with/here at <Company> ... we/our" shape so ordinary advice
 # ("we've all been there", "tailor your resume") is untouched. The prompt forbids it; this backstops.
 _THIRD_PERSON = {
-    "we": "they", "we're": "they're", "we've": "they've", "we'll": "they'll",
-    "our": "their", "ours": "theirs", "us": "them", "ourselves": "themselves",
+    "we": "they",
+    "we're": "they're",
+    "we've": "they've",
+    "we'll": "they'll",
+    "our": "their",
+    "ours": "theirs",
+    "us": "them",
+    "ourselves": "themselves",
 }
 _COMPANY = (
     r"[A-Z][\w&.\-]*"
@@ -872,20 +908,75 @@ def _word_count(script: Script) -> int:
     return words
 
 
-_HOOK_STOP = frozenset({
-    "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "at", "by", "as", "is",
-    "are", "was", "were", "you", "your", "they", "them", "then", "than", "this", "that", "these",
-    "those", "it", "its", "into", "from", "about", "just", "so", "but", "if", "not", "will",
-    "have", "has", "had", "do", "does", "did", "what", "when", "who", "why", "how", "we", "our",
-    "my", "me", "be", "can", "get",
-})
+_HOOK_STOP = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "at",
+        "by",
+        "as",
+        "is",
+        "are",
+        "was",
+        "were",
+        "you",
+        "your",
+        "they",
+        "them",
+        "then",
+        "than",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "into",
+        "from",
+        "about",
+        "just",
+        "so",
+        "but",
+        "if",
+        "not",
+        "will",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "what",
+        "when",
+        "who",
+        "why",
+        "how",
+        "we",
+        "our",
+        "my",
+        "me",
+        "be",
+        "can",
+        "get",
+    }
+)
 
 
 def _hook_content_words(text: str) -> set[str]:
     """The salient (non-stopword, 3+ char) words of a line — used to measure whether two openings say
     the same thing."""
     return {
-        w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+        w
+        for w in re.findall(r"[a-z0-9]+", (text or "").lower())
         if len(w) >= 3 and w not in _HOOK_STOP
     }
 
@@ -894,6 +985,7 @@ def _hook_already_spoken(hook: str, narration: str) -> bool:
     """True when ``narration`` already OPENS with ``hook`` — either as a normalized verbatim lead, or
     as a clearly reworded restatement of it (most of the hook's content words already sit in the
     scene's opening window) — so prepending the hook would only repeat what is already said."""
+
     def _norm(t: str) -> str:
         return " ".join(re.findall(r"[a-z0-9]+", (t or "").lower()))
 

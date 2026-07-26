@@ -7,6 +7,7 @@ import contextlib
 import random
 import time
 from pathlib import Path
+from typing import Any
 
 from ulid import ULID
 
@@ -57,16 +58,19 @@ from .artifacts import (
     ARTIFACT_FILENAMES,
     ensure_run_dirs,
     load_model,
+    load_run_data,
     load_run_idea,
     load_run_instructions,
     next_run_id,
     run_paths,
     save_model,
+    save_run_data,
     save_run_format,
     save_run_idea,
     save_run_instructions,
     sha256_file,
 )
+from .creator_data import creator_key_facts, resolve_data
 from .package import build_package_md
 from .stages import PRODUCTION_STAGES, stages_between
 from .topic_relevance import filter_to_idea
@@ -132,6 +136,7 @@ class Orchestrator:
         self._publisher = publisher
         self._sfx = sfx_client
         self._run_instructions = ""  # per-run creator steer (raw --instructions)
+        self._run_data = ""  # per-run creator-supplied facts (resolved --data text)
         self._research_focus_text = ""  # steer for research synthesis (routed or verbatim)
         self._script_directions_text = ""  # steer for script generation (routed or verbatim)
         self._research_queries: list[str] = []  # planner-derived web searches for research
@@ -162,6 +167,7 @@ class Orchestrator:
         topic_seed: str | None = None,
         idea: str | None = None,
         instructions: str | None = None,
+        data: str | None = None,
     ) -> RunResult:
         start = time.time()
         niche = niche or self.s.target_niche
@@ -170,12 +176,18 @@ class Orchestrator:
         paths = run_paths(run_id, self.s.output_dir)
         ensure_run_dirs(paths)
         if self.s.run_log_enabled:
-            set_run_log_file(str(paths.root / "run.log"))  # tee every log line to a per-run debug file
-        save_run_format(paths, self.s.content_format)  # so a re-run/thumbnail keeps this run's shape
+            set_run_log_file(
+                str(paths.root / "run.log")
+            )  # tee every log line to a per-run debug file
+        save_run_format(
+            paths, self.s.content_format
+        )  # so a re-run/thumbnail keeps this run's shape
         # Persist + REUSE the run's idea so a re-run (e.g. `--from-stage fetch` without `--idea`) keeps
         # the SAME topic instead of collapsing to the bare niche — the root of the "ML system design ->
         # tech career ladder" drift. A --idea/--topic passed now wins and is (re)saved; else reuse it.
-        idea = (idea or topic_seed or load_run_idea(run_id, self.s.output_dir) or "").strip() or None
+        idea = (
+            idea or topic_seed or load_run_idea(run_id, self.s.output_dir) or ""
+        ).strip() or None
         if idea:
             save_run_idea(paths, idea)
         # Extra creator instructions: a steer that drives BOTH the research direction and the script's
@@ -186,6 +198,14 @@ class Orchestrator:
         ).strip()
         if self._run_instructions:
             save_run_instructions(paths, self._run_instructions)
+        # The creator's OWN data (--data, literal text or a .txt file) outranks everything researched.
+        # Resolved to text up front so the run is reproducible if that file later changes, then
+        # persisted + reused exactly like the idea and instructions.
+        self._run_data = (
+            resolve_data(data) or load_run_data(run_id, self.s.output_dir) or ""
+        ).strip()
+        if self._run_data:
+            save_run_data(paths, self._run_data)
         # DEFAULT steer = the raw instructions drive BOTH research and script (no extra queries). When
         # generating WITH instructions, the Instruction Planner (Agent 1.4) may REFINE this into a
         # routed plan: fact-finding focus + concrete search queries for research, delivery directions
@@ -204,15 +224,25 @@ class Orchestrator:
 
         try:
             result = self._execute(
-                run_id, stages, paths, produced, hashes,
-                niche=niche, topic_seed=topic_seed, template_id=template_id, force=force, idea=idea,
+                run_id,
+                stages,
+                paths,
+                produced,
+                hashes,
+                niche=niche,
+                topic_seed=topic_seed,
+                template_id=template_id,
+                force=force,
+                idea=idea,
             )
         except ContentFoundryError as exc:
             self.repo.update_run(run_id, state=RunState.FAILED.value)
             self._persist_spend()
             self.notifier.send(
-                "run_failed", "❌ Run failed",
-                f"{run_id}: {type(exc).__name__}: {exc}", meta={"run_id": run_id},
+                "run_failed",
+                "❌ Run failed",
+                f"{run_id}: {type(exc).__name__}: {exc}",
+                meta={"run_id": run_id},
             )
             self.log.error("run_failed", run_id=run_id, error=str(exc))
             raise
@@ -221,26 +251,41 @@ class Orchestrator:
         result.duration_sec = round(time.time() - start, 2)
         if result.final_state == RunState.FAILED:
             self.notifier.send(
-                "run_failed", "❌ Run failed",
-                f"{run_id}: ended in FAILED state", meta={"run_id": run_id},
+                "run_failed",
+                "❌ Run failed",
+                f"{run_id}: ended in FAILED state",
+                meta={"run_id": run_id},
             )
         else:
             self.notifier.send(
-                "run_complete", "✅ Run complete",
+                "run_complete",
+                "✅ Run complete",
                 f"{run_id}: {result.final_state.value} "
                 f"verdict={result.verdict.value if result.verdict else 'n/a'}",
                 meta={"run_id": run_id},
             )
         self.log.info("run_end", run_id=run_id, state=result.final_state.value)
         self._emit(
-            "end", run_id=run_id, state=result.final_state.value,
+            "end",
+            run_id=run_id,
+            state=result.final_state.value,
             verdict=result.verdict.value if result.verdict else None,
         )
         return result
 
     # ============================================================== execution
     def _execute(
-        self, run_id, stages, paths, produced, hashes, *, niche, topic_seed, template_id, force,
+        self,
+        run_id,
+        stages,
+        paths,
+        produced,
+        hashes,
+        *,
+        niche,
+        topic_seed,
+        template_id,
+        force,
         idea=None,
     ) -> RunResult:
         run_root = paths.root
@@ -258,19 +303,30 @@ class Orchestrator:
                 self._persist(run_id, "data_brief", brief, paths, produced, hashes, None, {})
                 self.repo.update_run(run_id, state=RunState.FETCHED.value)
                 live = ", ".join(s for s, ok in brief.coverage.items() if ok) or "none"
-                self._emit("done", label="Data brief",
-                           detail=f"{len(brief.key_facts)} facts · {live}")
+                self._emit(
+                    "done", label="Data brief", detail=f"{len(brief.key_facts)} facts · {live}"
+                )
 
             elif stage == "generate":
                 if "judge" in stages:
                     verdict = self._gen_judge_loop(
-                        run_id, paths, produced, hashes, template_id=template_id, idea=idea,
+                        run_id,
+                        paths,
+                        produced,
+                        hashes,
+                        template_id=template_id,
+                        idea=idea,
                         force=force,
                     )
                     handled_judge = True
                 else:
                     self._generate_once(
-                        run_id, paths, produced, hashes, template_id=template_id, idea=idea,
+                        run_id,
+                        paths,
+                        produced,
+                        hashes,
+                        template_id=template_id,
+                        idea=idea,
                         force=force,
                     )
 
@@ -282,7 +338,9 @@ class Orchestrator:
             elif stage in PRODUCTION_STAGES:
                 if not gate_checked:
                     if not (force or verdict == Verdict.PASS):
-                        self.log.info("production_gate_blocked", run_id=run_id, verdict=str(verdict))
+                        self.log.info(
+                            "production_gate_blocked", run_id=run_id, verdict=str(verdict)
+                        )
                         self._emit("gate", ok=False, verdict=verdict.value if verdict else None)
                         break
                     if self.s.require_script_approval and handled_judge and not force:
@@ -306,7 +364,9 @@ class Orchestrator:
         if report.verdict == Verdict.PASS:
             return None
         s = self.s
-        factor = 1.0 - (s.gate_relief_ratio if report.weighted_total >= s.gate_relief_score else 0.0)
+        factor = 1.0 - (
+            s.gate_relief_ratio if report.weighted_total >= s.gate_relief_score else 0.0
+        )
         floor = int(s.min_script_word_ratio * s.effective_target_words * factor)
         min_scenes = max(2, round(s.effective_min_scenes * factor))
         bits: list[str] = []
@@ -358,7 +418,12 @@ class Orchestrator:
         # title is not itself in `offered` — matching the tagged line is what makes the index right).
         chosen_index = offered.index(picked) if picked in offered else -1
         self._record_idea(
-            run_id, paths, seed=seed, generated=offered, chosen=chosen, source=source,
+            run_id,
+            paths,
+            seed=seed,
+            generated=offered,
+            chosen=chosen,
+            source=source,
             chosen_index=chosen_index,
         )
         self._emit("done", label="Idea", detail=chosen[:80])
@@ -429,9 +494,10 @@ class Orchestrator:
         self._research_queries = list(plan.research_queries)
         self._write_plan_debug(paths, plan)
         self._emit(
-            "done", label="Instruction plan",
+            "done",
+            label="Instruction plan",
             detail=f"{len(plan.research_focus)} research · {len(plan.research_queries)} queries · "
-                   f"{len(plan.script_directions)} script",
+            f"{len(plan.script_directions)} script",
         )
 
     def _write_plan_debug(self, paths, plan) -> None:
@@ -455,15 +521,21 @@ class Orchestrator:
             except SchemaValidationError:
                 cached = None
             if cached and cached.idea == idea:
-                self._emit("done", label="Research (reused cached)",
-                           detail=f"{len(cached.points)} points")
+                self._emit(
+                    "done", label="Research (reused cached)", detail=f"{len(cached.points)} points"
+                )
                 return cached
         self._emit("step", label="Researching the topic")
         try:
             research = Researcher(
                 self.s, self._llm_provider(), search_provider=self._search_provider()
-            ).run(run_id, brief, idea=idea, instructions=self._research_focus_text,
-                  research_queries=self._research_queries)
+            ).run(
+                run_id,
+                brief,
+                idea=idea,
+                instructions=self._research_focus_text,
+                research_queries=self._research_queries,
+            )
         except Exception as exc:  # never fatal
             self.log.warning("research_failed", run_id=run_id, error=str(exc))
             return None
@@ -494,7 +566,10 @@ class Orchestrator:
             from ..production.affiliate import resolve_candidates
 
             return resolve_candidates(
-                self.s, idea=idea, niche=brief.niche, search_provider=self._search_provider(),
+                self.s,
+                idea=idea,
+                niche=brief.niche,
+                search_provider=self._search_provider(),
                 amazon_queries=self._affiliate_queries(idea, brief.niche),
             )
         except Exception as exc:  # affiliate discovery must never break generation
@@ -518,7 +593,9 @@ class Orchestrator:
             )
             resp = self._llm_provider().complete(
                 "Return ONLY the JSON array now.",
-                system=system, temperature=0.3, max_tokens=self.s.llm_max_tokens,
+                system=system,
+                temperature=0.3,
+                max_tokens=self.s.llm_max_tokens,
                 model=select_model(self.s, TaskTier.LIGHT, fallback=self.s.judge_model),
             )
             queries = self._parse_query_list(resp.text)
@@ -527,7 +604,10 @@ class Orchestrator:
             queries = []
         seen: set[str] = set()
         out: list[str] = []
-        for query in [*queries, deterministic]:  # LLM queries first, deterministic as the safety net
+        for query in [
+            *queries,
+            deterministic,
+        ]:  # LLM queries first, deterministic as the safety net
             key = (query or "").strip().lower()
             if key and key not in seen:
                 seen.add(key)
@@ -558,16 +638,20 @@ class Orchestrator:
         return []
 
     def _augment_brief(self, brief: DataBrief, research: ResearchBrief | None) -> DataBrief:
-        """Fold the Researcher's idea-relevant findings into the brief's CITABLE key_facts (prepended,
-        so they rank first), and FILTER the broad raw-search facts down to the ones that genuinely
-        belong to the chosen idea — so the larger research volume can't drag the script off topic. Used
-        for BOTH generation and judging so their fact_refs line up."""
+        """Assemble the brief's CITABLE key_facts in PRIORITY order: the creator's own ``--data``
+        first, then the Researcher's idea-relevant findings, then the broad raw-search facts FILTERED
+        down to the ones that genuinely belong to the chosen idea — so the larger research volume
+        can't drag the script off topic. Used for BOTH generation and judging so their fact_refs line
+        up. Creator facts are never filtered: they were chosen by hand, so they are trusted as-is."""
+        creator = creator_key_facts(self._run_data)
         if not research or not research.points:
-            return brief
+            if not creator:
+                return brief
+            return brief.model_copy(update={"key_facts": creator + list(brief.key_facts)})
         idea = (research.idea or brief.topic_seed or brief.niche or "").strip()
         on_topic = filter_to_idea(list(brief.key_facts), idea=idea, text=lambda kf: kf.statement)
         return brief.model_copy(
-            update={"key_facts": research_key_facts(research) + on_topic}
+            update={"key_facts": creator + research_key_facts(research) + on_topic}
         )
 
     def _load_research(self, paths) -> ResearchBrief | None:
@@ -611,30 +695,50 @@ class Orchestrator:
 
         for attempt_number in range(1, self.s.max_revisions + 1):
             self._check_budget(run_id)
-            self._emit("step",
-                       label=f"Generating script (attempt {attempt_number}/{self.s.max_revisions})")
+            self._emit(
+                "step", label=f"Generating script (attempt {attempt_number}/{self.s.max_revisions})"
+            )
             attempt_id = str(ULID())
             script = ScriptGenerator(self.s, self._llm_provider()).run(
-                run_id, gen_brief, template,
-                perspective_modifier=perspective, judge_feedback=feedback,
-                attempt_number=attempt_number, idea=idea, previous_script=previous_script,
-                research=research, affiliate_candidates=aff_cands,
+                run_id,
+                gen_brief,
+                template,
+                perspective_modifier=perspective,
+                judge_feedback=feedback,
+                attempt_number=attempt_number,
+                idea=idea,
+                previous_script=previous_script,
+                research=research,
+                affiliate_candidates=aff_cands,
                 instructions=self._script_directions_text,
             )
-            self.repo.add_attempt(attempt_id, run_id, db_offset + attempt_number, template.id, forced)
+            self.repo.add_attempt(
+                attempt_id, run_id, db_offset + attempt_number, template.id, forced
+            )
             self._persist(
-                run_id, "script", script, paths, produced, hashes, attempt_id,
+                run_id,
+                "script",
+                script,
+                paths,
+                produced,
+                hashes,
+                attempt_id,
                 {"data_brief": hashes.get("data_brief", "")},
             )
             self.repo.record_template_usage(run_id, template.id, script.hook)
             self.repo.update_run(run_id, state=RunState.GENERATED.value)
             self._estimate_generate_spend(script)
 
-            self._emit("step",
-                       label=f"Evaluating script (attempt {attempt_number}/{self.s.max_revisions})")
+            self._emit(
+                "step", label=f"Evaluating script (attempt {attempt_number}/{self.s.max_revisions})"
+            )
             report = Judge(self.s, self._llm_provider()).run(
-                run_id, script, gen_brief, attempt_number=attempt_number,
-                recent_template_ids=recent_ids, recent_hooks=recent_hooks,
+                run_id,
+                script,
+                gen_brief,
+                attempt_number=attempt_number,
+                recent_template_ids=recent_ids,
+                recent_hooks=recent_hooks,
             )
             self._record_judge_attempt(run_id, attempt_id, report, paths, produced, hashes)
             self.repo.update_run(
@@ -644,8 +748,11 @@ class Orchestrator:
                 self.credit.record(self.s.judge_model, 800, 120)
             verdict = report.verdict
             self._emit(
-                "judge", n=attempt_number, verdict=report.verdict.value,
-                total=report.weighted_total, insight=report.insight_score,
+                "judge",
+                n=attempt_number,
+                verdict=report.verdict.value,
+                total=report.weighted_total,
+                insight=report.insight_score,
                 reason=self._revise_reason(report, script),
             )
 
@@ -665,8 +772,10 @@ class Orchestrator:
                 and report.weighted_total < self.s.fail_fast_score
             ):
                 self.log.warning(
-                    "fail_fast_abort", run_id=run_id,
-                    weighted_total=report.weighted_total, threshold=self.s.fail_fast_score,
+                    "fail_fast_abort",
+                    run_id=run_id,
+                    weighted_total=report.weighted_total,
+                    threshold=self.s.fail_fast_score,
                 )
                 self.repo.update_run(
                     run_id, state=RunState.FAILED.value, final_verdict=Verdict.FAIL.value
@@ -701,20 +810,36 @@ class Orchestrator:
         recent_ids = self.repo.recent_template_ids(self.s.fatigue_lookback, exclude_run_id=run_id)
         template = get_template(template_id) if template_id else select_template(recent_ids)
         idea = self._resolve_idea(
-            run_id, paths, brief, idea,
-            self.repo.recent_hooks(self.s.fatigue_lookback, exclude_run_id=run_id), force=force,
+            run_id,
+            paths,
+            brief,
+            idea,
+            self.repo.recent_hooks(self.s.fatigue_lookback, exclude_run_id=run_id),
+            force=force,
         )
         research = self._run_research(run_id, paths, brief, idea, force=force)
         gen_brief = self._augment_brief(brief, research)
         aff_cands = self._resolve_affiliates(gen_brief, idea)
         attempt_id = str(ULID())
         script = ScriptGenerator(self.s, self._llm_provider()).run(
-            run_id, gen_brief, template, attempt_number=1, idea=idea, research=research,
-            affiliate_candidates=aff_cands, instructions=self._script_directions_text,
+            run_id,
+            gen_brief,
+            template,
+            attempt_number=1,
+            idea=idea,
+            research=research,
+            affiliate_candidates=aff_cands,
+            instructions=self._script_directions_text,
         )
         self.repo.add_attempt(attempt_id, run_id, 1, template.id, False)
         self._persist(
-            run_id, "script", script, paths, produced, hashes, attempt_id,
+            run_id,
+            "script",
+            script,
+            paths,
+            produced,
+            hashes,
+            attempt_id,
             {"data_brief": hashes.get("data_brief", "")},
         )
         self.repo.record_template_usage(run_id, template.id, script.hook)
@@ -736,12 +861,18 @@ class Orchestrator:
         attempt_id = str(ULID())
         self.repo.add_attempt(attempt_id, run_id, n, script.template_id, False)
         report = Judge(self.s, self._llm_provider()).run(
-            run_id, script, brief, attempt_number=n,
-            recent_template_ids=recent_ids, recent_hooks=recent_hooks,
+            run_id,
+            script,
+            brief,
+            attempt_number=n,
+            recent_template_ids=recent_ids,
+            recent_hooks=recent_hooks,
         )
         self._record_judge_attempt(run_id, attempt_id, report, paths, produced, hashes)
-        state = RunState.APPROVED if report.verdict == Verdict.PASS else (
-            RunState.FAILED if report.verdict == Verdict.FAIL else RunState.JUDGED
+        state = (
+            RunState.APPROVED
+            if report.verdict == Verdict.PASS
+            else (RunState.FAILED if report.verdict == Verdict.FAIL else RunState.JUDGED)
         )
         fields = {"state": state.value, "final_verdict": report.verdict.value}
         if report.verdict == Verdict.PASS:
@@ -766,8 +897,12 @@ class Orchestrator:
     def _run_production_stage(
         self, stage, run_id, run_root, paths, produced, hashes, *, force=False
     ) -> None:
-        stage_key = {"voiceover": "voiceover", "visuals": "visuals",
-                     "render": "video", "publish": "publish"}[stage]
+        stage_key = {
+            "voiceover": "voiceover",
+            "visuals": "visuals",
+            "render": "video",
+            "publish": "publish",
+        }[stage]
         label = _STAGE_LABELS[stage]
         if not force and stage_key in produced and paths.artifact(stage_key).exists():
             self.log.info("stage_skipped_cached", run_id=run_id, stage=stage)
@@ -778,9 +913,19 @@ class Orchestrator:
         self._emit("step", label=label)
         if stage == "voiceover":
             script = self._need(produced, "script", paths)
-            vo = Voiceover(self.s, self._tts_provider(run_id)).run(run_id, script, run_root=run_root)
-            self._persist(run_id, "voiceover", vo, paths, produced, hashes, None,
-                          {"script": hashes.get("script", "")})
+            vo = Voiceover(self.s, self._tts_provider(run_id)).run(
+                run_id, script, run_root=run_root
+            )
+            self._persist(
+                run_id,
+                "voiceover",
+                vo,
+                paths,
+                produced,
+                hashes,
+                None,
+                {"script": hashes.get("script", "")},
+            )
             self.repo.update_run(run_id, state=RunState.VOICED.value)
 
         elif stage == "visuals":
@@ -790,8 +935,16 @@ class Orchestrator:
             vis = Visuals(
                 self.s, self._image_provider(), self._broll_client(), self._llm_provider()
             ).run(run_id, script, vo, run_root=run_root)
-            self._persist(run_id, "visuals", vis, paths, produced, hashes, None,
-                          {"voiceover": hashes.get("voiceover", "")})
+            self._persist(
+                run_id,
+                "visuals",
+                vis,
+                paths,
+                produced,
+                hashes,
+                None,
+                {"voiceover": hashes.get("voiceover", "")},
+            )
             self.repo.update_run(run_id, state=RunState.VISUALIZED.value)
 
         elif stage == "render":
@@ -800,8 +953,16 @@ class Orchestrator:
             video = Renderer(self.s, self._render_backend(), self._sfx_client()).run(
                 run_id, vo, vis, run_root=run_root
             )
-            self._persist(run_id, "video", video, paths, produced, hashes, None,
-                          {"visuals": hashes.get("visuals", "")})
+            self._persist(
+                run_id,
+                "video",
+                video,
+                paths,
+                produced,
+                hashes,
+                None,
+                {"visuals": hashes.get("visuals", "")},
+            )
             self.repo.update_run(run_id, state=RunState.RENDERED.value)
 
         elif stage == "publish":
@@ -811,12 +972,23 @@ class Orchestrator:
             pub = Publisher(self.s, self._publisher_obj(), self._search_provider()).run(
                 run_id, video, script, vis, run_root=run_root
             )
-            self._persist(run_id, "publish", pub, paths, produced, hashes, None,
-                          {"video": hashes.get("video", "")})
+            self._persist(
+                run_id,
+                "publish",
+                pub,
+                paths,
+                produced,
+                hashes,
+                None,
+                {"video": hashes.get("video", "")},
+            )
             self.repo.add_publish_result(
-                run_id=run_id, attempt_id=None,
-                youtube_video_id=pub.youtube_video_id, video_url=pub.video_url,
-                privacy_status=pub.privacy_status, disclosure_set=pub.disclosure_set,
+                run_id=run_id,
+                attempt_id=None,
+                youtube_video_id=pub.youtube_video_id,
+                video_url=pub.video_url,
+                privacy_status=pub.privacy_status,
+                disclosure_set=pub.disclosure_set,
                 upload_status=pub.upload_status,
                 published_at=pub.published_at.isoformat() if pub.published_at else None,
             )
@@ -835,8 +1007,11 @@ class Orchestrator:
             from ..production.end_screen import build_end_screen, write_end_screen
 
             payload = build_end_screen(
-                paths.root.parent, run_id=run_id, title=pub.chosen_title,
-                tags=list(getattr(script, "tags", []) or []), niche=self.s.target_niche,
+                paths.root.parent,
+                run_id=run_id,
+                title=pub.chosen_title,
+                tags=list(getattr(script, "tags", []) or []),
+                niche=self.s.target_niche,
                 count=self.s.end_screen_count,
             )
             write_end_screen(paths.end_screen, payload)
@@ -849,21 +1024,27 @@ class Orchestrator:
     def _publish_notifications(self, run_id, pub: PublishResult) -> None:
         if pub.upload_status in ("uploaded", "pending_manual_disclosure"):
             self.notifier.send(
-                "video_uploaded", "📤 Video uploaded",
-                f"{run_id}: {pub.video_url} ({pub.privacy_status})", meta={"run_id": run_id},
+                "video_uploaded",
+                "📤 Video uploaded",
+                f"{run_id}: {pub.video_url} ({pub.privacy_status})",
+                meta={"run_id": run_id},
             )
         if pub.privacy_status != "public" or pub.upload_status == "pending_manual_disclosure":
             self.notifier.send(
-                "need_validation", "🔎 Needs your go-live OK",
-                f"{run_id}: draft awaiting approval ({pub.upload_status})", meta={"run_id": run_id},
+                "need_validation",
+                "🔎 Needs your go-live OK",
+                f"{run_id}: draft awaiting approval ({pub.upload_status})",
+                meta={"run_id": run_id},
             )
 
     def _check_budget(self, run_id: str) -> None:
         """Hard budget cap (cost safety): abort before more spend once over the monthly budget."""
         if self.s.enforce_budget_cap and self.credit.over_budget:
             self.log.error(
-                "budget_exhausted", run_id=run_id,
-                spend=round(self.credit.month_to_date_usd, 4), budget=self.s.monthly_budget_usd,
+                "budget_exhausted",
+                run_id=run_id,
+                spend=round(self.credit.month_to_date_usd, 4),
+                budget=self.s.monthly_budget_usd,
             )
             raise BudgetExhaustedError(
                 f"Estimated month-to-date spend ${self.credit.month_to_date_usd:.2f} reached the "
@@ -873,20 +1054,33 @@ class Orchestrator:
     def _record_judge_attempt(self, run_id, attempt_id, report, paths, produced, hashes) -> None:
         """Persist a judge report + rubric scores + the attempt verdict (shared by the two judge paths)."""
         self._persist(
-            run_id, "judge_report", report, paths, produced, hashes, attempt_id,
+            run_id,
+            "judge_report",
+            report,
+            paths,
+            produced,
+            hashes,
+            attempt_id,
             {"script": hashes.get("script", "")},
         )
         self.repo.add_rubric_scores(
             attempt_id,
             [
-                {"dimension": d.dimension, "score": d.score, "weight": d.weight,
-                 "passed": d.passed, "comment": d.justification}
+                {
+                    "dimension": d.dimension,
+                    "score": d.score,
+                    "weight": d.weight,
+                    "passed": d.passed,
+                    "comment": d.justification,
+                }
                 for d in report.scores
             ],
         )
         self.repo.update_attempt(
-            attempt_id, verdict=report.verdict.value,
-            insight_score=report.insight_score, weighted_total=report.weighted_total,
+            attempt_id,
+            verdict=report.verdict.value,
+            insight_score=report.insight_score,
+            weighted_total=report.weighted_total,
         )
 
     # ============================================================= persistence
@@ -898,8 +1092,13 @@ class Orchestrator:
         produced[key] = model
         hashes[key] = digest
         self.repo.add_artifact(
-            artifact_id=str(ULID()), run_id=run_id, attempt_id=attempt_id, stage=key,
-            schema_version=model.schema_version, path=str(path), content_hash=digest,
+            artifact_id=str(ULID()),
+            run_id=run_id,
+            attempt_id=attempt_id,
+            stage=key,
+            schema_version=model.schema_version,
+            path=str(path),
+            content_hash=digest,
             provenance=model.provenance.model_dump(mode="json"),
         )
 
@@ -923,14 +1122,15 @@ class Orchestrator:
         if key not in ARTIFACT_MODELS:
             raise SchemaValidationError(f"{input_path}: unknown artifact stage {key!r}")
         model_cls, expected = ARTIFACT_MODELS[key]
-        model = load_model(model_cls, input_path, expected_stage=expected)
+        model: Any = load_model(model_cls, input_path, expected_stage=expected)
         model.provenance.produced_by = "operator_edited"
-        self._persist(run_id, key, model, paths, produced, hashes, None,
-                      model.provenance.input_hashes)
+        self._persist(
+            run_id, key, model, paths, produced, hashes, None, model.provenance.input_hashes
+        )
 
     def _load_with_edit_detection(self, run_id, key, path, produced, hashes) -> None:
         model_cls, expected = ARTIFACT_MODELS[key]
-        model = load_model(model_cls, path, expected_stage=expected)
+        model: Any = load_model(model_cls, path, expected_stage=expected)
         digest = sha256_file(path)
         recorded = self.repo.latest_artifact(run_id, key)
         if recorded and recorded.content_hash != digest:
@@ -939,8 +1139,13 @@ class Orchestrator:
             save_model(model, path)
             digest = sha256_file(path)
             self.repo.add_artifact(
-                artifact_id=str(ULID()), run_id=run_id, attempt_id=None, stage=key,
-                schema_version=model.schema_version, path=str(path), content_hash=digest,
+                artifact_id=str(ULID()),
+                run_id=run_id,
+                attempt_id=None,
+                stage=key,
+                schema_version=model.schema_version,
+                path=str(path),
+                content_hash=digest,
                 provenance=model.provenance.model_dump(mode="json"),
             )
         produced[key] = model
@@ -1004,9 +1209,7 @@ class Orchestrator:
         run = self.repo.get_run(run_id)
         final_state = RunState(run.state) if run else RunState.CREATED
         verdict = self._latest_verdict(run_id, produced)
-        artifacts = {
-            key: str(paths.artifact(key)) for key in produced if key in ARTIFACT_FILENAMES
-        }
+        artifacts = {key: str(paths.artifact(key)) for key in produced if key in ARTIFACT_FILENAMES}
         pub = produced.get("publish")
         return RunResult(
             run_id=run_id,
@@ -1097,14 +1300,25 @@ def run_pipeline(
     topic_seed: str | None = None,
     idea: str | None = None,
     instructions: str | None = None,
+    data: str | None = None,
     idea_chooser=None,
     orchestrator: Orchestrator | None = None,
     reporter=None,
 ) -> RunResult:
     """Thin functional entry point over :class:`Orchestrator` (Ch. 14.3)."""
-    orch = orchestrator or Orchestrator(dry_run=dry_run, reporter=reporter, idea_chooser=idea_chooser)
+    orch = orchestrator or Orchestrator(
+        dry_run=dry_run, reporter=reporter, idea_chooser=idea_chooser
+    )
     return orch.run(
-        run_id=run_id, from_stage=from_stage, to_stage=to_stage, input_path=input_path,
-        template_id=template_id, force=force, niche=niche, topic_seed=topic_seed, idea=idea,
+        run_id=run_id,
+        from_stage=from_stage,
+        to_stage=to_stage,
+        input_path=input_path,
+        template_id=template_id,
+        force=force,
+        niche=niche,
+        topic_seed=topic_seed,
+        idea=idea,
         instructions=instructions,
+        data=data,
     )

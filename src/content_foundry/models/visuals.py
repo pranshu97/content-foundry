@@ -16,6 +16,7 @@ class VisualShot(BaseModel):
     duration_sec: float
     source: str  # pexels | pixabay | stock
     query: str  # the shot description used to find it
+    prompt: str = ""  # for a GENERATED shot: the exact image prompt used (blank for stock clips)
 
 
 class SceneVisual(BaseModel):

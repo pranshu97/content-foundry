@@ -22,7 +22,14 @@ class SceneImageDirector:
         self._log = get_logger(component="scene_image_director")
 
     def compose(
-        self, *, beats: list[str], narration: str = "", on_screen_text: str = "", niche: str = ""
+        self,
+        *,
+        beats: list[str],
+        narration: str = "",
+        on_screen_text: str = "",
+        niche: str = "",
+        title: str = "",
+        description: str = "",
     ) -> dict[str, str]:
         """Return ``{beat: image_prompt}`` for the given gap beats — one LLM call for the whole scene.
         Empty when there are no beats or the model output is unusable (the caller then uses its
@@ -40,11 +47,16 @@ class SceneImageDirector:
             on_screen=on_screen_text or "",
             style=self._settings.visual_style,
             niche=niche or self._settings.target_niche or "",
+            # The video's own title/description are what let a generic beat hint ("person working in
+            # modern office") become a shot about THIS video — the same lever that lifted the
+            # thumbnail director. render_prompt is a named .replace, so these must ALWAYS be passed.
+            title=title or "",
+            description=description or "",
         )
         resp = self._llm.complete(
             "Return ONLY the JSON now.",
             system=system,
-            temperature=0.7,
+            temperature=0.85,  # a touch of spread so shots in one scene don't converge
             max_tokens=self._settings.llm_max_tokens,
             model=model,
         )

@@ -10,12 +10,14 @@ from content_foundry.errors import SchemaValidationError
 from content_foundry.models import DataBrief
 from content_foundry.pipeline.artifacts import (
     load_model,
+    load_run_data,
     load_run_format,
     load_run_idea,
     load_run_instructions,
     next_run_id,
     run_paths,
     save_model,
+    save_run_data,
     save_run_format,
     save_run_idea,
     save_run_instructions,
@@ -57,6 +59,22 @@ def test_run_meta_persists_and_reuses_instructions(tmp_path):
     assert load_run_instructions("9999", out) is None
 
 
+def test_run_meta_persists_and_reuses_creator_data(tmp_path):
+    out = str(tmp_path)
+    paths = run_paths("0001", out)
+    paths.root.mkdir(parents=True, exist_ok=True)
+    # The creator's own data COEXISTS with the idea/instructions in the sidecar, already resolved to
+    # text so the run still grounds correctly if the source .txt is later edited or deleted.
+    save_run_idea(paths, "The ML System Design Interview")
+    save_run_data(paths, "  Our churn fell 12%\nReferrals drive 40% of hires  ")
+    assert load_run_data("0001", out) == "Our churn fell 12%\nReferrals drive 40% of hires"
+    assert load_run_idea("0001", out) == "The ML System Design Interview"  # still there
+    # A blank is ignored; an unknown run has no persisted data:
+    save_run_data(paths, "   ")
+    assert load_run_data("0001", out) == "Our churn fell 12%\nReferrals drive 40% of hires"
+    assert load_run_data("9999", out) is None
+
+
 def test_next_run_id_starts_at_0001_when_empty(tmp_path):
     assert next_run_id(str(tmp_path / "runs")) == "0001"  # missing folder
     (tmp_path / "runs").mkdir()
@@ -76,7 +94,6 @@ def test_next_run_id_ignores_legacy_ulid_folders(tmp_path):
     (runs / "0003").mkdir()
     (runs / "notes.txt").write_text("x", encoding="utf-8")  # a stray file, not a dir
     assert next_run_id(str(runs)) == "0004"
-
 
 
 def test_save_and_load_round_trip(data_brief, tmp_path):

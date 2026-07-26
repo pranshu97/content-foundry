@@ -12,7 +12,9 @@ from ..production.captions import write_srt
 
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
-_THUMB_PROMPT_REL = "assets/thumbnail_prompt.txt"  # the editable image prompt used for the thumbnail
+_THUMB_PROMPT_REL = (
+    "assets/thumbnail_prompt.txt"  # the editable image prompt used for the thumbnail
+)
 _MIN_SHOT_SEC = 2.0  # each B-roll beat runs at least this long, to avoid choppiness
 # More, shorter beats per scene: slicing a long scene into up to 8 clips (not a few long ones) stops
 # any single clip lingering or being slowed to fill the gap — more distinct footage, less stretching.
@@ -21,8 +23,17 @@ _MAX_SHOTS_PER_SCENE = 20
 # Editor 'cut' hint -> multiplier on the min seconds-per-shot: faster cutting packs MORE, shorter
 # shots into a scene; holding uses fewer, longer ones — so the render follows the script's pacing.
 _CUT_PACE = {
-    "fast": 0.6, "quick": 0.6, "rapid": 0.55, "snappy": 0.6, "hard": 0.7, "energetic": 0.65,
-    "hold": 1.8, "slow": 1.6, "linger": 1.9, "static": 2.0, "calm": 1.5,
+    "fast": 0.6,
+    "quick": 0.6,
+    "rapid": 0.55,
+    "snappy": 0.6,
+    "hard": 0.7,
+    "energetic": 0.65,
+    "hold": 1.8,
+    "slow": 1.6,
+    "linger": 1.9,
+    "static": 2.0,
+    "calm": 1.5,
 }
 
 
@@ -56,9 +67,26 @@ def _cap_words(text: str, max_words: int) -> str:
 
 
 _EMOTION_KEYWORDS = (
-    "shocked", "stunned", "surprised", "amazed", "excited", "thrilled", "happy", "smiling",
-    "angry", "furious", "serious", "confident", "smug", "worried", "anxious", "confused",
-    "curious", "disgusted", "crying", "laughing",
+    "shocked",
+    "stunned",
+    "surprised",
+    "amazed",
+    "excited",
+    "thrilled",
+    "happy",
+    "smiling",
+    "angry",
+    "furious",
+    "serious",
+    "confident",
+    "smug",
+    "worried",
+    "anxious",
+    "confused",
+    "curious",
+    "disgusted",
+    "crying",
+    "laughing",
 )
 
 
@@ -163,25 +191,121 @@ def _broll_source(url: str) -> str:
 
 # Stock-video engines match short keyword queries far better than long sentences, so trim each beat
 # to its salient words before searching (the full description is kept on the shot for provenance).
-_QUERY_STOPWORDS = frozenset({
-    # articles / conjunctions / prepositions
-    "a", "an", "the", "of", "and", "or", "with", "at", "in", "on", "to", "for", "as", "by",
-    "across", "over", "into", "from", "about", "after", "before", "while", "because", "if",
-    "but", "yet", "than", "then",
-    # pronouns / determiners
-    "this", "that", "these", "those", "their", "his", "her", "its", "your", "yours", "our",
-    "my", "mine", "we", "us", "you", "they", "them", "it", "he", "she", "him", "who", "whose",
-    "which",
-    # quantifiers / numbers
-    "two", "three", "four", "five", "some", "many", "much", "more", "most", "each", "every",
-    "any", "all", "both", "few", "one",
-    # be / auxiliary / modal
-    "is", "are", "am", "was", "were", "be", "being", "been", "do", "does", "did", "has",
-    "have", "had", "can", "will", "would", "should", "could", "may", "might", "must",
-    # question words / filler adverbs
-    "what", "when", "where", "why", "how", "so", "just", "very", "really", "too", "also",
-    "not", "no", "there", "here",
-})
+_QUERY_STOPWORDS = frozenset(
+    {
+        # articles / conjunctions / prepositions
+        "a",
+        "an",
+        "the",
+        "of",
+        "and",
+        "or",
+        "with",
+        "at",
+        "in",
+        "on",
+        "to",
+        "for",
+        "as",
+        "by",
+        "across",
+        "over",
+        "into",
+        "from",
+        "about",
+        "after",
+        "before",
+        "while",
+        "because",
+        "if",
+        "but",
+        "yet",
+        "than",
+        "then",
+        # pronouns / determiners
+        "this",
+        "that",
+        "these",
+        "those",
+        "their",
+        "his",
+        "her",
+        "its",
+        "your",
+        "yours",
+        "our",
+        "my",
+        "mine",
+        "we",
+        "us",
+        "you",
+        "they",
+        "them",
+        "it",
+        "he",
+        "she",
+        "him",
+        "who",
+        "whose",
+        "which",
+        # quantifiers / numbers
+        "two",
+        "three",
+        "four",
+        "five",
+        "some",
+        "many",
+        "much",
+        "more",
+        "most",
+        "each",
+        "every",
+        "any",
+        "all",
+        "both",
+        "few",
+        "one",
+        # be / auxiliary / modal
+        "is",
+        "are",
+        "am",
+        "was",
+        "were",
+        "be",
+        "being",
+        "been",
+        "do",
+        "does",
+        "did",
+        "has",
+        "have",
+        "had",
+        "can",
+        "will",
+        "would",
+        "should",
+        "could",
+        "may",
+        "might",
+        "must",
+        # question words / filler adverbs
+        "what",
+        "when",
+        "where",
+        "why",
+        "how",
+        "so",
+        "just",
+        "very",
+        "really",
+        "too",
+        "also",
+        "not",
+        "no",
+        "there",
+        "here",
+    }
+)
 
 
 def _search_terms(beat: str, *, min_words: int = 2, max_words: int = 4) -> str:
@@ -240,6 +364,8 @@ class Visuals:
         self._broll = broll_client
         self._llm = llm_provider
         self._relevance_context = ""
+        self._video_title = ""  # per-run context for the Scene Image Director
+        self._video_description = ""
         self._log = get_logger(component="visuals")
 
     def run(
@@ -260,6 +386,10 @@ class Visuals:
             for w in re.findall(r"[a-z]{3,}", (kw or "").lower())
         }
         self._relevance_context = " ".join(sorted(vocab)) if len(vocab) >= 8 else ""
+        # What THIS video is about, so a generic beat hint becomes a shot a viewer of this video
+        # recognises (the same context that lifted the thumbnail director).
+        self._video_title = (script.title_options or [""])[0] or ""
+        self._video_description = script.description or ""
         # Per-run picker: de-dupes, caps reuse, never repeats a clip in consecutive scenes, and always
         # takes the MOST relevant clip (deterministic — no diversity sampling; misses fall back to a
         # generated image).
@@ -312,8 +442,11 @@ class Visuals:
         if image_prompt is None and prompt_path.exists():
             image_prompt = prompt_path.read_text(encoding="utf-8").strip() or None
         used = self._compose_thumbnail(
-            script.thumbnail_concept, thumbnail_text, run_root / _THUMB_REL,
-            override_prompt=image_prompt, title=(script.title_options or [""])[0],
+            script.thumbnail_concept,
+            thumbnail_text,
+            run_root / _THUMB_REL,
+            override_prompt=image_prompt,
+            title=(script.title_options or [""])[0],
             description=(script.description or ""),
         )
         if used:  # persist the exact prompt used, so it can be inspected and edited for a re-run
@@ -356,22 +489,33 @@ class Visuals:
         off-topic clip — so no shot ever shows something irrelevant."""
         beats = [k.strip() for k in scene.b_roll_keywords if k and k.strip()]
         pace = _cut_pace(getattr(scene, "cut", None))  # the editor 'cut' hint steers shot density
-        n = max(1, min(len(beats), int(duration // (_MIN_SHOT_SEC * pace)) or 1, _MAX_SHOTS_PER_SCENE))
+        n = max(
+            1, min(len(beats), int(duration // (_MIN_SHOT_SEC * pace)) or 1, _MAX_SHOTS_PER_SCENE)
+        )
         chosen = beats[:n]
         # First pass: try to claim a RELEVANT, fresh clip for each beat FROM ITS OWN search (not a
         # borrowed clip from another beat — that is exactly the "irrelevant shot" we want to avoid).
         clips = [picker.pick(self._broll_candidates([beat])) for beat in chosen]
         # Beats with no perfect clip -> generate an image. Craft all their prompts in ONE LLM call.
-        gap_prompts = self._shot_image_prompts(
-            scene, [b for b, u in zip(chosen, clips, strict=True) if not u]
-        )
-        found: list[tuple[str, str, str]] = []  # (rel_path, source, query)
+        gap_beats = [b for b, u in zip(chosen, clips, strict=True) if not u]
+        gap_prompts = self._shot_image_prompts(scene, gap_beats)
+        if gap_beats and not gap_prompts:
+            # Every gap then falls back to build_image_prompt(), which is DETERMINISTIC per beat — so
+            # the same beat yields the byte-identical image on every run. Loud, because it looks like
+            # "the images never change" rather than like a failure.
+            self._log.warning(
+                "scene_image_director_no_prompts",
+                scene=scene.index,
+                beats=len(gap_beats),
+                hint="falling back to the deterministic template; generated images will not vary",
+            )
+        found: list[tuple[str, str, str, str]] = []  # (rel_path, source, query, prompt)
         for j, (beat, url) in enumerate(zip(chosen, clips, strict=True)):
             stem = f"assets/scenes/scene_{scene.index}_shot_{j}"
             if url:
                 rel = f"{stem}.mp4"
                 (run_root / rel).write_bytes(self._broll.download(url))
-                found.append((rel, _broll_source(url), beat))
+                found.append((rel, _broll_source(url), beat, ""))
             else:
                 rel = f"{stem}.png"
                 prompt = gap_prompts.get(beat) or build_image_prompt(
@@ -380,11 +524,14 @@ class Visuals:
                 source = self._render_shot_image(
                     prompt, run_root / rel, caption=scene.on_screen_text or beat
                 )
-                found.append((rel, source, beat))
+                found.append((rel, source, beat, prompt))
         if not found:
             return []
         per = round(duration / len(found), 3)  # split the scene evenly across the beats we found
-        return [VisualShot(path=r, duration_sec=per, source=src, query=q) for r, src, q in found]
+        return [
+            VisualShot(path=r, duration_sec=per, source=src, query=q, prompt=p)
+            for r, src, q, p in found
+        ]
 
     def _shot_image_prompts(self, scene, beats: list[str]) -> dict[str, str]:
         """Witty, richly descriptive image prompts for the beats that got NO stock B-roll — one LLM
@@ -396,9 +543,12 @@ class Visuals:
             from .scene_image_director import SceneImageDirector
 
             return SceneImageDirector(self._settings, self._llm).compose(
-                beats=beats, narration=getattr(scene, "narration", "") or "",
+                beats=beats,
+                narration=getattr(scene, "narration", "") or "",
                 on_screen_text=scene.on_screen_text or "",
                 niche=getattr(self._settings, "target_niche", "") or "",
+                title=self._video_title,
+                description=self._video_description,
             )
         except Exception as exc:  # a prompt-writing failure must never break the visuals stage
             self._log.warning("scene_image_director_skipped", error=str(exc))
@@ -418,7 +568,6 @@ class Visuals:
                 self._log.warning("scene_shot_image_failed", error=str(exc))
         _write_card(caption or prompt, self._settings.resolution_wh, target)
         return "card"
-
 
     def _build_scene_visual(
         self, scene, run_root: Path, *, duration: float, picker: _BrollPicker
@@ -483,8 +632,14 @@ class Visuals:
         return base if base.exists() else None
 
     def _compose_thumbnail(
-        self, concept: str, text: str, target: Path, *, override_prompt: str | None = None,
-        title: str = "", description: str = "",
+        self,
+        concept: str,
+        text: str,
+        target: Path,
+        *,
+        override_prompt: str | None = None,
+        title: str = "",
+        description: str = "",
     ) -> str | None:
         """Render the thumbnail and RETURN the image prompt actually used, so the caller ALWAYS persists
         it to the editable file — even when the AI image failed and only the text card was drawn (so a
@@ -504,12 +659,18 @@ class Visuals:
         # With no AI scene the face carries the designed card, so show it big; over a real scene it
         # stays a small corner tag.
         avatar_scale = (
-            self._settings.thumbnail_avatar_scale if base is not None
+            self._settings.thumbnail_avatar_scale
+            if base is not None
             else max(self._settings.thumbnail_avatar_scale, 0.85)
         )
         _write_card(
-            text, size, target, base_png=base, punchy=True,
-            avatar_path=prepared, avatar_scale=avatar_scale,
+            text,
+            size,
+            target,
+            base_png=base,
+            punchy=True,
+            avatar_path=prepared,
+            avatar_scale=avatar_scale,
         )
         # ALWAYS return the built prompt so the caller persists it — even when the AI image failed and
         # only the text card was drawn. Otherwise a regenerated prompt is silently discarded and the
@@ -527,7 +688,9 @@ class Visuals:
             self._log.warning("thumbnail_image_failed", error=str(exc))
             return None
 
-    def _scene_prompt(self, concept: str, title: str, *, no_person: bool, description: str = "") -> str:
+    def _scene_prompt(
+        self, concept: str, title: str, *, no_person: bool, description: str = ""
+    ) -> str:
         """The thumbnail SCENE image prompt. When the thumbnail director is enabled and an LLM is
         available, an LLM writes a rich, per-video creative prompt from the video's own DESCRIPTION
         (with a hard no-text rule); otherwise the built-in template is used. An explicit/saved prompt
@@ -537,7 +700,10 @@ class Visuals:
                 from .thumbnail_director import ThumbnailDirector
 
                 directed = ThumbnailDirector(self._settings, self._llm).compose(
-                    concept, title=title, niche=self._settings.target_niche, no_person=no_person,
+                    concept,
+                    title=title,
+                    niche=self._settings.target_niche,
+                    no_person=no_person,
                     description=description,
                 )
             except Exception as exc:  # a thumbnail-prompt failure must never crash the run
@@ -551,7 +717,7 @@ class Visuals:
             self._log.warning(
                 "thumbnail_director_unused",
                 hint="the Thumbnail Director produced no prompt (the LLM call likely failed) — using "
-                     "the built-in template instead; retry, or check the LLM provider",
+                "the built-in template instead; retry, or check the LLM provider",
             )
         return _thumbnail_prompt(concept, no_person=no_person)
 
@@ -611,8 +777,14 @@ def _paste_avatar(img, avatar_path: Path, size_wh: tuple[int, int], scale: float
 
 
 def _write_card(
-    text: str, size_wh: tuple[int, int], target: Path, base_png: bytes | None = None,
-    *, punchy: bool = False, avatar_path: Path | None = None, avatar_scale: float = 0.5,
+    text: str,
+    size_wh: tuple[int, int],
+    target: Path,
+    base_png: bytes | None = None,
+    *,
+    punchy: bool = False,
+    avatar_path: Path | None = None,
+    avatar_scale: float = 0.5,
 ):
     """Render a title card. ``punchy`` = a high-CTR YouTube-thumbnail overlay (bold UPPERCASE, a dark
     bottom scrim, a drop shadow + heavy outline, and numbers/the key word highlighted); otherwise a
@@ -660,8 +832,12 @@ def _write_card(
     y = y0
     for line in lines:
         draw.text(
-            (x_text, y), line, font=font, fill=(255, 255, 255),
-            stroke_width=stroke, stroke_fill=(0, 0, 0),
+            (x_text, y),
+            line,
+            font=font,
+            fill=(255, 255, 255),
+            stroke_width=stroke,
+            stroke_fill=(0, 0, 0),
         )
         y += line_h
     img.save(target, format="PNG")
@@ -695,8 +871,11 @@ def _draw_punchy_title(
         font = _load_display_font(size)
         lines = _wrap_to_width(draw, title, font, box_w, max_lines=4)
         lh = _line_height(draw, font)
-        if (len(lines) <= 3 and lh * len(lines) <= int(height * 0.6)
-                and all(draw.textlength(ln, font=font) <= box_w for ln in lines)):
+        if (
+            len(lines) <= 3
+            and lh * len(lines) <= int(height * 0.6)
+            and all(draw.textlength(ln, font=font) <= box_w for ln in lines)
+        ):
             break
         size -= 4
     lines = _wrap_to_width(draw, title, font, box_w, max_lines=3)
@@ -725,7 +904,9 @@ def _draw_punchy_title(
         for word in line.split(" "):
             token = word + " "
             color = _THUMB_ACCENT if _hot(word) else (255, 255, 255)
-            draw.text((x + shadow, y + shadow), token, font=font, fill=(0, 0, 0, 190))  # drop shadow
+            draw.text(
+                (x + shadow, y + shadow), token, font=font, fill=(0, 0, 0, 190)
+            )  # drop shadow
             draw.text(
                 (x, y), token, font=font, fill=color, stroke_width=stroke, stroke_fill=(0, 0, 0)
             )
@@ -738,8 +919,11 @@ def _load_display_font(size: int):
     from PIL import ImageFont
 
     for path in (
-        "C:/Windows/Fonts/impact.ttf", "C:/Windows/Fonts/ariblk.ttf",
-        "C:/Windows/Fonts/arialbd.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf",
+        "C:/Windows/Fonts/impact.ttf",
+        "C:/Windows/Fonts/ariblk.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "arialbd.ttf",
+        "DejaVuSans-Bold.ttf",
     ):
         try:
             return ImageFont.truetype(path, size)
@@ -786,7 +970,9 @@ def _thumbnail_fallback_bg(size_wh: tuple[int, int]):
     # Soft accent glows for depth (blurred), composited over the gradient.
     over = Image.new("RGBA", size_wh, (0, 0, 0, 0))
     od = ImageDraw.Draw(over)
-    od.ellipse([-width * 0.25, -height * 0.45, width * 0.55, height * 0.55], fill=(37, 99, 235, 150))
+    od.ellipse(
+        [-width * 0.25, -height * 0.45, width * 0.55, height * 0.55], fill=(37, 99, 235, 150)
+    )
     od.ellipse([width * 0.55, height * 0.15, width * 1.2, height * 1.05], fill=(13, 110, 138, 95))
     over = over.filter(ImageFilter.GaussianBlur(radius=int(min(width, height) * 0.14)))
     img = Image.alpha_composite(img.convert("RGBA"), over).convert("RGB")
@@ -802,7 +988,8 @@ def _thumbnail_fallback_bg(size_wh: tuple[int, int]):
     )
     draw.line(
         [(0, int(height * 0.55)), (int(width * 0.42), height)],
-        fill=(56, 189, 248, 130), width=max(2, width // 360),
+        fill=(56, 189, 248, 130),
+        width=max(2, width // 360),
     )
     return img
 

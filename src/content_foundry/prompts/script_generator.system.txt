@@ -18,6 +18,10 @@ BEAT SHEET:
 <grounding>
 These are the ONLY facts you may cite. To cite one, put its number in that scene's separate "fact_ref"
 JSON field. NEVER write the word "fact_ref" or a bare index inside the narration.
+A fact marked "creator_supplied": true comes from the creator's own material. Weigh it SLIGHTLY
+HIGHER than the researched facts when deciding what is worth covering, and never contradict it — but
+do not force one in where it genuinely does not fit the story.
+Some facts list no "source". Never invent one for them.
 {key_facts_json}
 </grounding>
 
@@ -201,9 +205,10 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   named projects or figures it does not give.
 
 ## PRODUCTION FIELDS (per scene)
-- B-ROLL SHOTS (ordered, one per beat): "b_roll_keywords" is an ORDERED list of 2-4 SHORT search
+- B-ROLL SHOTS (ordered, one per beat): "b_roll_keywords" is an ORDERED list of 3-6 SHORT search
   phrases, one per beat of THIS scene's narration in the order spoken, so the footage changes as the
-  point develops. Write each the way you'd type it into a stock-footage site: 3-4 plain, literal
+  point develops. Longer scenes should use the upper end of that range so the visuals keep moving.
+  Write each the way you'd type it into a stock-footage site: 3-4 plain, literal
   words (a concrete subject plus its action or setting) — not a single vague word (too generic to
   match) and not a whole sentence (too narrow) — naming exactly what the camera shows at that moment,
   with no articles or filler. Pull each phrase straight from the concrete noun in that beat's sentence

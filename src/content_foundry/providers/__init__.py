@@ -181,7 +181,9 @@ def build_render_backend(settings: Settings) -> RenderBackend:
     if settings.render_backend == "ffmpeg":
         from .render_backend import FfmpegBackend
 
-        return FfmpegBackend(settings.ffmpeg_path, settings.video_encoder)
+        return FfmpegBackend(
+            settings.ffmpeg_path, settings.video_encoder, settings.audio_loudness_lufs
+        )
     if settings.render_backend == "moviepy":
         from .render_backend import MoviePyBackend
 
@@ -189,7 +191,7 @@ def build_render_backend(settings: Settings) -> RenderBackend:
     from .render_backend import AvatarBackend, FfmpegBackend
 
     fallback = (
-        FfmpegBackend(settings.ffmpeg_path, settings.video_encoder)
+        FfmpegBackend(settings.ffmpeg_path, settings.video_encoder, settings.audio_loudness_lufs)
         if settings.render_fallback
         else None
     )

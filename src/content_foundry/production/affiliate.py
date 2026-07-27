@@ -39,46 +39,165 @@ class _Platform:
     id_attr: str = ""  # optional Settings attr holding just an affiliate ID (not a full URL)
     id_template: str = ""  # URL built from that ID, e.g. "https://x.com/?aff={id}"
     topic_template: str = ""  # topic-aware URL from {id} + {topic}, e.g. a search/create link
-    universal: bool = False  # fits ANY topic (a course GENERATOR) -> always a candidate, not tag-gated
+    # Query parameter that carries the affiliate ID on a DEEP link (a curated course URL). Most
+    # platforms use ?aff=, but some (Exponent, Fenzo) use ?ref= — sending the wrong one still returns
+    # a working page, so a mistake here is invisible: the link loads and the commission is silently
+    # lost. It must match the platform's own scheme.
+    ref_param: str = "aff"
+    universal: bool = (
+        False  # fits ANY topic (a course GENERATOR) -> always a candidate, not tag-gated
+    )
 
 
 # Built-in catalog. The operator only pastes a referral URL per platform (blank => that platform is
 # skipped). Extend this list to add a platform; no per-video work.
 _PLATFORMS: tuple[_Platform, ...] = (
     _Platform(
-        "algoexpert", "AlgoExpert", "curated coding-interview prep with video explanations",
-        frozenset({"interview", "interviews", "coding", "leetcode", "faang", "algorithms", "algorithm",
-                   "dsa", "swe", "software", "engineer", "engineering"}),
-        "affiliate_algoexpert_url", ("algo expert",),
+        "algoexpert",
+        "AlgoExpert",
+        "curated coding-interview prep with video explanations",
+        frozenset(
+            {
+                "interview",
+                "interviews",
+                "coding",
+                "leetcode",
+                "faang",
+                "algorithms",
+                "algorithm",
+                "dsa",
+                "swe",
+                "software",
+                "engineer",
+                "engineering",
+            }
+        ),
+        "affiliate_algoexpert_url",
+        ("algo expert",),
     ),
     _Platform(
-        "exponent", "Exponent", "system-design, PM and behavioral interview prep",
-        frozenset({"interview", "interviews", "system", "design", "behavioral", "pm", "product",
-                   "manager", "management", "faang"}),
+        "exponent",
+        "Exponent",
+        "role-specific interview courses with real mock interviews (ML, system design, behavioral)",
+        frozenset(
+            {
+                "interview",
+                "interviews",
+                "system",
+                "design",
+                "behavioral",
+                "pm",
+                "product",
+                "manager",
+                "management",
+                "faang",
+                "ml",
+                "machine",
+                "learning",
+                "ai",
+                "coding",
+                "data",
+                "science",
+                "sql",
+                "engineer",
+                "engineering",
+                "salary",
+                "negotiation",
+                "course",
+                "courses",
+            }
+        ),
         "affiliate_exponent_url",
+        ("try exponent",),
+        id_attr="affiliate_exponent_id",
+        # Exponent's referral param is ?ref= (NOT ?aff=).
+        id_template="https://www.tryexponent.com/?ref={id}",
+        ref_param="ref",
     ),
     _Platform(
-        "leetcode", "LeetCode", "company-specific coding practice problems",
-        frozenset({"interview", "interviews", "coding", "leetcode", "algorithms", "algorithm", "dsa",
-                   "practice", "faang", "problems"}),
-        "affiliate_leetcode_url", ("leet code",),
+        "leetcode",
+        "LeetCode",
+        "company-specific coding practice problems",
+        frozenset(
+            {
+                "interview",
+                "interviews",
+                "coding",
+                "leetcode",
+                "algorithms",
+                "algorithm",
+                "dsa",
+                "practice",
+                "faang",
+                "problems",
+            }
+        ),
+        "affiliate_leetcode_url",
+        ("leet code",),
     ),
     _Platform(
-        "coursera", "Coursera", "university-backed courses in ML, data and CS",
-        frozenset({"course", "courses", "learn", "learning", "ml", "machine", "data", "science",
-                   "ai", "python", "certificate", "specialization"}),
+        "coursera",
+        "Coursera",
+        "university-backed courses in ML, data and CS",
+        frozenset(
+            {
+                "course",
+                "courses",
+                "learn",
+                "learning",
+                "ml",
+                "machine",
+                "data",
+                "science",
+                "ai",
+                "python",
+                "certificate",
+                "specialization",
+            }
+        ),
         "affiliate_coursera_url",
     ),
     _Platform(
-        "udemy", "Udemy", "affordable, practical courses on almost any tech skill",
-        frozenset({"course", "courses", "learn", "learning", "python", "web", "data", "skill",
-                   "skills", "bootcamp", "ai", "ml", "project"}),
+        "udemy",
+        "Udemy",
+        "affordable, practical courses on almost any tech skill",
+        frozenset(
+            {
+                "course",
+                "courses",
+                "learn",
+                "learning",
+                "python",
+                "web",
+                "data",
+                "skill",
+                "skills",
+                "bootcamp",
+                "ai",
+                "ml",
+                "project",
+            }
+        ),
         "affiliate_udemy_url",
     ),
     _Platform(
-        "educative", "Educative", "text-based interactive courses (system design, coding)",
-        frozenset({"course", "courses", "learn", "learning", "system", "design", "coding",
-                   "interview", "interviews", "grokking"}),
+        "educative",
+        "Educative",
+        "text-based interactive courses (system design, coding)",
+        frozenset(
+            {
+                "course",
+                "courses",
+                "learn",
+                "learning",
+                "system",
+                "design",
+                "coding",
+                "interview",
+                "interviews",
+                "grokking",
+            }
+        ),
         "affiliate_educative_url",
         id_attr="affiliate_educative_id",
         id_template="https://www.educative.io/explore?aff={id}",
@@ -86,27 +205,70 @@ _PLATFORMS: tuple[_Platform, ...] = (
         topic_template="https://www.educative.io/search?query={topic}&aff={id}",
     ),
     _Platform(
-        "designgurus", "DesignGurus",
+        "designgurus",
+        "DesignGurus",
         "Grokking courses for coding, system-design and OO/API design interviews",
-        frozenset({"course", "courses", "learn", "learning", "system", "design", "coding",
-                   "interview", "interviews", "grokking", "algorithms", "algorithm", "dsa", "faang",
-                   "object", "oriented", "api", "software", "engineer", "engineering"}),
-        "affiliate_designgurus_url", ("design gurus",),
+        frozenset(
+            {
+                "course",
+                "courses",
+                "learn",
+                "learning",
+                "system",
+                "design",
+                "coding",
+                "interview",
+                "interviews",
+                "grokking",
+                "algorithms",
+                "algorithm",
+                "dsa",
+                "faang",
+                "object",
+                "oriented",
+                "api",
+                "software",
+                "engineer",
+                "engineering",
+            }
+        ),
+        "affiliate_designgurus_url",
+        ("design gurus",),
         id_attr="affiliate_designgurus_id",
         # No documented topic-search URL, so the ID builds the generic courses page; resolve_designgurus
         # upgrades it to a REAL, specific /course/<slug> when the topic fits.
         id_template="https://www.designgurus.io/courses/?aff={id}",
     ),
     _Platform(
-        "fenzo", "Fenzo AI",
+        "fenzo",
+        "Fenzo AI",
         "AI that spins up a free, interactive course on THIS exact topic in about a minute",
-        frozenset({"course", "courses", "learn", "learning", "ai", "ml", "machine", "data",
-                   "python", "skill", "skills", "study", "tutorial", "beginner", "beginners"}),
-        "affiliate_fenzo_url", ("fenzo",),
+        frozenset(
+            {
+                "course",
+                "courses",
+                "learn",
+                "learning",
+                "ai",
+                "ml",
+                "machine",
+                "data",
+                "python",
+                "skill",
+                "skills",
+                "study",
+                "tutorial",
+                "beginner",
+                "beginners",
+            }
+        ),
+        "affiliate_fenzo_url",
+        ("fenzo",),
         id_attr="affiliate_fenzo_id",
         # Fenzo's referral param is ?ref= (not ?aff=). It's a course GENERATOR — the viewer types the
         # topic on the homepage — so there's no reliable per-topic URL; the blurb frames the topic.
         id_template="https://fenzo.ai/?ref={id}",
+        ref_param="ref",
         universal=True,  # a course generator for ANY topic -> always offered, not gated on tag overlap
     ),
 )
@@ -172,13 +334,59 @@ def select_referrals(settings, *, tags, script_text: str = "") -> list[Affiliate
 _YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 # Framing/filler words that make a headline a worse BOOK-search query (a canonical book isn't titled
 # "how to ace ... in 2026"); stripped from the ENDS of the topic so the core SUBJECT leads the query.
-_QUERY_FILLER = frozenset({
-    "how", "to", "the", "a", "an", "why", "what", "when", "ways", "way", "tips", "tip", "for", "of",
-    "your", "my", "best", "top", "ultimate", "complete", "beginners", "beginner", "step", "by",
-    "secrets", "secret", "master", "mastering", "learn", "learning", "crack", "cracking", "ace",
-    "acing", "become", "becoming", "get", "getting", "land", "landing", "pass", "passing", "in",
-    "on", "into", "avoid", "stop", "start", "guide",
-})
+_QUERY_FILLER = frozenset(
+    {
+        "how",
+        "to",
+        "the",
+        "a",
+        "an",
+        "why",
+        "what",
+        "when",
+        "ways",
+        "way",
+        "tips",
+        "tip",
+        "for",
+        "of",
+        "your",
+        "my",
+        "best",
+        "top",
+        "ultimate",
+        "complete",
+        "beginners",
+        "beginner",
+        "step",
+        "by",
+        "secrets",
+        "secret",
+        "master",
+        "mastering",
+        "learn",
+        "learning",
+        "crack",
+        "cracking",
+        "ace",
+        "acing",
+        "become",
+        "becoming",
+        "get",
+        "getting",
+        "land",
+        "landing",
+        "pass",
+        "passing",
+        "in",
+        "on",
+        "into",
+        "avoid",
+        "stop",
+        "start",
+        "guide",
+    }
+)
 
 
 def _clean_topic(text: str) -> str:
@@ -231,11 +439,41 @@ def resolve_links(
 
 # ------------------------------------------------ resolve-first (BEFORE generation)
 # Words that don't help decide whether a book/course TITLE matches the video's topic.
-_TITLE_STOP = frozenset({
-    "the", "a", "an", "and", "or", "for", "of", "to", "in", "on", "with", "your", "you", "my",
-    "book", "books", "guide", "edition", "volume", "series", "how", "step", "by",
-    "ultimate", "complete", "definitive", "mastering", "master", "handbook", "blueprint", "roadmap",
-})
+_TITLE_STOP = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "for",
+        "of",
+        "to",
+        "in",
+        "on",
+        "with",
+        "your",
+        "you",
+        "my",
+        "book",
+        "books",
+        "guide",
+        "edition",
+        "volume",
+        "series",
+        "how",
+        "step",
+        "by",
+        "ultimate",
+        "complete",
+        "definitive",
+        "mastering",
+        "master",
+        "handbook",
+        "blueprint",
+        "roadmap",
+    }
+)
 # Light synonym expansion so an abbreviation in the topic still matches a spelled-out title.
 _TOPIC_SYNONYMS = {"ml": ("machine", "learning"), "ai": ("artificial", "intelligence")}
 
@@ -266,8 +504,12 @@ def _is_specific_resource(link: AffiliateLink) -> bool:
 def _book_mention(title: str) -> str:
     """A clean, scannable book title from a messy Amazon search-result title."""
     text = re.sub(r"(?i)^amazon\.com\s*:?\s*", "", (title or "").strip())
-    text = re.split(r"\s[:|\u2013\-]\s|:\s|\(", text)[0].strip()  # keep the first clause = the title
-    text = re.sub(r"[\s.\u2026|\u2013\u2014\-]+$", "", text)  # drop a trailing ellipsis / dangling punctuation
+    text = re.split(r"\s[:|\u2013\-]\s|:\s|\(", text)[
+        0
+    ].strip()  # keep the first clause = the title
+    text = re.sub(
+        r"[\s.\u2026|\u2013\u2014\-]+$", "", text
+    )  # drop a trailing ellipsis / dangling punctuation
     return text[:70].strip()
 
 
@@ -288,10 +530,16 @@ def candidate_platforms(settings, *, tags, niche: str = "") -> list[AffiliateLin
     vocab = _vocab(" ".join(tags or []) + " " + (niche or ""))
     topic = _topic_query(tags, niche)
     return [
-        AffiliateLink(p.label, _referral_url(settings, p, topic=topic), p.blurb, mention=p.label,
-                      universal=p.universal)
+        AffiliateLink(
+            p.label,
+            _referral_url(settings, p, topic=topic),
+            p.blurb,
+            mention=p.label,
+            universal=p.universal,
+        )
         for p in enabled_platforms(settings)
-        if (p.tags & vocab) or p.universal  # tag-matched, OR a universal resource that fits any topic
+        if (p.tags & vocab)
+        or p.universal  # tag-matched, OR a universal resource that fits any topic
     ]
 
 
@@ -320,7 +568,10 @@ def resolve_amazon(settings, *, queries, search_provider, topic: str = "") -> Af
             if score > best_score:
                 best_score = score
                 best = AffiliateLink(
-                    "Recommended book (Amazon)", tagged, "a book worth reading on this", mention=title,
+                    "Recommended book (Amazon)",
+                    tagged,
+                    "a book worth reading on this",
+                    mention=title,
                 )
     return best
 
@@ -335,7 +586,8 @@ def _set_query_param(url: str, param: str, value: str) -> str:
 
     parts = urlparse(url)
     kept = [
-        (k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
         if k.lower() != param.lower()
     ]
     kept.append((param, value))
@@ -346,11 +598,15 @@ def _course_title(title: str) -> str:
     """A clean, scannable course name from a messy Educative/DesignGurus search-result title."""
     text = re.split(r"\s[|\u2013\-]\s", (title or "").strip())[0].strip()  # keep the first clause
     text = re.sub(r"(?i)\s*[-|]\s*(educative|designgurus)(\.io)?\s*$", "", text).strip()
-    text = re.sub(r"[\s.\u2026|\u2013\u2014\-]+$", "", text)  # drop a trailing ellipsis / dangling punctuation
+    text = re.sub(
+        r"[\s.\u2026|\u2013\u2014\-]+$", "", text
+    )  # drop a trailing ellipsis / dangling punctuation
     return text[:70].strip()
 
 
-def resolve_educative(settings, *, queries, search_provider, topic: str = "") -> AffiliateLink | None:
+def resolve_educative(
+    settings, *, queries, search_provider, topic: str = ""
+) -> AffiliateLink | None:
     """Find a REAL, specific Educative COURSE for the topic (like the Amazon flow) and append our
     affiliate id — REPLACING any existing ``aff`` — so the link is a concrete, relevant course rather
     than a generic landing/search page. Among the course hits, prefer the one whose title/slug best
@@ -378,17 +634,23 @@ def resolve_educative(settings, *, queries, search_provider, topic: str = "") ->
             if score > best_score:
                 best_score = score
                 best = AffiliateLink(
-                    "Educative", _set_query_param(m.group(0), "aff", aff_id),
-                    "an interactive course on exactly this", mention=title,
+                    "Educative",
+                    _set_query_param(m.group(0), "aff", aff_id),
+                    "an interactive course on exactly this",
+                    mention=title,
                 )
     return best
 
 
 # A REAL DesignGurus COURSE page (…/course/<slug>, singular); the aff param appends to ANY DG URL.
-_DESIGNGURUS_COURSE = re.compile(r"https?://(?:www\.)?designgurus\.io/course/[a-z0-9][a-z0-9-]*", re.I)
+_DESIGNGURUS_COURSE = re.compile(
+    r"https?://(?:www\.)?designgurus\.io/course/[a-z0-9][a-z0-9-]*", re.I
+)
 
 
-def resolve_designgurus(settings, *, queries, search_provider, topic: str = "") -> AffiliateLink | None:
+def resolve_designgurus(
+    settings, *, queries, search_provider, topic: str = ""
+) -> AffiliateLink | None:
     """Find a REAL, specific DesignGurus COURSE for the topic (like the Educative flow) and append our
     affiliate id — REPLACING any existing ``aff`` — so the link is a concrete, relevant Grokking course
     rather than a generic landing page. Prefer the course whose title/slug best matches ``topic``.
@@ -416,8 +678,10 @@ def resolve_designgurus(settings, *, queries, search_provider, topic: str = "") 
             if score > best_score:
                 best_score = score
                 best = AffiliateLink(
-                    "DesignGurus", _set_query_param(m.group(0), "aff", aff_id),
-                    "the Grokking course on exactly this", mention=title,
+                    "DesignGurus",
+                    _set_query_param(m.group(0), "aff", aff_id),
+                    "the Grokking course on exactly this",
+                    mention=title,
                 )
     return best
 
@@ -455,11 +719,15 @@ def _load_catalog(path: str) -> tuple[_Curated, ...]:
         name = str(item.get("name", "")).strip()
         url = str(item.get("url", "")).strip()
         if platform and name and url:
-            rows.append(_Curated(
-                platform, name, url,
-                str(item.get("topics", "")).strip(),
-                str(item.get("blurb", "")).strip(),
-            ))
+            rows.append(
+                _Curated(
+                    platform,
+                    name,
+                    url,
+                    str(item.get("topics", "")).strip(),
+                    str(item.get("blurb", "")).strip(),
+                )
+            )
     return tuple(rows)
 
 
@@ -479,55 +747,131 @@ def _curated_link(settings, entry: _Curated, *, tag: str) -> AffiliateLink | Non
     and the affiliate-ID setting both come from the platform's own definition in ``_PLATFORMS``."""
     if entry.platform == "amazon":
         url = tag_amazon_url(entry.url, tag)
-        return AffiliateLink("Recommended book (Amazon)", url, entry.blurb, mention=entry.name) if url else None
+        return (
+            AffiliateLink("Recommended book (Amazon)", url, entry.blurb, mention=entry.name)
+            if url
+            else None
+        )
     plat = _PLATFORM_BY_KEY.get(entry.platform)
     if plat is None or not plat.id_attr:
         return None
     aff_id = (getattr(settings, plat.id_attr, "") or "").strip()
     if not aff_id:
         return None
-    return AffiliateLink(plat.label, _set_query_param(entry.url, "aff", aff_id), entry.blurb, mention=entry.name)
+    return AffiliateLink(
+        plat.label,
+        _set_query_param(entry.url, plat.ref_param, aff_id),
+        entry.blurb,
+        mention=entry.name,
+    )
 
 
-def curated_candidates(settings, *, idea="", niche="", tags=None, min_score=2, per_platform=1) -> list[AffiliateLink]:
+# A platform's best row must score at least this fraction of the best row available anywhere for the
+# video, or it is dropped. A weak "least bad" link is worse than no link: it reads as spam and it
+# sends the viewer somewhere the video never talked about.
+_COMPETITIVE_FRACTION = 0.55
+
+
+def _catalog_word_weights(catalog: tuple[_Curated, ...]) -> dict[str, float]:
+    """How much each word is worth when matching, by how RARE it is across the whole catalog.
+
+    A plain overlap COUNT is dominated by the words nearly every row shares. In a FAANG/ML catalog
+    "faang", "ml", "machine", "learning" and "interview" appear almost everywhere, so a video about
+    negotiating an offer scored higher against an ML-engineering course (4 ubiquitous words) than
+    against the salary-negotiation course (2 words) — a wrong, and very visible, recommendation.
+    Weighting each word by 1/(1+frequency) makes a rare, discriminating word like "negotiate" worth
+    far more than a word the whole catalog carries.
+    """
+    freq: dict[str, int] = {}
+    for entry in catalog:
+        for word in _salient(f"{entry.name} {entry.topics}"):
+            freq[word] = freq.get(word, 0) + 1
+    return {word: 1.0 / (1.0 + n) for word, n in freq.items()}
+
+
+def _weighted_score(shared: set[str], weights: dict[str, float]) -> float:
+    """Total discriminating power of the matched words (unknown words score as maximally rare)."""
+    return sum(weights.get(word, 1.0) for word in shared)
+
+
+def curated_candidates(
+    settings, *, idea="", niche="", tags=None, min_score=2, per_platform=1
+) -> list[AffiliateLink]:
     """SEARCH THE OPERATOR'S CURATED LIST FIRST. Intelligently match the video's topic against the
     operator-supplied catalog (``AFFILIATE_CURATED_CATALOG``, a JSON list of verified resources for
     THEIR niche) and return the best on-topic resource per platform — so a reliable, pre-vetted link
-    is used before any web lookup. Matching = shared salient topic words (>= ``min_score``, so an
-    unrelated video attaches nothing). Empty when affiliate is off, no catalog is configured, nothing
-    fits, or the matching platform isn't set up."""
+    is used before any web lookup. ELIGIBILITY is a raw overlap count (>= ``min_score``, so an
+    unrelated video attaches nothing); RANKING is by rarity-weighted overlap, so the resource that
+    shares the DISTINCTIVE word wins over one that merely shares the catalog's common vocabulary.
+    Empty when affiliate is off, no catalog is configured, nothing fits, or the platform isn't set up.
+    """
     if not _enabled(settings):
         return []
     catalog = _load_catalog((getattr(settings, "affiliate_curated_catalog", "") or "").strip())
     if not catalog:
         return []
     tag = (getattr(settings, "amazon_assoc_tag", "") or "").strip()
-    topic_words = _salient(f"{idea} {niche} {' '.join(tags or [])}")
+    idea_words = _salient(f"{idea} {' '.join(tags or [])}")
+    niche_words = _salient(niche)
+    topic_words = idea_words | niche_words
     if not topic_words:
         return []
-    scored: dict[str, list[tuple[int, int, AffiliateLink]]] = {}
+    # What THIS video is about BEYOND the channel's standing subject. Every row in a niche catalog
+    # shares the niche vocabulary ("faang", "ml", "machine", "learning"), so matching on that alone
+    # attaches a system-design course to a salary-negotiation video. Requiring at least one
+    # distinctive hit keeps a resource off a video it has nothing to do with.
+    distinctive = idea_words - niche_words
+    weights = _catalog_word_weights(catalog)
+    scored: dict[str, list[tuple[float, float, AffiliateLink]]] = {}
     for entry in catalog:
         if entry.platform == "amazon" and not tag:
             continue
-        score = len(topic_words & _salient(f"{entry.name} {entry.topics}"))
-        if score < min_score:
+        shared = topic_words & _salient(f"{entry.name} {entry.topics}")
+        if (
+            len(shared) < min_score
+        ):  # eligibility stays a plain count: unrelated videos match nothing
             continue
+        if distinctive and not (shared & distinctive):
+            continue  # only the channel's generic vocabulary matched — not about THIS video
         link = _curated_link(settings, entry, tag=tag)
         if link is not None:
-            # Tie-break on TITLE overlap so a distinctive subject word (e.g. "behavioral") outranks a
-            # generic tag ("interview"/"faang") that many rows share -> the right resource, not row one.
+            # Rank on what is DISTINCTIVE about this video. The niche words are identical for every
+            # video on the channel, so scoring them rewards whichever row happens to restate the
+            # niche — that is how a behavioral video picked an ML-engineering course over the
+            # behavioral one. Fall back to the full overlap when the idea adds nothing of its own.
+            merit = shared & distinctive if distinctive else shared
             scored.setdefault(entry.platform, []).append(
-                (score, len(topic_words & _salient(entry.name)), link)
+                (
+                    _weighted_score(merit, weights),
+                    _weighted_score(topic_words & _salient(entry.name), weights),
+                    link,
+                )
             )
     out: list[AffiliateLink] = []
+    if not scored:
+        return out
+    # Only offer a platform's best row when it is COMPETITIVE with the best resource this video can
+    # get. Every platform otherwise contributes its "least bad" row, which is how a salary-negotiation
+    # video ended up carrying a system-design course from three different platforms: those catalogs
+    # simply have nothing on negotiation, and a weak match is worse than no link at all.
+    best_overall = max(score for items in scored.values() for score, _title, _link in items)
+    floor = best_overall * _COMPETITIVE_FRACTION
     for items in scored.values():
-        items.sort(key=lambda t: (t[0], t[1]), reverse=True)  # best topic match, then best title match
-        out.extend(link for _score, _name, link in items[:per_platform])
+        items.sort(
+            key=lambda t: (t[0], t[1]), reverse=True
+        )  # best topic match, then best title match
+        out.extend(link for score, _name, link in items[:per_platform] if score >= floor)
     return out
 
 
 def resolve_candidates(
-    settings, *, idea: str = "", niche: str = "", tags=None, search_provider=None, amazon_queries=None
+    settings,
+    *,
+    idea: str = "",
+    niche: str = "",
+    tags=None,
+    search_provider=None,
+    amazon_queries=None,
 ) -> list[AffiliateLink]:
     """The candidate resources offered to the writer BEFORE generation. Flow: MATCH THE CURATED LIST
     FIRST (verified, per-platform best on-topic book/course); only for a platform the curated list did
@@ -542,30 +886,48 @@ def resolve_candidates(
 
     # 1) CURATED FIRST — the reliable, hand-verified best resource per platform for this topic.
     curated = curated_candidates(settings, idea=idea, niche=niche, tags=seed)
-    have = {_curated_platform(c) for c in curated}  # platforms already satisfied (no web search needed)
+    have = {
+        _curated_platform(c) for c in curated
+    }  # platforms already satisfied (no web search needed)
     specific: list[AffiliateLink] = list(curated)
 
     # 2) WEB SEARCH — only for a platform the curated list did NOT cover. Both course platforms host the
     # "Grokking the ..." courses, so a "grokking <topic>" query lands the exact course page.
     topic_q = _topic_query(seed, niche)
     course_q = [
-        q for q in dict.fromkeys(
+        q
+        for q in dict.fromkeys(
             ([f"grokking {topic_q}"] if topic_q else []) + [topic_q, (idea or "").strip()]
-        ) if q
+        )
+        if q
     ]
-    if "educative" not in have and search_provider is not None and any(c.label == "Educative" for c in plats):
-        edu = resolve_educative(settings, queries=course_q, search_provider=search_provider, topic=topic)
+    if (
+        "educative" not in have
+        and search_provider is not None
+        and any(c.label == "Educative" for c in plats)
+    ):
+        edu = resolve_educative(
+            settings, queries=course_q, search_provider=search_provider, topic=topic
+        )
         if edu:
             specific.append(edu)
             have.add("educative")
-    if "designgurus" not in have and search_provider is not None and any(c.label == "DesignGurus" for c in plats):
-        dg = resolve_designgurus(settings, queries=course_q, search_provider=search_provider, topic=topic)
+    if (
+        "designgurus" not in have
+        and search_provider is not None
+        and any(c.label == "DesignGurus" for c in plats)
+    ):
+        dg = resolve_designgurus(
+            settings, queries=course_q, search_provider=search_provider, topic=topic
+        )
         if dg:
             specific.append(dg)
             have.add("designgurus")
     if "amazon" not in have:
         queries = list(amazon_queries or []) or [amazon_search_query(seed, niche)]
-        amazon = resolve_amazon(settings, queries=queries, search_provider=search_provider, topic=topic)
+        amazon = resolve_amazon(
+            settings, queries=queries, search_provider=search_provider, topic=topic
+        )
         if amazon:
             specific.append(amazon)
             have.add("amazon")
@@ -597,7 +959,9 @@ def select_used(settings, *, candidates, script_text: str = "") -> list[Affiliat
         return []
     low = (script_text or "").lower()
     used = [c for c in candidates if _mentions(low, c)]
-    if not used:  # narration named none -> the concrete resolved resources (book + course), else top
+    if (
+        not used
+    ):  # narration named none -> the concrete resolved resources (book + course), else top
         used = [c for c in candidates if _is_specific_resource(c)] or [candidates[0]]
     cap = int(getattr(settings, "affiliate_max_links", 4) or 4)
     seen: set[str] = set()
@@ -664,19 +1028,21 @@ def affiliate_context(settings, *, candidates=None) -> str:
         "AFFILIATE RESOURCES (optional monetization — recommend with taste, where it genuinely "
         "helps the viewer):",
         "- The resources below are REAL and their links are ALREADY prepared for the "
-        "description. When one CLEARLY fits this exact topic (a book or course ON this very "
-        "subject), you SHOULD recommend it once: name it EXACTLY and tell viewers the link is "
-        f"in the description (e.g. \"grab {example} — link's in the description\"). "
-        "Frame it as a recommendation, not a fabricated personal use (\"I used X\"). Only skip "
-        "when NOTHING here genuinely fits — then name none; never shoehorn a resource into an "
-        "unrelated video.",
-        "- WHERE + WHEN — do NOT save it for the last second: weave the recommendation into the "
-        "MIDDLE of the video (roughly 25-75% through), in whichever scene it fits best, NEVER the "
-        "opening and NEVER the final scene / sign-off. Drop it right after the point it supports, "
-        "as a natural aside (name the resource + \"the link's in the description\"), then carry "
-        "straight on with the lesson. It must feel like a genuine part of the teaching, not an ad "
-        "break bolted onto the end — leave the closing scene a clean like/subscribe + sign-off "
-        "with NO resource plug.",
+        "description. Recommend EVERY ONE that genuinely fits this topic — not just one. A book, a "
+        "course and a practice tool each solve a different problem, so each can earn its own moment. "
+        "Name each EXACTLY as written and tell viewers the link is in the description "
+        f'(e.g. "grab {example} — link\'s in the description"). '
+        'Frame it as a recommendation, not a fabricated personal use ("I used X"). Only skip '
+        "a resource when it does not genuinely fit this subject — never shoehorn one into an "
+        "unrelated video, and if none fit, name none.",
+        "- SPREAD THEM OUT — do NOT save them for the last second and never stack two together: "
+        "weave each recommendation into the MIDDLE of the video (roughly 25-75% through), in "
+        "whichever scene it fits best, AT MOST ONE PER SCENE and no more than three across the whole "
+        "video. NEVER the opening and NEVER the final scene / sign-off. Drop each one right after "
+        "the point it supports, as a natural aside (name the resource + \"the link's in the "
+        'description"), then carry straight on with the lesson. It must feel like a genuine part of '
+        "the teaching, not an ad break bolted onto the end — leave the closing scene a clean "
+        "like/subscribe + sign-off with NO resource plug.",
         "- CRITICAL: only ever name a resource from THIS list, using its exact name; whatever you name "
         "is what gets linked, so NEVER promise a link for anything not listed. If none fit, name none.",
     ]

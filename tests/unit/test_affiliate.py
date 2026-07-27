@@ -46,6 +46,164 @@ def test_affiliate_disabled_is_a_noop(monkeypatch):
     assert affiliate_context(s, candidates=[]) == ""
 
 
+def test_curated_prefers_the_distinctive_match_over_niche_vocabulary(monkeypatch, tmp_path):
+    """A "negotiate" video must not land on an ML course.
+
+    Every row in a niche catalog repeats the niche words ("faang", "ml", "machine", "learning"), so
+    a plain overlap COUNT let an ML-engineering course (4 shared niche words) beat the salary course
+    (2 shared words) on a negotiation video — a wrong and very visible recommendation.
+    """
+    rows = [
+        {
+            "platform": "exponent",
+            "name": "ML Engineer Interview Prep",
+            "url": "https://www.tryexponent.com/courses/ml-engineer",
+            "topics": "machine learning ml faang engineer interview system design",
+            "blurb": "MLE track",
+        },
+        {
+            "platform": "exponent",
+            "name": "Salary Negotiation Course",
+            "url": "https://www.tryexponent.com/courses/tech-salary-offer-negotiation",
+            "topics": "salary negotiate negotiation offer compensation faang",
+            "blurb": "negotiation",
+        },
+    ]
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_EXPONENT_ID="EXPAFF01",
+        AFFILIATE_CURATED_CATALOG=_catalog_file(tmp_path, rows),
+    )
+    picked = curated_candidates(
+        s, idea="How to Negotiate a FAANG ML Offer", niche="FAANG machine learning careers"
+    )
+    assert [c.mention for c in picked] == ["Salary Negotiation Course"]
+
+
+def test_curated_drops_a_platform_with_only_a_weak_match(monkeypatch, tmp_path):
+    """A platform whose catalog has nothing on the subject must stay silent.
+
+    Otherwise every platform contributes its "least bad" row, which is how a negotiation video ended
+    up carrying a system-design course from three different platforms."""
+    rows = [
+        {
+            "platform": "exponent",
+            "name": "Salary Negotiation Course",
+            "url": "https://www.tryexponent.com/courses/tech-salary-offer-negotiation",
+            "topics": "salary negotiate negotiation offer compensation faang",
+            "blurb": "negotiation",
+        },
+        # A DesignGurus catalog full of interview prep and NOTHING on negotiation. The repeated
+        # ml/machine/learning vocabulary is what a real niche catalog looks like.
+        {
+            "platform": "designgurus",
+            "name": "Grokking System Design",
+            "url": "https://www.designgurus.io/course/grokking-system-design",
+            "topics": "system design scalability faang ml machine learning",
+            "blurb": "system design",
+        },
+        {
+            "platform": "designgurus",
+            "name": "Grokking ML System Design",
+            "url": "https://www.designgurus.io/course/grokking-ml-system-design",
+            "topics": "ml machine learning system design faang",
+            "blurb": "ml system design",
+        },
+        {
+            "platform": "designgurus",
+            "name": "Grokking the Coding Interview",
+            "url": "https://www.designgurus.io/course/grokking-the-coding-interview",
+            "topics": "coding algorithms faang ml machine learning",
+            "blurb": "coding patterns",
+        },
+    ]
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_EXPONENT_ID="EXPAFF01",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AFFILIATE_CURATED_CATALOG=_catalog_file(tmp_path, rows),
+    )
+    picked = curated_candidates(
+        s, idea="How to Negotiate a FAANG ML Offer", niche="FAANG machine learning careers"
+    )
+    assert [c.mention for c in picked] == ["Salary Negotiation Course"]
+
+
+def test_curated_ignores_a_video_that_only_matches_the_niche(monkeypatch, tmp_path):
+    """An explainer that shares nothing but the channel's standing subject attaches nothing."""
+    rows = [
+        {
+            "platform": "exponent",
+            "name": "ML Engineer Interview Prep",
+            "url": "https://www.tryexponent.com/courses/ml-engineer",
+            "topics": "machine learning ml faang engineer interview",
+            "blurb": "MLE track",
+        },
+    ]
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_EXPONENT_ID="EXPAFF01",
+        AFFILIATE_CURATED_CATALOG=_catalog_file(tmp_path, rows),
+    )
+    assert (
+        curated_candidates(
+            s,
+            idea="Are Your Devices Listening? How Recommendations Work",
+            niche="FAANG machine learning careers",
+        )
+        == []
+    )
+
+
+def test_curated_link_uses_each_platforms_own_referral_param(monkeypatch, tmp_path):
+    """Exponent (and Fenzo) track with ?ref=, everyone else with ?aff=.
+
+    Sending the wrong parameter is INVISIBLE — the course page still loads, it just stops crediting
+    the referral — so the platform's own scheme has to drive it.
+    """
+    rows = [
+        {
+            "platform": "exponent",
+            "name": "ML Engineer Interview Prep",
+            "url": "https://www.tryexponent.com/courses/ml-engineer",
+            "topics": "machine learning engineer mle interview",
+            "blurb": "the full MLE track",
+        },
+        {
+            "platform": "designgurus",
+            "name": "Grokking the Coding Interview",
+            "url": "https://www.designgurus.io/course/grokking-the-coding-interview",
+            "topics": "coding interview algorithms",
+            "blurb": "the 24 patterns",
+        },
+    ]
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_EXPONENT_ID="EXPAFF01",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AFFILIATE_CURATED_CATALOG=_catalog_file(tmp_path, rows),
+    )
+    exponent = curated_candidates(s, idea="machine learning engineer interview")
+    assert exponent and exponent[0].url.endswith("?ref=EXPAFF01")
+    assert "aff=" not in exponent[0].url  # would silently lose the commission
+
+    gurus = curated_candidates(s, idea="coding interview algorithms")
+    assert gurus and gurus[0].url.endswith("?aff=DGAFF01")
+
+
+def test_exponent_id_builds_the_ref_homepage_url(monkeypatch):
+    from content_foundry.production.affiliate import _PLATFORM_BY_KEY, _referral_url
+
+    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_EXPONENT_ID="EXPAFF01")
+    assert _referral_url(s, _PLATFORM_BY_KEY["exponent"]) == (
+        "https://www.tryexponent.com/?ref=EXPAFF01"
+    )
+
+
 def test_educative_and_fenzo_affiliate_ids_build_urls(monkeypatch):
     from content_foundry.production.affiliate import (
         _referral_url,
@@ -54,16 +212,24 @@ def test_educative_and_fenzo_affiliate_ids_build_urls(monkeypatch):
     )
 
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true",
-        AFFILIATE_EDUCATIVE_ID="EDUAFF01", AFFILIATE_FENZO_ID="ZZ99",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_EDUCATIVE_ID="EDUAFF01",
+        AFFILIATE_FENZO_ID="ZZ99",
     )
     # No topic (bare ID) => generic landing URLs; Fenzo's referral param is ?ref= (not ?aff=).
     urls = {p.key: _referral_url(s, p) for p in enabled_platforms(s)}
     assert urls["educative"] == "https://www.educative.io/explore?aff=EDUAFF01"
     assert urls["fenzo"] == "https://fenzo.ai/?ref=ZZ99"
     # With a topic, Educative becomes a topic SEARCH for the video's subject (url-encoded).
-    cands = {c.label: c.url for c in candidate_platforms(s, tags=["system design interview"], niche="tech")}
-    assert cands["Educative"] == "https://www.educative.io/search?query=system+design+interview&aff=EDUAFF01"
+    cands = {
+        c.label: c.url
+        for c in candidate_platforms(s, tags=["system design interview"], niche="tech")
+    }
+    assert (
+        cands["Educative"]
+        == "https://www.educative.io/search?query=system+design+interview&aff=EDUAFF01"
+    )
 
 
 def test_affiliate_perk_line_is_opt_in(monkeypatch):
@@ -71,9 +237,13 @@ def test_affiliate_perk_line_is_opt_in(monkeypatch):
 
     link = AffiliateLink("X", "https://x", "blurb")
     # Off by default (no AFFILIATE_PERK_TEXT) — checked BEFORE the env is set.
-    assert "discount" not in affiliate_block([link], _settings(monkeypatch, AFFILIATE_ENABLED="true"))
+    assert "discount" not in affiliate_block(
+        [link], _settings(monkeypatch, AFFILIATE_ENABLED="true")
+    )
     # Opt in -> the casual line appears in the block.
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_PERK_TEXT="a discount via my link")
+    s = _settings(
+        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_PERK_TEXT="a discount via my link"
+    )
     assert "a discount via my link" in affiliate_block([link], s)
 
 
@@ -81,16 +251,21 @@ def test_full_affiliate_url_wins_over_id(monkeypatch):
     from content_foundry.production.affiliate import _PLATFORMS, _referral_url
 
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true",
-        AFFILIATE_EDUCATIVE_URL="https://educative.example/ref", AFFILIATE_EDUCATIVE_ID="EDUAFF01",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_EDUCATIVE_URL="https://educative.example/ref",
+        AFFILIATE_EDUCATIVE_ID="EDUAFF01",
     )
     educative = next(p for p in _PLATFORMS if p.key == "educative")
-    assert _referral_url(s, educative) == "https://educative.example/ref"  # explicit URL wins over ID
+    assert (
+        _referral_url(s, educative) == "https://educative.example/ref"
+    )  # explicit URL wins over ID
 
 
 def test_select_referrals_by_tag(monkeypatch):
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
         AFFILIATE_ALGOEXPERT_URL="https://algo.example/ref",
         AFFILIATE_LEETCODE_URL="https://lc.example/ref",
         AFFILIATE_COURSERA_URL="https://coursera.example/ref",
@@ -102,17 +277,22 @@ def test_select_referrals_by_tag(monkeypatch):
 
 def test_script_named_platform_is_included_first(monkeypatch):
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
         AFFILIATE_COURSERA_URL="https://coursera.example/ref",
         AFFILIATE_LEETCODE_URL="https://lc.example/ref",
     )
     # An off-topic tag, but the script NAMES Coursera -> it's included and listed first.
-    links = select_referrals(s, tags=["gardening"], script_text="I'll leave a link to Coursera below")
+    links = select_referrals(
+        s, tags=["gardening"], script_text="I'll leave a link to Coursera below"
+    )
     assert links and links[0].label == "Coursera"
 
 
 def test_only_configured_platforms_appear(monkeypatch):
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_LEETCODE_URL="https://lc.example/ref")
+    s = _settings(
+        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_LEETCODE_URL="https://lc.example/ref"
+    )
     assert [lk.label for lk in select_referrals(s, tags=["faang interview"], script_text="")] == [
         "LeetCode"
     ]
@@ -130,8 +310,11 @@ def test_tag_amazon_url_valid_and_invalid():
 
 def test_resolve_links_caps_and_appends_amazon(monkeypatch):
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_MAX_LINKS="2",
-        AFFILIATE_ALGOEXPERT_URL="https://a", AFFILIATE_LEETCODE_URL="https://l",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_MAX_LINKS="2",
+        AFFILIATE_ALGOEXPERT_URL="https://a",
+        AFFILIATE_LEETCODE_URL="https://l",
         AFFILIATE_COURSERA_URL="https://c",
     )
     amazon = AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20")
@@ -140,7 +323,9 @@ def test_resolve_links_caps_and_appends_amazon(monkeypatch):
 
 
 def test_affiliate_block_has_links_and_disclosure(monkeypatch):
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_LEETCODE_URL="https://lc.example/ref")
+    s = _settings(
+        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_LEETCODE_URL="https://lc.example/ref"
+    )
     block = affiliate_block(select_referrals(s, tags=["faang interview"], script_text=""), s)
     assert "LeetCode" in block and "https://lc.example/ref" in block
     assert "affiliate" in block.lower()  # disclosure present
@@ -150,8 +335,12 @@ def test_affiliate_block_has_links_and_disclosure(monkeypatch):
 def test_affiliate_context_lists_candidates_and_is_fakellm_safe(monkeypatch):
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true")
     cands = [
-        AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
-                      "a great read", mention="Cracking the Coding Interview"),
+        AffiliateLink(
+            "Recommended book (Amazon)",
+            "https://www.amazon.com/dp/B0/?tag=t-20",
+            "a great read",
+            mention="Cracking the Coding Interview",
+        ),
         AffiliateLink("LeetCode", "https://lc", "practice problems", mention="LeetCode"),
     ]
     ctx = affiliate_context(s, candidates=cands)
@@ -168,8 +357,10 @@ def test_affiliate_context_empty_when_off_or_no_candidates(monkeypatch):
 
 def test_candidate_platforms_by_tag(monkeypatch):
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true",
-        AFFILIATE_LEETCODE_URL="https://lc", AFFILIATE_ALGOEXPERT_URL="https://ae",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_LEETCODE_URL="https://lc",
+        AFFILIATE_ALGOEXPERT_URL="https://ae",
         AFFILIATE_COURSERA_URL="https://c",
     )
     labels = [c.label for c in candidate_platforms(s, tags=["faang interview prep"], niche="tech")]
@@ -178,19 +369,23 @@ def test_candidate_platforms_by_tag(monkeypatch):
 
 
 def test_amazon_search_query_skips_the_bare_niche():
-    assert amazon_search_query(
-        ["tech careers", "system design", "interview"], "tech careers"
-    ) == "system design book"
+    assert (
+        amazon_search_query(["tech careers", "system design", "interview"], "tech careers")
+        == "system design book"
+    )
     assert amazon_search_query([], "tech careers") == "tech careers book"  # fallback to niche
 
 
 def test_amazon_search_query_cleans_a_verbose_idea():
     # A verbose headline collapses to a tight subject (year + leading/trailing framing words dropped),
     # so the pre-generation search seeds a canonical book instead of the whole headline:
-    assert amazon_search_query(
-        ["How to Crack the FAANG Coding Interview in 2026"], "tech careers"
-    ) == "FAANG Coding Interview book"
-    assert amazon_search_query(["The Ultimate Guide to System Design"], "tech") == "System Design book"
+    assert (
+        amazon_search_query(["How to Crack the FAANG Coding Interview in 2026"], "tech careers")
+        == "FAANG Coding Interview book"
+    )
+    assert (
+        amazon_search_query(["The Ultimate Guide to System Design"], "tech") == "System Design book"
+    )
 
 
 class _FakeSearch:
@@ -209,11 +404,15 @@ def _result(title, url):
 
 def test_resolve_amazon_tags_a_real_product_and_names_the_book(monkeypatch):
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="assoctag-20")
-    provider = _FakeSearch([
-        _result("Amazon.com: an ad", "https://www.amazon.com/s?k=book"),  # not a product page
-        _result("Amazon.com: Cracking the Coding Interview: 189 Questions : Books",
-                "https://www.amazon.com/Cracking-Coding-Interview/dp/0984782850/ref=x"),
-    ])
+    provider = _FakeSearch(
+        [
+            _result("Amazon.com: an ad", "https://www.amazon.com/s?k=book"),  # not a product page
+            _result(
+                "Amazon.com: Cracking the Coding Interview: 189 Questions : Books",
+                "https://www.amazon.com/Cracking-Coding-Interview/dp/0984782850/ref=x",
+            ),
+        ]
+    )
     link = resolve_amazon(s, queries=["coding interview book"], search_provider=provider)
     assert link is not None
     assert link.url == "https://www.amazon.com/dp/0984782850/?tag=assoctag-20"
@@ -222,15 +421,24 @@ def test_resolve_amazon_tags_a_real_product_and_names_the_book(monkeypatch):
 
 def test_resolve_educative_finds_a_real_course_and_sets_our_aff(monkeypatch):
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_EDUCATIVE_ID="EDUAFF01")
-    provider = _FakeSearch([
-        _result("Educative blog post", "https://www.educative.io/blog/system-design"),  # not a course
-        _result("Grokking the System Design Interview - Educative",
-                "https://www.educative.io/courses/grokking-the-system-design-interview?aff=someoneelse"),
-    ])
+    provider = _FakeSearch(
+        [
+            _result(
+                "Educative blog post", "https://www.educative.io/blog/system-design"
+            ),  # not a course
+            _result(
+                "Grokking the System Design Interview - Educative",
+                "https://www.educative.io/courses/grokking-the-system-design-interview?aff=someoneelse",
+            ),
+        ]
+    )
     link = resolve_educative(s, queries=["system design interview"], search_provider=provider)
     assert link is not None
     # Real course URL, OUR aff appended, the pre-existing aff REPLACED (not duplicated):
-    assert link.url == "https://www.educative.io/courses/grokking-the-system-design-interview?aff=EDUAFF01"
+    assert (
+        link.url
+        == "https://www.educative.io/courses/grokking-the-system-design-interview?aff=EDUAFF01"
+    )
     assert link.mention == "Grokking the System Design Interview"  # clean course name for the scan
 
 
@@ -245,11 +453,17 @@ def test_resolve_designgurus_finds_a_real_course_and_sets_our_aff(monkeypatch):
     from content_foundry.production.affiliate import _is_specific_resource
 
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="DGAFF01")
-    provider = _FakeSearch([
-        _result("DesignGurus blog", "https://www.designgurus.io/blog/system-design"),  # not a course
-        _result("Grokking the Coding Interview - DesignGurus",
-                "https://www.designgurus.io/course/grokking-the-coding-interview/?aff=someoneelse"),
-    ])
+    provider = _FakeSearch(
+        [
+            _result(
+                "DesignGurus blog", "https://www.designgurus.io/blog/system-design"
+            ),  # not a course
+            _result(
+                "Grokking the Coding Interview - DesignGurus",
+                "https://www.designgurus.io/course/grokking-the-coding-interview/?aff=someoneelse",
+            ),
+        ]
+    )
     link = resolve_designgurus(s, queries=["coding interview"], search_provider=provider)
     assert link is not None
     # Real /course/ page (singular), OUR aff appended, any pre-existing aff REPLACED (not duplicated);
@@ -274,7 +488,9 @@ def test_designgurus_affiliate_id_builds_the_courses_url(monkeypatch):
     urls = {p.key: _referral_url(s, p) for p in enabled_platforms(s)}
     assert urls["designgurus"] == "https://www.designgurus.io/courses/?aff=DGAFF01"
     # Tag-gated to interview/course topics -> a candidate for a fitting video:
-    labels = [c.label for c in candidate_platforms(s, tags=["system design interview"], niche="tech")]
+    labels = [
+        c.label for c in candidate_platforms(s, tags=["system design interview"], niche="tech")
+    ]
     assert "DesignGurus" in labels
 
 
@@ -291,12 +507,17 @@ def test_resolve_amazon_multiple_queries_are_redundant(monkeypatch):
     class _PerQuery:  # only the 2nd (canonical-title) query finds a product; the 1st is a miss
         def search(self, query, max_results=5):
             if "cracking" in query.lower():
-                return [_result("Cracking the Coding Interview : Books",
-                                "https://www.amazon.com/x/dp/0984782850/")]
+                return [
+                    _result(
+                        "Cracking the Coding Interview : Books",
+                        "https://www.amazon.com/x/dp/0984782850/",
+                    )
+                ]
             return []
 
     link = resolve_amazon(
-        s, queries=["nonexistent gibberish book", "Cracking the Coding Interview"],
+        s,
+        queries=["nonexistent gibberish book", "Cracking the Coding Interview"],
         search_provider=_PerQuery(),
     )
     assert link is not None and link.url == "https://www.amazon.com/dp/0984782850/?tag=t-20"
@@ -305,10 +526,18 @@ def test_resolve_amazon_multiple_queries_are_redundant(monkeypatch):
 
 def test_select_used_scans_narration_with_description_safety_net(monkeypatch):
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="t-20")
-    book = AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
-                         "", mention="Cracking the Coding Interview")
-    course = AffiliateLink("Educative", "https://www.educative.io/courses/grokking-x?aff=EDUAFF01",
-                           "", mention="Grokking X")
+    book = AffiliateLink(
+        "Recommended book (Amazon)",
+        "https://www.amazon.com/dp/B0/?tag=t-20",
+        "",
+        mention="Cracking the Coding Interview",
+    )
+    course = AffiliateLink(
+        "Educative",
+        "https://www.educative.io/courses/grokking-x?aff=EDUAFF01",
+        "",
+        mention="Grokking X",
+    )
     fenzo = AffiliateLink("Fenzo AI", "https://fenzo.ai/?ref=Z", "", mention="Fenzo AI")
     # A specific resource NAMED in the narration -> exactly that one is linked:
     used = select_used(
@@ -329,12 +558,22 @@ def test_select_used_always_fills_remaining_space_with_universal_fenzo(monkeypat
     s = _settings(
         monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="t-20", AFFILIATE_MAX_LINKS="5"
     )
-    book = AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
-                         "", mention="ML System Design Interview")
-    course = AffiliateLink("Educative", "https://www.educative.io/courses/x?aff=EDUAFF01",
-                           "", mention="Grokking X")
-    fenzo = AffiliateLink("Fenzo AI", "https://fenzo.ai/?ref=FENZOAFF01", "generates a course on this",
-                          mention="Fenzo AI", universal=True)
+    book = AffiliateLink(
+        "Recommended book (Amazon)",
+        "https://www.amazon.com/dp/B0/?tag=t-20",
+        "",
+        mention="ML System Design Interview",
+    )
+    course = AffiliateLink(
+        "Educative", "https://www.educative.io/courses/x?aff=EDUAFF01", "", mention="Grokking X"
+    )
+    fenzo = AffiliateLink(
+        "Fenzo AI",
+        "https://fenzo.ai/?ref=FENZOAFF01",
+        "generates a course on this",
+        mention="Fenzo AI",
+        universal=True,
+    )
     # Nothing named -> concrete book + course attach, AND the universal Fenzo fills the remaining space:
     used = select_used(s, candidates=[book, course, fenzo], script_text="a plain sentence")
     assert [u.mention for u in used] == ["ML System Design Interview", "Grokking X", "Fenzo AI"]
@@ -349,24 +588,40 @@ def test_select_used_always_fills_remaining_space_with_universal_fenzo(monkeypat
 def test_affiliate_block_shows_the_real_resource_name(monkeypatch):
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true")
     book = AffiliateLink(
-        "Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
-        "a book worth reading on this", mention="Machine Learning System Design Interview",
+        "Recommended book (Amazon)",
+        "https://www.amazon.com/dp/B0/?tag=t-20",
+        "a book worth reading on this",
+        mention="Machine Learning System Design Interview",
     )
     block = affiliate_block([book], s)
-    assert "Machine Learning System Design Interview" in block  # the ACTUAL title, not a generic label
+    assert (
+        "Machine Learning System Design Interview" in block
+    )  # the ACTUAL title, not a generic label
     assert "Recommended book (Amazon)" not in block
     assert "https://www.amazon.com/dp/B0/?tag=t-20" in block
 
 
 def test_affiliate_block_pins_the_amazon_link_to_the_bottom(monkeypatch):
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true")
-    amazon = AffiliateLink("Recommended book (Amazon)", "https://www.amazon.com/dp/B0/?tag=t-20",
-                           "a book", mention="Cracking the Coding Interview")
-    course = AffiliateLink("DesignGurus", "https://www.designgurus.io/course/grokking?aff=DGAFF01",
-                           "a course", mention="Grokking the Coding Interview")
-    fenzo = AffiliateLink("Fenzo AI", "https://fenzo.ai/?ref=Z", "generates a course", mention="Fenzo AI")
+    amazon = AffiliateLink(
+        "Recommended book (Amazon)",
+        "https://www.amazon.com/dp/B0/?tag=t-20",
+        "a book",
+        mention="Cracking the Coding Interview",
+    )
+    course = AffiliateLink(
+        "DesignGurus",
+        "https://www.designgurus.io/course/grokking?aff=DGAFF01",
+        "a course",
+        mention="Grokking the Coding Interview",
+    )
+    fenzo = AffiliateLink(
+        "Fenzo AI", "https://fenzo.ai/?ref=Z", "generates a course", mention="Fenzo AI"
+    )
     # Amazon is FIRST in the input, but the rendered list must ALWAYS put it LAST (even below Fenzo):
-    res = [ln for ln in affiliate_block([amazon, course, fenzo], s).splitlines() if ln.startswith("→")]
+    res = [
+        ln for ln in affiliate_block([amazon, course, fenzo], s).splitlines() if ln.startswith("→")
+    ]
     assert len(res) == 3
     assert "amazon.com" in res[-1]  # the Amazon book is pinned to the bottom
     assert "amazon.com" not in res[0]  # ...never the first item
@@ -391,10 +646,16 @@ def test_resolve_amazon_prefers_the_on_topic_book_over_a_generic_first_hit(monke
     class _PerQuery:  # the FIRST query surfaces a famous but off-topic classic; a later one the real book
         def search(self, query, max_results=5):
             if "pragmatic" in query.lower():
-                return [_result("The Pragmatic Programmer", "https://www.amazon.com/dp/020161622X/")]
+                return [
+                    _result("The Pragmatic Programmer", "https://www.amazon.com/dp/020161622X/")
+                ]
             if "machine learning system design" in query.lower():
-                return [_result("Machine Learning System Design Interview : Books",
-                                "https://www.amazon.com/x/dp/1736049127/")]
+                return [
+                    _result(
+                        "Machine Learning System Design Interview : Books",
+                        "https://www.amazon.com/x/dp/1736049127/",
+                    )
+                ]
             return []
 
     link = resolve_amazon(
@@ -411,13 +672,19 @@ def test_resolve_amazon_prefers_the_on_topic_book_over_a_generic_first_hit(monke
 
 def test_resolve_candidates_combines_platforms_and_amazon(monkeypatch):
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="t-20",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AMAZON_ASSOC_TAG="t-20",
         AFFILIATE_LEETCODE_URL="https://lc",
     )
-    provider = _FakeSearch([
-        _result("Amazon.com: System Design Interview : Books",
-                "https://www.amazon.com/x/dp/B08CMF2CQF/"),
-    ])
+    provider = _FakeSearch(
+        [
+            _result(
+                "Amazon.com: System Design Interview : Books",
+                "https://www.amazon.com/x/dp/B08CMF2CQF/",
+            ),
+        ]
+    )
     cands = resolve_candidates(
         s, idea="system design interview", niche="tech careers", search_provider=provider
     )
@@ -447,28 +714,51 @@ def test_resolve_candidates_issues_a_grokking_course_query(monkeypatch):
 def test_curated_list_matched_before_any_web_search(monkeypatch, tmp_path):
     # The operator's catalog is consulted FIRST: a system-design video gets the REAL course URL (with
     # our aff id) offline, without a single web request.
-    cat = _catalog_file(tmp_path, [
-        {"platform": "designgurus", "name": "Grokking the System Design Interview",
-         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
-         "topics": "system design interview scalability distributed architecture faang"},
-    ])
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="DGAFF01",
-                  AFFILIATE_CURATED_CATALOG=cat)
+    cat = _catalog_file(
+        tmp_path,
+        [
+            {
+                "platform": "designgurus",
+                "name": "Grokking the System Design Interview",
+                "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+                "topics": "system design interview scalability distributed architecture faang",
+            },
+        ],
+    )
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AFFILIATE_CURATED_CATALOG=cat,
+    )
     cands = curated_candidates(s, idea="the system design interview", niche="faang")
     dg = [c for c in cands if c.label == "DesignGurus"]
     assert dg, cands
-    assert dg[0].url == "https://www.designgurus.io/course/grokking-the-system-design-interview?aff=DGAFF01"
+    assert (
+        dg[0].url
+        == "https://www.designgurus.io/course/grokking-the-system-design-interview?aff=DGAFF01"
+    )
     assert "System Design Interview" in dg[0].mention
 
 
 def test_curated_amazon_book_is_tagged(monkeypatch, tmp_path):
-    cat = _catalog_file(tmp_path, [
-        {"platform": "amazon", "name": "Machine Learning System Design Interview",
-         "url": "https://www.amazon.com/dp/1736049127",
-         "topics": "machine learning ml system design interview"},
-    ])
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AMAZON_ASSOC_TAG="assoctag-20",
-                  AFFILIATE_CURATED_CATALOG=cat)
+    cat = _catalog_file(
+        tmp_path,
+        [
+            {
+                "platform": "amazon",
+                "name": "Machine Learning System Design Interview",
+                "url": "https://www.amazon.com/dp/1736049127",
+                "topics": "machine learning ml system design interview",
+            },
+        ],
+    )
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AMAZON_ASSOC_TAG="assoctag-20",
+        AFFILIATE_CURATED_CATALOG=cat,
+    )
     cands = curated_candidates(s, idea="machine learning system design interview")
     book = [c for c in cands if c.label == "Recommended book (Amazon)"]
     assert book, cands
@@ -479,29 +769,52 @@ def test_curated_amazon_book_is_tagged(monkeypatch, tmp_path):
 def test_curated_matching_is_intelligent_not_first_row(monkeypatch, tmp_path):
     # Both rows tie on topic-word count for a coding video (the first row is over-tagged with "coding"),
     # so the TITLE-overlap tiebreak must pick the actual coding course, not merely the first-listed row.
-    cat = _catalog_file(tmp_path, [
-        {"platform": "designgurus", "name": "Grokking the Behavioral Interview",
-         "url": "https://www.designgurus.io/course/grokking-behavioral-interview",
-         "topics": "behavioral interview coding faang"},
-        {"platform": "designgurus", "name": "Grokking the Coding Interview",
-         "url": "https://www.designgurus.io/course/grokking-the-coding-interview",
-         "topics": "coding interview faang"},
-    ])
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="DGAFF01",
-                  AFFILIATE_CURATED_CATALOG=cat)
+    cat = _catalog_file(
+        tmp_path,
+        [
+            {
+                "platform": "designgurus",
+                "name": "Grokking the Behavioral Interview",
+                "url": "https://www.designgurus.io/course/grokking-behavioral-interview",
+                "topics": "behavioral interview coding faang",
+            },
+            {
+                "platform": "designgurus",
+                "name": "Grokking the Coding Interview",
+                "url": "https://www.designgurus.io/course/grokking-the-coding-interview",
+                "topics": "coding interview faang",
+            },
+        ],
+    )
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AFFILIATE_CURATED_CATALOG=cat,
+    )
     cands = curated_candidates(s, idea="the coding interview", niche="faang")
     dg = [c for c in cands if c.label == "DesignGurus"]
     assert dg and dg[0].url.endswith("grokking-the-coding-interview?aff=DGAFF01"), dg
 
 
 def test_curated_hit_skips_the_web_search(monkeypatch, tmp_path):
-    cat = _catalog_file(tmp_path, [
-        {"platform": "designgurus", "name": "Grokking the System Design Interview",
-         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
-         "topics": "system design interview scalability distributed faang"},
-    ])
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="DGAFF01",
-                  AFFILIATE_CURATED_CATALOG=cat)
+    cat = _catalog_file(
+        tmp_path,
+        [
+            {
+                "platform": "designgurus",
+                "name": "Grokking the System Design Interview",
+                "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+                "topics": "system design interview scalability distributed faang",
+            },
+        ],
+    )
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AFFILIATE_CURATED_CATALOG=cat,
+    )
     seen: list[str] = []
 
     class _Rec:
@@ -520,39 +833,68 @@ def test_curated_hit_skips_the_web_search(monkeypatch, tmp_path):
 
 def test_curated_ignores_unrelated_topics(monkeypatch, tmp_path):
     # Intelligent match: an off-niche video attaches nothing from the catalog (no weak/forced matches).
-    cat = _catalog_file(tmp_path, [
-        {"platform": "designgurus", "name": "Grokking the System Design Interview",
-         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
-         "topics": "system design interview scalability distributed faang"},
-        {"platform": "amazon", "name": "Cracking the Coding Interview",
-         "url": "https://www.amazon.com/dp/0984782850", "topics": "coding interview algorithms"},
-    ])
+    cat = _catalog_file(
+        tmp_path,
+        [
+            {
+                "platform": "designgurus",
+                "name": "Grokking the System Design Interview",
+                "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+                "topics": "system design interview scalability distributed faang",
+            },
+            {
+                "platform": "amazon",
+                "name": "Cracking the Coding Interview",
+                "url": "https://www.amazon.com/dp/0984782850",
+                "topics": "coding interview algorithms",
+            },
+        ],
+    )
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="DGAFF01",
-        AFFILIATE_EDUCATIVE_ID="EDUAFF01", AMAZON_ASSOC_TAG="assoctag-20",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AFFILIATE_EDUCATIVE_ID="EDUAFF01",
+        AMAZON_ASSOC_TAG="assoctag-20",
         AFFILIATE_CURATED_CATALOG=cat,
     )
     assert curated_candidates(s, idea="watercolor painting for beginners", niche="art") == []
 
 
 def test_curated_is_empty_when_affiliate_disabled(monkeypatch, tmp_path):
-    cat = _catalog_file(tmp_path, [
-        {"platform": "designgurus", "name": "Grokking the System Design Interview",
-         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
-         "topics": "system design interview"},
-    ])
-    s = _settings(monkeypatch, AFFILIATE_ENABLED="false", AFFILIATE_DESIGNGURUS_ID="DGAFF01",
-                  AFFILIATE_CURATED_CATALOG=cat)
+    cat = _catalog_file(
+        tmp_path,
+        [
+            {
+                "platform": "designgurus",
+                "name": "Grokking the System Design Interview",
+                "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+                "topics": "system design interview",
+            },
+        ],
+    )
+    s = _settings(
+        monkeypatch,
+        AFFILIATE_ENABLED="false",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AFFILIATE_CURATED_CATALOG=cat,
+    )
     assert curated_candidates(s, idea="system design interview") == []
 
 
 def test_curated_needs_a_configured_platform(monkeypatch, tmp_path):
     # Catalog set + affiliate on, but the platform's affiliate ID isn't configured -> nothing to build.
-    cat = _catalog_file(tmp_path, [
-        {"platform": "designgurus", "name": "Grokking the System Design Interview",
-         "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
-         "topics": "system design interview"},
-    ])
+    cat = _catalog_file(
+        tmp_path,
+        [
+            {
+                "platform": "designgurus",
+                "name": "Grokking the System Design Interview",
+                "url": "https://www.designgurus.io/course/grokking-the-system-design-interview",
+                "topics": "system design interview",
+            },
+        ],
+    )
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_CURATED_CATALOG=cat)
     assert curated_candidates(s, idea="system design interview") == []
 
@@ -561,6 +903,9 @@ def test_curated_is_empty_without_a_catalog(monkeypatch):
     # DOMAIN-NEUTRAL DEFAULT: with no AFFILIATE_CURATED_CATALOG the repo curates nothing (it ships no
     # catalog) and simply falls back to the web search.
     s = _settings(
-        monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_DESIGNGURUS_ID="DGAFF01", AMAZON_ASSOC_TAG="t-20",
+        monkeypatch,
+        AFFILIATE_ENABLED="true",
+        AFFILIATE_DESIGNGURUS_ID="DGAFF01",
+        AMAZON_ASSOC_TAG="t-20",
     )
     assert curated_candidates(s, idea="the system design interview", niche="faang") == []

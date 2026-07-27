@@ -199,8 +199,12 @@ class Settings(BaseSettings):
     # (~15-30s) clean WAV of YOUR voice; cloned locally (GPU recommended). pip install chatterbox-tts.
     tts_reference_clip: str = ""
     tts_clone_device: str = "auto"  # auto | cuda | cpu
-    tts_clone_exaggeration: float = Field(0.5, ge=0.0, le=2.0)  # 0.5 neutral; higher = more expressive
-    tts_clone_cfg: float = Field(0.5, ge=0.0, le=1.0)  # lower (~0.3) = steadier, reference-paced speech
+    tts_clone_exaggeration: float = Field(
+        0.5, ge=0.0, le=2.0
+    )  # 0.5 neutral; higher = more expressive
+    tts_clone_cfg: float = Field(
+        0.5, ge=0.0, le=1.0
+    )  # lower (~0.3) = steadier, reference-paced speech
     # Silence kept on EACH side of a synthesized chunk when trimming Chatterbox's dead air. Too small
     # and sentence-to-sentence transitions feel abrupt/clipped; ~150 ms leaves a natural breath so the
     # stitched narration flows instead of jump-cutting between sentences.
@@ -216,9 +220,9 @@ class Settings(BaseSettings):
     image_provider: Literal["openai", "stability", "google", "pollinations", "none"] = "openai"
     # Optional fallback image provider, used only when the primary fails (paid-plan, quota, outage).
     # e.g. IMAGE_PROVIDER=google + IMAGE_FALLBACK_PROVIDER=pollinations = Imagen with a FREE safety net.
-    image_fallback_provider: Literal[
-        "openai", "stability", "google", "pollinations", "none"
-    ] = "none"
+    image_fallback_provider: Literal["openai", "stability", "google", "pollinations", "none"] = (
+        "none"
+    )
     # Google image model when IMAGE_PROVIDER=google (uses GOOGLE_API_KEY). Nano Banana
     # (gemini-2.5-flash-image) is the durable default; imagen-4.0-ultra-generate-001 (and -std/-fast)
     # also work but Imagen is deprecated (shuts down 2026-08-17).
@@ -226,7 +230,9 @@ class Settings(BaseSettings):
     stability_api_key: str = ""
     pexels_api_key: str = ""
     pixabay_api_key: str = ""  # optional 2nd free B-roll source (more variety across videos)
-    coverr_api_key: str = ""  # optional 3rd free B-roll source (coverr.co; request a key + attribution)
+    coverr_api_key: str = (
+        ""  # optional 3rd free B-roll source (coverr.co; request a key + attribution)
+    )
     # How many candidate clips to pull per B-roll query so each scene can get many distinct clips
     # (every clip is used at most once, so a bigger pool = shorter, more varied beats — no stretching
     # one clip). Pexels allows up to 80 per page.
@@ -252,7 +258,9 @@ class Settings(BaseSettings):
     visual_style: str = "clean infographic, high-contrast, bold text"
     scenes_per_video: int = 10
     thumbnail_size: str = "1280x720"
-    shorts_thumbnail_size: str = "1080x1920"  # vertical 9:16 thumbnail for a Short (matches the frame)
+    shorts_thumbnail_size: str = (
+        "1080x1920"  # vertical 9:16 thumbnail for a Short (matches the frame)
+    )
     # SHORTS ONLY: bake the designed thumbnail as a brief FROZEN opening frame of the Short (with
     # silent audio) so it becomes a real video FRAME — the only way to control a Short's thumbnail
     # (YouTube ignores a custom uploaded thumbnail for Shorts). It doubles as a bold hook card. ~0.5s
@@ -267,16 +275,33 @@ class Settings(BaseSettings):
     # properties, so switching back to "long" restores the exact prior behaviour.
     content_format: Literal["long", "short"] = "long"
     shorts_resolution: str = "1080x1920"  # vertical 9:16 (portrait)
-    shorts_target_words: int = Field(100, ge=40, le=600)  # ~35-45s of narration (Shorts retain best short)
+    shorts_target_words: int = Field(
+        100, ge=40, le=600
+    )  # ~35-45s of narration (Shorts retain best short)
     shorts_scenes: int = Field(4, ge=2, le=12)
-    shorts_max_duration_sec: float = Field(50.0, ge=15.0, le=180.0)  # target ceiling (hard max is 3 min)
+    shorts_max_duration_sec: float = Field(
+        50.0, ge=15.0, le=180.0
+    )  # target ceiling (hard max is 3 min)
     shorts_burn_captions: bool = True  # captions are near-mandatory on muted, fast-scrolled Shorts
-    shorts_intro_enabled: bool = False  # skip the fixed tagline; a Short must hook in the first second
+    shorts_intro_enabled: bool = (
+        False  # skip the fixed tagline; a Short must hook in the first second
+    )
     shorts_scene_transition: Literal[
-        "none", "fade", "fadewhite", "fadeblack", "dissolve",
-        "smoothleft", "smoothright", "circleopen", "radial", "wipeleft", "slideleft",
+        "none",
+        "fade",
+        "fadewhite",
+        "fadeblack",
+        "dissolve",
+        "smoothleft",
+        "smoothright",
+        "circleopen",
+        "radial",
+        "wipeleft",
+        "slideleft",
     ] = "none"  # fast hard cuts read better than slow blends on a Short
-    shorts_hashtag: str = "#Shorts"  # appended to the description so YouTube classifies it as a Short
+    shorts_hashtag: str = (
+        "#Shorts"  # appended to the description so YouTube classifies it as a Short
+    )
 
     # ---------- Render ----------
     render_backend: Literal["ffmpeg", "moviepy", "avatar"] = "ffmpeg"
@@ -286,6 +311,11 @@ class Settings(BaseSettings):
     # falls back to libx264 automatically if the GPU encode fails. Force one by name to override
     # ("libx264" = CPU, "h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf").
     video_encoder: str = "auto"
+    # Master loudness (EBU R128) for the finished video, in LUFS. YouTube normalises everything to
+    # about -14 LUFS but only ever turns audio DOWN, so a quiet master just stays quiet on playback —
+    # raw TTS lands near -31 dBFS, which is why narration can be hard to hear at full volume.
+    # Normalising the final mix (voice + SFX) to the platform target fixes that. 0 disables it.
+    audio_loudness_lufs: float = Field(-14.0, ge=-40.0, le=0.0)
     avatar_provider: Literal["none", "heygen", "did"] = "none"
     heygen_api_key: str = ""
     video_resolution: str = "1920x1080"
@@ -304,8 +334,17 @@ class Settings(BaseSettings):
     # Cross-blend consecutive scenes instead of hard cuts (ffmpeg xfade). "none" = hard cut.
     # "fade" is a smooth crossfade; "fadewhite" flashes through white for a lighter feel.
     scene_transition: Literal[
-        "none", "fade", "fadewhite", "fadeblack", "dissolve",
-        "smoothleft", "smoothright", "circleopen", "radial", "wipeleft", "slideleft",
+        "none",
+        "fade",
+        "fadewhite",
+        "fadeblack",
+        "dissolve",
+        "smoothleft",
+        "smoothright",
+        "circleopen",
+        "radial",
+        "wipeleft",
+        "slideleft",
     ] = "none"
     scene_transition_sec: float = Field(0.5, ge=0.1, le=2.0)
     # Warm the whole video (0 = neutral/off, 1 = strongly warm). Pushes mids/highlights toward amber.
@@ -364,13 +403,17 @@ class Settings(BaseSettings):
     # The image is operator-supplied; rendering skips gracefully when the file is absent.
     avatar_overlay_enabled: bool = False
     avatar_image_path: str = "assets/avatar.png"
-    avatar_position: Literal["top-left", "top-right", "bottom-left", "bottom-right"] = "bottom-right"
+    avatar_position: Literal["top-left", "top-right", "bottom-left", "bottom-right"] = (
+        "bottom-right"
+    )
     avatar_scale: float = Field(0.18, gt=0, le=1)
     avatar_margin: int = Field(24, ge=0)
     # Composite the avatar image (your face) into the THUMBNAIL as the human element instead of an
     # AI-generated face — a consistent real face lifts click-through. Skipped when the file is absent.
     thumbnail_use_avatar: bool = True
-    thumbnail_avatar_scale: float = Field(0.9, ge=0.15, le=1.0)  # face height as a fraction of the thumb (big = main-region reaction, flush right)
+    thumbnail_avatar_scale: float = Field(
+        0.9, ge=0.15, le=1.0
+    )  # face height as a fraction of the thumb (big = main-region reaction, flush right)
 
     # ---------- Publishing (YouTube) ----------
     youtube_client_secrets_file: str = "secrets/client_secrets.json"
@@ -411,7 +454,9 @@ class Settings(BaseSettings):
     # YOUTUBE_CHANNEL_URL to your channel/handle URL; blank => a generic subscribe line.
     channel_cta_enabled: bool = True
     youtube_channel_url: str = ""  # e.g. https://www.youtube.com/@YourHandle
-    channel_cta_text: str = "Subscribe for more, and explore the channel for the full deep-dive videos."
+    channel_cta_text: str = (
+        "Subscribe for more, and explore the channel for the full deep-dive videos."
+    )
     # Best-effort: post ONE top-level comment (the channel CTA) on each upload via the Data API. Needs
     # the youtube.force-ssl scope, so turning this ON requires deleting the OAuth token to re-consent
     # (see Human_Tasks). The API cannot PIN a comment — pin it manually in Studio. Default off.
@@ -424,18 +469,21 @@ class Settings(BaseSettings):
     # how to get each program's link. Amazon products are found via the real search provider (a genuine
     # product URL + your associate tag), never invented.
     affiliate_enabled: bool = False
-    amazon_assoc_tag: str = ""  # Amazon Associates tag, e.g. "yourtag-20" (appended to a real product URL)
-    affiliate_algoexpert_url: str = ""   # your AlgoExpert referral link
-    affiliate_exponent_url: str = ""     # your Exponent referral link
-    affiliate_leetcode_url: str = ""     # your LeetCode referral link (if available)
-    affiliate_coursera_url: str = ""     # your Coursera affiliate/deep link (usually via Impact)
-    affiliate_udemy_url: str = ""        # your Udemy affiliate/deep link
-    affiliate_educative_url: str = ""    # your Educative referral link (a full URL)
-    affiliate_educative_id: str = ""     # OR just the Educative affiliate ID (built into a URL)
+    amazon_assoc_tag: str = (
+        ""  # Amazon Associates tag, e.g. "yourtag-20" (appended to a real product URL)
+    )
+    affiliate_algoexpert_url: str = ""  # your AlgoExpert referral link
+    affiliate_exponent_url: str = ""  # your Exponent referral link (a full URL)
+    affiliate_exponent_id: str = ""  # OR just the Exponent referral code (built into a ?ref= URL)
+    affiliate_leetcode_url: str = ""  # your LeetCode referral link (if available)
+    affiliate_coursera_url: str = ""  # your Coursera affiliate/deep link (usually via Impact)
+    affiliate_udemy_url: str = ""  # your Udemy affiliate/deep link
+    affiliate_educative_url: str = ""  # your Educative referral link (a full URL)
+    affiliate_educative_id: str = ""  # OR just the Educative affiliate ID (built into a URL)
     affiliate_designgurus_url: str = ""  # your DesignGurus.io referral link (a full URL)
-    affiliate_designgurus_id: str = ""   # OR just the DesignGurus affiliate ID (built into a URL)
-    affiliate_fenzo_url: str = ""        # your Fenzo AI referral link (a full URL)
-    affiliate_fenzo_id: str = ""         # OR the Fenzo affiliate ID (Educative's new venture)
+    affiliate_designgurus_id: str = ""  # OR just the DesignGurus affiliate ID (built into a URL)
+    affiliate_fenzo_url: str = ""  # your Fenzo AI referral link (a full URL)
+    affiliate_fenzo_id: str = ""  # OR the Fenzo affiliate ID (Educative's new venture)
     affiliate_max_links: int = Field(4, ge=1, le=10)
     # OPTIONAL path to an operator-supplied JSON catalog of verified resources for YOUR niche, matched to
     # each video BEFORE any web search. A list of rows, each:
@@ -443,7 +491,7 @@ class Settings(BaseSettings):
     #  "topics": "space separated words", "blurb": "..."}. Blank = no catalog (fully generic; the repo
     # ships none and falls back to web search). See data/affiliate_catalog.example.json for the shape.
     affiliate_curated_catalog: str = ""
-    affiliate_in_comment: bool = True    # also include the resources block in the top comment
+    affiliate_in_comment: bool = True  # also include the resources block in the top comment
     # A casual line appended to the resources block (e.g. "some of these get you a discount via my
     # link"). Default empty = off/generic; the operator opts in via AFFILIATE_PERK_TEXT.
     affiliate_perk_text: str = ""
@@ -462,7 +510,9 @@ class Settings(BaseSettings):
     idea_mining_channels: str = ""
     idea_mining_max_channels: int = Field(6, ge=1, le=25)
     idea_mining_videos_per_channel: int = Field(30, ge=5, le=100)
-    idea_mining_search_results: int = Field(25, ge=5, le=50)  # topical VIDEO candidates vetted (default)
+    idea_mining_search_results: int = Field(
+        25, ge=5, le=50
+    )  # topical VIDEO candidates vetted (default)
     idea_mining_outlier_multiple: float = Field(3.0, ge=1.5, le=25.0)  # views >= N x channel median
     idea_mining_max_ideas: int = Field(5, ge=1, le=15)
 
@@ -643,10 +693,11 @@ class Settings(BaseSettings):
         if "adzuna" in sources and not (self.adzuna_app_id and self.adzuna_app_key):
             raise ValueError("adzuna is enabled but ADZUNA_APP_ID/ADZUNA_APP_KEY are not set")
 
-        if "local" in (self.primary_provider, self.fallback_provider) and not self.local_llm_base_url:
-            raise ValueError(
-                "PRIMARY_PROVIDER/FALLBACK_PROVIDER=local requires LOCAL_LLM_BASE_URL"
-            )
+        if (
+            "local" in (self.primary_provider, self.fallback_provider)
+            and not self.local_llm_base_url
+        ):
+            raise ValueError("PRIMARY_PROVIDER/FALLBACK_PROVIDER=local requires LOCAL_LLM_BASE_URL")
 
         if self.fallback_provider not in ("none", "local"):
             key = {
@@ -692,8 +743,10 @@ class Settings(BaseSettings):
                 "(synthetic-content disclosure is non-negotiable)"
             )
 
-        if self.notify_enabled and self.notifier == "telegram" and not (
-            self.telegram_bot_token and self.telegram_chat_id
+        if (
+            self.notify_enabled
+            and self.notifier == "telegram"
+            and not (self.telegram_bot_token and self.telegram_chat_id)
         ):
             raise ValueError(
                 "NOTIFY_ENABLED=true with NOTIFIER=telegram requires "

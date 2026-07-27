@@ -18,6 +18,23 @@ if TYPE_CHECKING:
     from ..production.timeline import RenderSegment
 
 
+def loudnorm_enabled(lufs: float) -> bool:
+    """A target of 0 (or above) means "leave the audio alone" — LUFS targets are always negative."""
+    return lufs < 0.0
+
+
+def loudnorm_opts(lufs: float, *, true_peak: float = -1.5, lra: float = 11.0) -> dict[str, float]:
+    """EBU R128 options for ffmpeg's ``loudnorm`` filter, mastering the final mix to ``lufs``.
+
+    Why this is needed at all: YouTube normalises playback to roughly -14 LUFS, but it only ever
+    turns audio DOWN — a quiet upload is never boosted. Raw TTS lands around -31 dBFS RMS with ~23 dB
+    of crest factor, so a plain volume boost would clip long before reaching the target; loudnorm
+    handles the dynamics instead. ``true_peak`` keeps 1.5 dB below full scale so the lossy AAC encode
+    cannot overshoot into clipping.
+    """
+    return {"I": lufs, "TP": true_peak, "LRA": lra}
+
+
 def resolve_ffmpeg(configured: str = "") -> str | None:
     """Find the ffmpeg executable: explicit config path, then PATH, then common install dirs.
 
@@ -44,7 +61,9 @@ def resolve_ffmpeg(configured: str = "") -> str | None:
         if c and Path(c).exists():
             return c
     if local:  # last resort: the versioned WinGet package folder
-        matches = sorted(Path(local, "Microsoft", "WinGet", "Packages").glob("*FFmpeg*/**/ffmpeg.exe"))
+        matches = sorted(
+            Path(local, "Microsoft", "WinGet", "Packages").glob("*FFmpeg*/**/ffmpeg.exe")
+        )
         if matches:
             return str(matches[0])
     return None
@@ -65,9 +84,8 @@ def _scale_cover(stream, width, height):  # pragma: no cover - requires ffmpeg o
     """Scale to COVER the frame (aspect preserved) then centre-crop to exactly WxH — so 16:9 stock
     fills a 9:16 Short (and any off-ratio clip fills a 16:9 frame) WITHOUT stretching or distortion.
     Correct for both formats: for a same-ratio source the crop is a no-op."""
-    return (
-        stream.filter("scale", width, height, force_original_aspect_ratio="increase")
-        .filter("crop", width, height)
+    return stream.filter("scale", width, height, force_original_aspect_ratio="increase").filter(
+        "crop", width, height
     )
 
 
@@ -105,10 +123,22 @@ def _probe_encoder(exe: str, encoder: str) -> bool:
     with tempfile.TemporaryDirectory() as td:
         out = os.path.join(td, "probe.mp4")
         r = subprocess.run(
-            [exe, "-y", "-f", "lavfi",
-             "-i", "color=black:size=256x144:rate=25",
-             "-t", "0.2", "-c:v", encoder] + extra + [out],
-            capture_output=True, timeout=15,
+            [
+                exe,
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=black:size=256x144:rate=25",
+                "-t",
+                "0.2",
+                "-c:v",
+                encoder,
+            ]
+            + extra
+            + [out],
+            capture_output=True,
+            timeout=15,
         )
         return r.returncode == 0 and os.path.getsize(out) > 0
 
@@ -202,9 +232,15 @@ class FfmpegBackend:
 
     name = "ffmpeg"
 
-    def __init__(self, ffmpeg_path: str = "", video_encoder: str = "auto") -> None:
+    def __init__(
+        self,
+        ffmpeg_path: str = "",
+        video_encoder: str = "auto",
+        loudness_lufs: float = 0.0,
+    ) -> None:
         self._ffmpeg = ffmpeg_path
         self._encoder = video_encoder
+        self._loudness_lufs = loudness_lufs
 
     def render(
         self,
@@ -257,7 +293,9 @@ class FfmpegBackend:
                     if clen and clen + 0.05 < d:
                         v = v.filter("setpts", f"{d / clen:.6f}*PTS")
                     s = (
-                        _scale_cover(v, width, height).filter("setsar", "1").filter("fps", fps)
+                        _scale_cover(v, width, height)
+                        .filter("setsar", "1")
+                        .filter("fps", fps)
                         .filter("tpad", stop_mode="clone", stop_duration=d)
                         .trim(duration=d)
                         .filter("setpts", "PTS-STARTPTS")
@@ -265,7 +303,8 @@ class FfmpegBackend:
                 else:
                     s = (
                         _scale_cover(ffmpeg.input(path, loop=1, t=d), width, height)
-                        .filter("setsar", "1").filter("fps", fps)
+                        .filter("setsar", "1")
+                        .filter("fps", fps)
                     )
                 substreams.append(s)
             seg_stream = (
@@ -277,9 +316,7 @@ class FfmpegBackend:
         if crossfade and inputs:  # pragma: no cover - requires ffmpeg on PATH
             # Blend consecutive scenes. Each clip is padded by the transition length and the xfade
             # offset sits on the narration boundary, so scenes stay in sync with the voiceover.
-            video = _xfade_chain(
-                inputs, [max(s.duration, 0.1) for s in segments], transition, pad
-            )
+            video = _xfade_chain(inputs, [max(s.duration, 0.1) for s in segments], transition, pad)
         else:
             video = (
                 ffmpeg.concat(*inputs, v=1, n=len(inputs)) if inputs else ffmpeg.input(audio_path)
@@ -297,7 +334,8 @@ class FfmpegBackend:
             # override (see captions.build_scene_srt) which libass honours reliably; force_style is a
             # belt-and-suspenders default plus the compact font and opaque box.
             video = video.filter(
-                "subtitles", citations_path,
+                "subtitles",
+                citations_path,
                 force_style="Alignment=8,MarginV=1,FontSize=12,BorderStyle=3,"
                 "PrimaryColour=&H00FFFFFF&,BackColour=&HB0000000&",
             )
@@ -316,14 +354,19 @@ class FfmpegBackend:
                     "fade", type="in", start_time=subscribe.start, duration=subscribe.fade, alpha=1
                 )
                 .filter(
-                    "fade", type="out",
+                    "fade",
+                    type="out",
                     start_time=max(subscribe.start, subscribe.end - subscribe.fade),
-                    duration=subscribe.fade, alpha=1,
+                    duration=subscribe.fade,
+                    alpha=1,
                 )
             )
             bx, by = subscribe.ffmpeg_xy()
             video = ffmpeg.overlay(
-                video, badge, x=bx, y=by,
+                video,
+                badge,
+                x=bx,
+                y=by,
                 enable=f"between(t,{subscribe.start},{subscribe.end})",
             )
         if like is not None:  # pragma: no cover - requires ffmpeg on PATH
@@ -340,15 +383,25 @@ class FfmpegBackend:
             like_badge = like_badge.filter(
                 "fade", type="in", start_time=like.start, duration=like.fade, alpha=1
             ).filter(
-                "fade", type="out",
-                start_time=max(like.start, like.end - like.fade), duration=like.fade, alpha=1,
+                "fade",
+                type="out",
+                start_time=max(like.start, like.end - like.fade),
+                duration=like.fade,
+                alpha=1,
             )
             lx, ly = like.ffmpeg_xy()
             video = ffmpeg.overlay(
-                video, like_badge, x=lx, y=ly,
+                video,
+                like_badge,
+                x=lx,
+                y=ly,
                 enable=f"between(t,{like.start},{like.end})",
             )
         audio = ffmpeg.input(audio_path)
+        if loudnorm_enabled(self._loudness_lufs):
+            # Master the FINAL mix (voice + SFX) to the platform target. Must happen after the SFX
+            # overlay and before the encode, so what ships is what was measured.
+            audio = audio.filter("loudnorm", **loudnorm_opts(self._loudness_lufs))
         if speed and abs(speed - 1.0) > 1e-3:  # pragma: no cover - requires ffmpeg on PATH
             # Play the whole thing faster/slower: compress the video PTS and time-stretch the audio
             # (pitch preserved). Burned captions/citations live in the video stream, so they stay in
@@ -376,20 +429,17 @@ class FfmpegBackend:
     def _encode(self, video, audio, output_path, encoder, fps, exe):  # pragma: no cover - ffmpeg
         import ffmpeg
 
-        stream = (
-            ffmpeg.output(
-                video,
-                audio,
-                output_path,
-                vcodec=encoder,
-                acodec="aac",
-                pix_fmt="yuv420p",
-                r=fps,
-                shortest=None,
-                **_encoder_opts(encoder),
-            )
-            .overwrite_output()
-        )
+        stream = ffmpeg.output(
+            video,
+            audio,
+            output_path,
+            vcodec=encoder,
+            acodec="aac",
+            pix_fmt="yuv420p",
+            r=fps,
+            shortest=None,
+            **_encoder_opts(encoder),
+        ).overwrite_output()
         _run_ffmpeg(stream, exe, output_path)
 
 
@@ -469,7 +519,9 @@ def _run_intro(  # pragma: no cover - requires ffmpeg
                 _scale_cover(
                     ffmpeg.input(image_path, loop=1, t=seconds, framerate=fps), width, height
                 )
-                .filter("setsar", "1").filter("fps", fps).filter("format", "yuv420p")
+                .filter("setsar", "1")
+                .filter("fps", fps)
+                .filter("format", "yuv420p")
             )
             main = ffmpeg.input(video_path)
             silent = ffmpeg.input("anullsrc=r=44100:cl=stereo", f="lavfi", t=seconds).audio
@@ -477,7 +529,13 @@ def _run_intro(  # pragma: no cover - requires ffmpeg
             video = ffmpeg.concat(intro_v, main.video, v=1, n=2)
             audio = ffmpeg.concat(silent, main_a, v=0, a=1, n=2)
             stream = ffmpeg.output(
-                video, audio, tmp, vcodec=enc, acodec="aac", pix_fmt="yuv420p", r=fps,
+                video,
+                audio,
+                tmp,
+                vcodec=enc,
+                acodec="aac",
+                pix_fmt="yuv420p",
+                r=fps,
                 **_encoder_opts(enc),
             ).overwrite_output()
             _run_ffmpeg(stream, exe, tmp)

@@ -148,10 +148,13 @@ def test_google_provider_parses_and_reports_usage():
     import json
 
     route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
-        return_value=httpx.Response(200, json={
-            "candidates": [{"content": {"parts": [{"text": "hello "}, {"text": "world"}]}}],
-            "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 7},
-        })
+        return_value=httpx.Response(
+            200,
+            json={
+                "candidates": [{"content": {"parts": [{"text": "hello "}, {"text": "world"}]}}],
+                "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 7},
+            },
+        )
     )
     from content_foundry.providers.google_provider import GoogleProvider
 
@@ -160,7 +163,9 @@ def test_google_provider_parses_and_reports_usage():
     assert resp.provider == "google" and resp.model == "gemini-2.5-flash"
     assert resp.prompt_tokens == 5 and resp.completion_tokens == 7
     body = json.loads(route.calls.last.request.content)
-    assert body["systemInstruction"]["parts"][0]["text"] == "sys"  # Gemini uses the native system role
+    assert (
+        body["systemInstruction"]["parts"][0]["text"] == "sys"
+    )  # Gemini uses the native system role
 
 
 @respx.mock
@@ -196,11 +201,15 @@ def test_google_provider_sends_top_p_and_thinking():
     import json
 
     route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
-        return_value=httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+        return_value=httpx.Response(
+            200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+        )
     )
     from content_foundry.providers.google_provider import GoogleProvider
 
-    GoogleProvider("key", "gemini-2.5-flash", top_p=0.95, thinking=True).complete("hi", system="sys")
+    GoogleProvider("key", "gemini-2.5-flash", top_p=0.95, thinking=True).complete(
+        "hi", system="sys"
+    )
     body = json.loads(route.calls.last.request.content)
     assert body["generationConfig"]["topP"] == 0.95
     assert body["generationConfig"]["thinkingConfig"] == {"thinkingBudget": -1}  # dynamic thinking
@@ -212,14 +221,18 @@ def test_google_provider_skips_thinking_config_for_gemma():
     import json
 
     route = respx.post(url__startswith="https://generativelanguage.googleapis.com").mock(
-        return_value=httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+        return_value=httpx.Response(
+            200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+        )
     )
     from content_foundry.providers.google_provider import GoogleProvider
 
     GoogleProvider("key", "gemma-4-31b-it", thinking=True).complete("do it", system="be terse")
     body = json.loads(route.calls.last.request.content)
     assert "thinkingConfig" not in body["generationConfig"]  # gemma has no thinking mode
-    assert body["contents"][0]["parts"][0]["text"].startswith("[THINK]\nbe terse")  # marker folded in
+    assert body["contents"][0]["parts"][0]["text"].startswith(
+        "[THINK]\nbe terse"
+    )  # marker folded in
 
 
 def test_build_llm_provider_google_primary_local_fallback(monkeypatch):
@@ -259,9 +272,9 @@ def test_google_image_imagen_predict_path():
     import base64
 
     img = base64.b64encode(b"IMGBYTES").decode()
-    respx.post(url__startswith="https://generativelanguage.googleapis.com/v1beta/models/imagen").mock(
-        return_value=httpx.Response(200, json={"predictions": [{"bytesBase64Encoded": img}]})
-    )
+    respx.post(
+        url__startswith="https://generativelanguage.googleapis.com/v1beta/models/imagen"
+    ).mock(return_value=httpx.Response(200, json={"predictions": [{"bytesBase64Encoded": img}]}))
     from content_foundry.providers.image import GoogleImage
 
     out = GoogleImage("key", "imagen-4.0-ultra-generate-001").generate("a shocked developer")
@@ -273,13 +286,24 @@ def test_google_image_nano_banana_generate_content_path():
     import base64
 
     img = base64.b64encode(b"NANO").decode()
-    respx.post(url__startswith="https://generativelanguage.googleapis.com/v1beta/models/gemini").mock(
-        return_value=httpx.Response(200, json={
-            "candidates": [{"content": {"parts": [
-                {"text": "here you go"},
-                {"inlineData": {"mimeType": "image/png", "data": img}},
-            ]}}]
-        })
+    respx.post(
+        url__startswith="https://generativelanguage.googleapis.com/v1beta/models/gemini"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": "here you go"},
+                                {"inlineData": {"mimeType": "image/png", "data": img}},
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
     )
     from content_foundry.providers.image import GoogleImage
 
@@ -296,6 +320,60 @@ def test_build_image_provider_google(monkeypatch):
     reset_settings_cache()
     provider = build_image_provider(get_settings())
     assert provider.name == "google" and provider._model == "imagen-4.0-ultra-generate-001"
+
+
+def test_build_image_provider_google_uses_the_paid_image_key_and_chain(monkeypatch):
+    """The billed project must be reachable ONLY through image generation, and the best model has to
+    be attempted first."""
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.setenv("IMAGE_PROVIDER", "google")
+    monkeypatch.setenv("GOOGLE_API_KEY", "free-text-key")
+    monkeypatch.setenv("GOOGLE_IMAGE_API_KEY", "paid-image-key")
+    monkeypatch.setenv("GOOGLE_IMAGE_MODELS", "best-image,second-image")
+    reset_settings_cache()
+    provider = build_image_provider(get_settings())
+    assert provider._api_key == "paid-image-key"
+    assert provider._models == ["best-image", "second-image"]
+
+
+@respx.mock
+def test_google_image_falls_through_the_model_chain_on_quota():
+    """A quota wall on the best model must degrade to the NEXT BEST one, not drop the whole run to
+    the free fallback provider."""
+    import base64
+
+    img = base64.b64encode(b"NANO2").decode()
+    respx.post(url__startswith="https://generativelanguage.googleapis.com/v1beta/models/best").mock(
+        return_value=httpx.Response(429, json={"error": {"message": "quota exhausted"}})
+    )
+    respx.post(
+        url__startswith="https://generativelanguage.googleapis.com/v1beta/models/second"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"inlineData": {"data": img}}]}}]},
+        )
+    )
+    from content_foundry.providers.image import GoogleImage
+
+    assert GoogleImage("key", ["best-image", "second-image"]).generate("x") == b"NANO2"
+
+
+def test_google_image_raises_when_every_model_fails():
+    from content_foundry.providers.image import GoogleImage
+
+    provider = GoogleImage("key", ["a", "b"])
+    calls: list[str] = []
+
+    def boom(model, prompt):
+        calls.append(model)
+        raise ValueError(f"{model} down")
+
+    provider._generate_with = boom  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="b down"):  # the LAST error surfaces
+        provider.generate("x")
+    assert calls == ["a", "b"]  # tried best-first, in order
 
 
 @respx.mock
@@ -536,7 +614,6 @@ def test_keep_slices_trims_edges_and_collapses_only_long_internal_pauses():
     assert _keep_slices(n, [(0, n)], pad=10, max_gap=100) == [(0, n)]
 
 
-
 def test_pick_voice_alternates_by_run_id_parity():
     from content_foundry.providers.tts import pick_voice
 
@@ -580,7 +657,9 @@ def test_resolve_ffmpeg_never_returns_missing_configured(tmp_path, monkeypatch):
 def test_select_encoder_prefers_gpu_then_falls_back_to_cpu(monkeypatch):
     import content_foundry.providers.render_backend as rb
 
-    monkeypatch.setattr(rb, "_available_encoders", lambda _exe: {"libx264", "h264_nvenc", "h264_amf"})
+    monkeypatch.setattr(
+        rb, "_available_encoders", lambda _exe: {"libx264", "h264_nvenc", "h264_amf"}
+    )
     # Simulate: NVENC listed but actually broken at runtime; AMF works.
     monkeypatch.setattr(rb, "_probe_encoder", lambda _exe, enc: enc == "h264_amf")
     rb._WORKING_ENCODER_CACHE.clear()

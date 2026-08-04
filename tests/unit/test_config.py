@@ -119,6 +119,64 @@ def test_tts_edge_needs_no_key(monkeypatch):
     assert get_settings().tts_provider == "edge"
 
 
+def test_image_api_key_is_separate_from_the_text_one(monkeypatch):
+    """Image models need a BILLED Google project while text stays on the free tier, so the paid key
+    must be reachable ONLY by image generation — the LLM chain keeps using google_api_key."""
+    monkeypatch.setenv("GOOGLE_API_KEY", "free-tier-text-key")
+    monkeypatch.setenv("GOOGLE_IMAGE_API_KEY", "paid-image-key")
+    reset_settings_cache()
+    s = get_settings()
+    assert s.effective_google_image_api_key == "paid-image-key"
+    assert s.google_api_key == "free-tier-text-key"  # text NEVER sees the billed key
+
+
+def test_image_api_key_falls_back_to_the_shared_key(monkeypatch):
+    # Blank = the original single-key behaviour, so existing setups are unchanged.
+    monkeypatch.setenv("GOOGLE_API_KEY", "shared-key")
+    monkeypatch.setenv("GOOGLE_IMAGE_API_KEY", "")
+    reset_settings_cache()
+    assert get_settings().effective_google_image_api_key == "shared-key"
+
+
+def test_image_key_can_be_forced_to_the_free_one(monkeypatch):
+    """`visuals --free-images` flips this so prompt iteration costs nothing even with a paid key set."""
+    monkeypatch.setenv("GOOGLE_API_KEY", "free-tier-text-key")
+    monkeypatch.setenv("GOOGLE_IMAGE_API_KEY", "paid-image-key")
+    monkeypatch.setenv("GOOGLE_IMAGE_USE_PAID_KEY", "false")
+    reset_settings_cache()
+    assert get_settings().effective_google_image_api_key == "free-tier-text-key"
+
+
+def test_pipeline_runs_remake_images_by_default(monkeypatch):
+    # A full run rewrites the script, so images made for the old wording would be stale. Only the
+    # standalone `visuals` command opts into keeping them.
+    reset_settings_cache()
+    assert get_settings().visuals_redo_images is True
+
+
+def test_google_image_models_chain_is_best_first(monkeypatch):
+    monkeypatch.setenv("GOOGLE_IMAGE_MODELS", "banana, banana-pro ,banana-2,")
+    reset_settings_cache()
+    # Order is preserved (best first), blanks dropped, whitespace stripped.
+    assert get_settings().google_image_models_list == ["banana", "banana-pro", "banana-2"]
+
+
+def test_google_image_models_defaults_to_the_single_model(monkeypatch):
+    monkeypatch.setenv("GOOGLE_IMAGE_MODELS", "")
+    monkeypatch.setenv("GOOGLE_IMAGE_MODEL", "gemini-2.5-flash-image")
+    reset_settings_cache()
+    assert get_settings().google_image_models_list == ["gemini-2.5-flash-image"]
+
+
+def test_google_image_provider_requires_an_image_key(monkeypatch):
+    monkeypatch.setenv("IMAGE_PROVIDER", "google")
+    monkeypatch.setenv("GOOGLE_API_KEY", "")
+    monkeypatch.setenv("GOOGLE_IMAGE_API_KEY", "")
+    reset_settings_cache()
+    with pytest.raises(ConfigError):
+        get_settings()
+
+
 def test_tts_piper_requires_model_path(monkeypatch):
     monkeypatch.setenv("TTS_PROVIDER", "piper")
     monkeypatch.setenv("PIPER_MODEL_PATH", "")

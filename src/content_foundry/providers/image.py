@@ -74,19 +74,51 @@ class StabilityImage:
 class GoogleImage:
     """Google AI Studio image generation. Supports BOTH Imagen (``imagen-*`` via the :predict endpoint)
     and Nano Banana / Gemini image models (``gemini-*-image`` via :generateContent), dispatched by the
-    model name, so one adapter + one GOOGLE_API_KEY covers whichever you configure. Native REST via
-    httpx (no extra SDK). Note: Imagen is deprecated (shuts down 2026-08-17) — gemini-2.5-flash-image
-    (Nano Banana) is the durable choice."""
+    model name, so one adapter covers whichever you configure. Native REST via httpx (no extra SDK).
+
+    Takes a BEST-FIRST list of models and tries them IN ORDER, moving to the next on ANY failure
+    (quota/429, bad id/404, 5xx) — the same shape as the text chain. That way the best image model is
+    always attempted first and running into its quota degrades to the next best one instead of
+    dropping the whole run to the free fallback provider. Note: Imagen is deprecated (shuts down
+    2026-08-17), so the Nano Banana / ``gemini-*-image`` family is the durable choice.
+    """
 
     name = "google"
     _BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
     def __init__(
-        self, api_key: str, model: str = "gemini-2.5-flash-image", aspect_ratio: str = "16:9"
+        self,
+        api_key: str,
+        model: str | list[str] = "gemini-2.5-flash-image",
+        aspect_ratio: str = "16:9",
     ) -> None:
         self._api_key = api_key
-        self._model = model
+        self._models = [model] if isinstance(model, str) else [m for m in model if m]
         self._aspect = aspect_ratio
+        self._log = get_logger(component="image", provider="google")
+
+    @property
+    def _model(self) -> str:
+        """The best-first model (kept for callers/tests that inspect the configured model)."""
+        return self._models[0] if self._models else ""
+
+    def generate(self, prompt: str, size: str = "1024x1024") -> bytes:
+        if not self._models:
+            raise ValueError("No Google image model configured")
+        last: Exception | None = None
+        for model in self._models:
+            try:
+                return self._generate_with(model, prompt)
+            except Exception as exc:  # quota/404/5xx -> try the next-best model
+                last = exc
+                self._log.warning(
+                    "google_image_model_failed",
+                    model=model,
+                    error=type(exc).__name__,
+                    detail=str(exc)[:200],
+                )
+        assert last is not None  # the loop ran at least once, so a failure was recorded
+        raise last
 
     @retry(
         stop=stop_after_attempt(3),
@@ -94,14 +126,14 @@ class GoogleImage:
         reraise=True,
         retry=retry_if_not_exception_type(_ImageClientError),  # a 4xx won't recover; hand off fast
     )
-    def generate(self, prompt: str, size: str = "1024x1024") -> bytes:
+    def _generate_with(self, model: str, prompt: str) -> bytes:
         import base64
 
         import httpx  # lazy-ish (core dep, kept local for symmetry)
 
-        if self._model.startswith("imagen"):
+        if model.startswith("imagen"):
             resp = httpx.post(
-                f"{self._BASE_URL}/models/{self._model}:predict",
+                f"{self._BASE_URL}/models/{model}:predict",
                 params={"key": self._api_key},
                 json={
                     "instances": [{"prompt": prompt}],
@@ -118,7 +150,7 @@ class GoogleImage:
 
         # Nano Banana / Gemini image model: image arrives inline in a content part.
         resp = httpx.post(
-            f"{self._BASE_URL}/models/{self._model}:generateContent",
+            f"{self._BASE_URL}/models/{model}:generateContent",
             params={"key": self._api_key},
             json={
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],

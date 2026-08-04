@@ -14,10 +14,14 @@ def _settings(monkeypatch, *, enabled: bool):
 
 def test_thumbnail_director_writes_prompt_from_the_description(monkeypatch, fakes):
     settings = _settings(monkeypatch, enabled=True)
-    text = "A cinematic thumbnail: a glowing laptop with a red REJECTED stamp, moody blue and orange."
+    text = (
+        "A cinematic thumbnail: a glowing laptop with a red REJECTED stamp, moody blue and orange."
+    )
     llm = fakes.LLM(script_json=text)
     out = ThumbnailDirector(settings, llm).compose(
-        "some concept", title="A Title", niche="tech careers",
+        "some concept",
+        title="A Title",
+        niche="tech careers",
         description="FAANG interviewers grade you on a hidden scoring matrix and flag 'Hero Behavior'.",
     )
     assert out == text
@@ -25,9 +29,10 @@ def test_thumbnail_director_writes_prompt_from_the_description(monkeypatch, fake
     user_prompt = llm.calls[-1]["prompt"]
     # the EXACT Gemini-style instruction + the raw description are the ONLY content input
     assert user_prompt.startswith(
-        "Write a prompt to generate a thumbnail for a youtube video whose description is given below")
+        "Write a prompt to generate a thumbnail for a youtube video whose description is given below"
+    )
     assert "hidden scoring matrix" in user_prompt
-    system = (llm.calls[-1]["system"] or "")
+    system = llm.calls[-1]["system"] or ""
     assert "judge" not in system.lower()
     assert "EXAMPLE PROMPT" in system  # the worked example is included to drive the quality
 
@@ -38,6 +43,23 @@ def test_thumbnail_director_falls_back_to_concept_without_a_description(monkeypa
     ThumbnailDirector(settings, llm).compose("a laptop with a red scorecard", title="t")
     # no description => the concept becomes the description-context handed to the model
     assert "a laptop with a red scorecard" in llm.calls[-1]["prompt"]
+
+
+def test_thumbnail_director_directs_a_single_idea_search_thumbnail(monkeypatch, fakes):
+    """A search viewer scans for PROOF the video holds their answer, so the frame must read instantly
+    and look like a real artifact — while keeping the worked example that drives the quality bar."""
+    settings = _settings(monkeypatch, enabled=True)
+    llm = fakes.LLM(script_json="a thumbnail")
+    ThumbnailDirector(settings, llm).compose("c", title="t", description="d")
+    system = llm.calls[-1]["system"] or ""
+    assert "ONE IDEA, ONE FOCAL POINT" in system
+    assert "AUTHENTIC, NOT ABSTRACT" in system
+    assert "whiteboard sketch" in system and "diagram" in system
+    # The overlaid headline is drawn LATER, so the image itself must leave room and not spell it out.
+    assert "do NOT draw it" in system
+    # The exemplar is the quality lever — a direction block must never replace it.
+    assert "EXAMPLE DESCRIPTION" in system and "EXAMPLE PROMPT" in system
+    assert "INTERNAL GRADING RUBRIC" in system  # the worked example survives verbatim
 
 
 def test_thumbnail_director_disabled_is_noop(monkeypatch, fakes):
@@ -52,7 +74,8 @@ def test_thumbnail_director_adds_no_guardrails_or_avatar_details(monkeypatch, fa
     settings = _settings(monkeypatch, enabled=True)
     llm = fakes.LLM(script_json="a bold cinematic thumbnail")
     ThumbnailDirector(settings, llm).compose(
-        "developer at a desk", title="t", description="A video about ML system design interviews.")
+        "developer at a desk", title="t", description="A video about ML system design interviews."
+    )
     blob = ((llm.calls[-1]["system"] or "") + llm.calls[-1]["prompt"]).lower()
     # No operator face-matching / avatar guardrails are injected into the director prompt.
     assert "match the presenter" not in blob

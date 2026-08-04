@@ -130,7 +130,11 @@ def _make_single_image(name: str, settings: Settings) -> ImageProvider | None:
     if name == "google":
         from .image import GoogleImage
 
-        return GoogleImage(settings.google_api_key, settings.google_image_model)
+        # effective_google_image_api_key, never google_api_key: image generation is the ONLY thing
+        # allowed to spend against the billed project. Best-first model chain, same as the text side.
+        return GoogleImage(
+            settings.effective_google_image_api_key, settings.google_image_models_list
+        )
     if name == "pollinations":
         from .image import PollinationsImage
 

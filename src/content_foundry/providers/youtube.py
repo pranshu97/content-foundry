@@ -10,6 +10,22 @@ from ..logging import get_logger
 _log = get_logger(component="youtube")
 
 
+def _granted_scopes(token_file: str) -> set[str]:
+    """Scopes the saved OAuth token was actually granted, straight from the token JSON.
+
+    Deliberately NOT read off a ``Credentials`` object: ``from_authorized_user_file`` sets ``scopes``
+    to whatever the caller requested, so it can never reveal that the stored grant is narrower.
+    An unreadable/absent file yields an empty set, which forces a fresh consent.
+    """
+    import json
+
+    try:
+        with open(token_file, encoding="utf-8") as fh:
+            return set(json.load(fh).get("scopes") or [])
+    except (OSError, ValueError):
+        return set()
+
+
 @runtime_checkable
 class Publisher(Protocol):
     name: str
@@ -52,7 +68,9 @@ class DryRunPublisher:
         return "dryrun-video-id"
 
     def set_thumbnail(self, video_id: str, thumbnail_path: str) -> None:
-        self.calls.append(("set_thumbnail", {"video_id": video_id, "thumbnail_path": thumbnail_path}))
+        self.calls.append(
+            ("set_thumbnail", {"video_id": video_id, "thumbnail_path": thumbnail_path})
+        )
 
     def set_privacy(self, video_id: str, privacy_status: str) -> None:
         self.calls.append(("set_privacy", {"video_id": video_id, "privacy_status": privacy_status}))
@@ -101,6 +119,21 @@ class YouTubePublisher:
         creds = None
         if os.path.exists(self._token_file):
             creds = Credentials.from_authorized_user_file(self._token_file, self._scopes)
+            # Check the scopes the token was actually GRANTED, read from the file itself. Reading
+            # them off `creds` would be useless: from_authorized_user_file just echoes back the
+            # scopes we asked for. A token saved before a feature was enabled is still "valid"
+            # (unexpired), so without this the run proceeds without e.g. force-ssl and every
+            # add_comment 403s into a best-effort handler.
+            missing = [s for s in self._scopes if s not in _granted_scopes(self._token_file)]
+            if missing:
+                _log.warning(
+                    "youtube_token_missing_scopes",
+                    missing=missing,
+                    token_file=self._token_file,
+                    hint="the saved token predates a newly enabled feature (e.g. posting comments); "
+                    "re-consenting once in the browser now",
+                )
+                creds = None
         if not creds or not creds.valid:
             refreshed = False
             if creds and creds.expired and creds.refresh_token:
@@ -180,7 +213,9 @@ class YouTubePublisher:
         except Exception as exc:
             raise PublishError(f"Thumbnail upload failed: {exc}") from exc
 
-    def add_to_playlist(self, video_id: str, playlist_id: str) -> None:  # pragma: no cover - network
+    def add_to_playlist(
+        self, video_id: str, playlist_id: str
+    ) -> None:  # pragma: no cover - network
         """File the uploaded video into a playlist (playlistItems.insert), so a niche series keeps
         viewers watching one video after another (session watch time)."""
         try:

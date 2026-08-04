@@ -9,6 +9,7 @@ from ..errors import LLMError, SchemaValidationError
 from ..logging import get_logger
 from ..models import DataBrief, Provenance, ResearchBrief, SceneCue, Script
 from ..production.affiliate import affiliate_context, select_used
+from ..production.end_screen import library_context
 from ..production.timebox import build_time_context
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
@@ -197,6 +198,7 @@ class ScriptGenerator:
         research: ResearchBrief | None = None,
         affiliate_candidates: list | None = None,
         instructions: str = "",
+        past_videos: list | None = None,
     ) -> Script:
         system = self._build_prompt(
             brief,
@@ -208,6 +210,7 @@ class ScriptGenerator:
             research,
             affiliate_candidates,
             instructions,
+            past_videos,
         )
         text = self._complete(system)
         parsed = self._parse_json(system, text)
@@ -235,6 +238,7 @@ class ScriptGenerator:
         research: ResearchBrief | None = None,
         affiliate_candidates: list | None = None,
         instructions: str = "",
+        past_videos: list | None = None,
     ) -> str:
         beats = "\n".join(f"{i + 1}) {b}" for i, b in enumerate(template.beats))
         facts = []
@@ -310,6 +314,7 @@ class ScriptGenerator:
             format_context=_format_context(self._settings),
             retention_context=_retention_context(self._settings),
             affiliate_context=affiliate_context(self._settings, candidates=affiliate_candidates),
+            library_context=library_context(past_videos),
             research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
         )

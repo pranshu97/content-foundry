@@ -15,7 +15,8 @@ from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
 from ..providers.tiering import TaskTier, select_model
 
-_MAX_QUERIES = 8
+_MAX_QUERIES = 10
+_MAX_ITEMS = 14  # any single bucket; a runaway list would crowd the prompts it feeds
 
 
 class InstructionPlanner:
@@ -42,7 +43,9 @@ class InstructionPlanner:
             resp = self._llm.complete(
                 "Return ONLY the JSON now.",
                 system=system,
-                temperature=min(self._settings.llm_temperature, 0.3),  # low: deterministic structuring
+                temperature=min(
+                    self._settings.llm_temperature, 0.3
+                ),  # low: deterministic structuring
                 max_tokens=self._settings.llm_max_tokens,
                 model=model,
             )
@@ -57,6 +60,9 @@ class InstructionPlanner:
                     research=len(plan.research_focus),
                     queries=len(plan.research_queries),
                     script=len(plan.script_directions),
+                    outline=len(plan.outline),
+                    avoid=len(plan.avoid),
+                    terminology=len(plan.terminology),
                 )
                 return plan
         except Exception as exc:  # never fatal — a bad plan must not block the run
@@ -80,10 +86,13 @@ class InstructionPlanner:
             research_focus=cls._strings(data.get("research_focus")),
             research_queries=cls._strings(data.get("research_queries"))[:_MAX_QUERIES],
             script_directions=cls._strings(data.get("script_directions")),
+            outline=cls._strings(data.get("outline")),
+            avoid=cls._strings(data.get("avoid")),
+            terminology=cls._strings(data.get("terminology")),
         )
 
     @staticmethod
     def _strings(val: object) -> list[str]:
         if not isinstance(val, list):
             return []
-        return [s.strip() for s in val if isinstance(s, str) and s.strip()]
+        return [s.strip() for s in val if isinstance(s, str) and s.strip()][:_MAX_ITEMS]

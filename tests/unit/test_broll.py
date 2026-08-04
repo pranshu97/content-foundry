@@ -19,19 +19,32 @@ from content_foundry.providers.broll import (
     PixabayBrollClient,
     _clip_ok,
     _interleave,
+    _norm,
     _off_topic,
     _pick_page,
+    _required_matches,
+    moment_terms,
 )
 
 
 @respx.mock
 def test_pixabay_parses_video_hits_prefers_largest():
     respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
-        return_value=httpx.Response(200, json={"hits": [
-            {"videos": {"large": {"url": "https://cdn.pixabay.com/a.mp4"}, "small": {"url": "s"}}},
-            {"videos": {"tiny": {"url": "https://cdn.pixabay.com/b.mp4"}}},
-            {"videos": {}},  # no renditions -> skipped
-        ]})
+        return_value=httpx.Response(
+            200,
+            json={
+                "hits": [
+                    {
+                        "videos": {
+                            "large": {"url": "https://cdn.pixabay.com/a.mp4"},
+                            "small": {"url": "s"},
+                        }
+                    },
+                    {"videos": {"tiny": {"url": "https://cdn.pixabay.com/b.mp4"}}},
+                    {"videos": {}},  # no renditions -> skipped
+                ]
+            },
+        )
     )
     urls = PixabayBrollClient("key").search("office")
     assert urls == ["https://cdn.pixabay.com/a.mp4", "https://cdn.pixabay.com/b.mp4"]
@@ -40,12 +53,17 @@ def test_pixabay_parses_video_hits_prefers_largest():
 @respx.mock
 def test_coverr_parses_video_hits():
     respx.get(url__startswith="https://api.coverr.co/videos").mock(
-        return_value=httpx.Response(200, json={"hits": [
-            {"urls": {"mp4": "https://storage.coverr.co/videos/a?token=x"}},
-            {"urls": {"mp4": "https://storage.coverr.co/videos/b?token=y"}},
-            {"urls": {}},  # no mp4 -> skipped
-            {},            # no urls object -> skipped
-        ]})
+        return_value=httpx.Response(
+            200,
+            json={
+                "hits": [
+                    {"urls": {"mp4": "https://storage.coverr.co/videos/a?token=x"}},
+                    {"urls": {"mp4": "https://storage.coverr.co/videos/b?token=y"}},
+                    {"urls": {}},  # no mp4 -> skipped
+                    {},  # no urls object -> skipped
+                ]
+            },
+        )
     )
     urls = CoverrBrollClient("key").search("office desk")
     assert urls == [
@@ -66,14 +84,24 @@ def test_off_topic_filter_logic():
     assert _off_topic("busy modern office", "office, business, laptop") is False  # on-topic
     assert _off_topic("full moon rising", "moon, night") is False  # the query DID ask for the moon
     assert _off_topic("close up of person smiling", "woman, lipstick, makeup") is True  # cosmetics
-    assert _off_topic("happy team", "valentine, love, hearts, romantic") is True  # greeting-card junk
+    assert (
+        _off_topic("happy team", "valentine, love, hearts, romantic") is True
+    )  # greeting-card junk
     # The 0013 bug: a stock ANATOMY diagram padded in for "...whiteboard diagram" — it shares the
     # generic word "diagram" but is off-domain, so drop it; a query that asked for it keeps it.
-    assert _off_topic(
-        "candidate drawing whiteboard diagram", "intestine, anatomy, digestive, diagram, medical"
-    ) is True
-    assert _off_topic("stethoscope in a clinic", "stethoscope, clinic") is False  # query asked for it
-    assert _off_topic("anything at all", "") is False  # no metadata -> only drop on positive evidence
+    assert (
+        _off_topic(
+            "candidate drawing whiteboard diagram",
+            "intestine, anatomy, digestive, diagram, medical",
+        )
+        is True
+    )
+    assert (
+        _off_topic("stethoscope in a clinic", "stethoscope, clinic") is False
+    )  # query asked for it
+    assert (
+        _off_topic("anything at all", "") is False
+    )  # no metadata -> only drop on positive evidence
 
 
 def test_clip_ok_positive_context_drops_unrelated():
@@ -83,10 +111,14 @@ def test_clip_ok_positive_context_drops_unrelated():
     # Names an off-topic subject even though it shares a generic word -> denylist drops it:
     assert _clip_ok("woman at computer", "woman, valentine, hearts", vocab) is False
     # An anatomy clip that shares the generic "diagram" with the video vocabulary is still denied:
-    assert _clip_ok(
-        "candidate drawing whiteboard diagram", "intestine, anatomy, diagram",
-        {"coding", "interview", "whiteboard", "diagram"},
-    ) is False
+    assert (
+        _clip_ok(
+            "candidate drawing whiteboard diagram",
+            "intestine, anatomy, diagram",
+            {"coding", "interview", "whiteboard", "diagram"},
+        )
+        is False
+    )
     # On-topic clip (tags touch the video's vocabulary) is kept:
     assert _clip_ok("woman at computer", "office, computer, business", vocab) is True
     # No vocabulary known (context off) -> only the denylist applies, unrelated tags pass:
@@ -108,26 +140,88 @@ def test_clip_ok_requires_a_specific_query_word_not_just_generic():
 
 
 def test_clip_ok_rich_beat_needs_more_than_one_specific_match():
-    vocab = {"engineer", "whiteboard", "office", "diagram", "confused", "coding", "developer", "code"}
+    vocab = {
+        "engineer",
+        "whiteboard",
+        "office",
+        "diagram",
+        "confused",
+        "coding",
+        "developer",
+        "code",
+    }
     # A 3-specific-word beat ("confused engineer whiteboard"): a clip that names only ONE of them is a
     # weak, borderline match -> dropped (it falls back to a bespoke generated image)...
-    assert _clip_ok("confused engineer whiteboard", "engineer, bridge, construction", vocab) is False
+    assert (
+        _clip_ok("confused engineer whiteboard", "engineer, bridge, construction", vocab) is False
+    )
     # ...while a clip that names TWO of the three is a confident match -> kept.
     assert _clip_ok("confused engineer whiteboard", "engineer, whiteboard, office", vocab) is True
     # NO REGRESSION: a 2-specific-word beat still passes on a single strong match (floor stays 1).
     assert _clip_ok("developer typing", "developer, code, laptop", vocab) is True
 
 
+def test_required_matches_is_capped_so_stock_clips_can_still_qualify():
+    # _search_terms trims every beat to 4 words, so nearly all of them arrive with the same specific
+    # count — meaning this knob has effectively two settings. Raising it from 2 to 3 took a real run
+    # from ~22 stock clips down to 6, because a clip carries only a handful of broad tags and three
+    # distinct hits is unreachable. The cap is what keeps motion in the video.
+    assert _required_matches(1) == 1
+    assert _required_matches(2) == 1
+    for n in range(3, 9):
+        assert _required_matches(n) == 2
+    # Never asks for more words than the beat actually has.
+    assert all(_required_matches(n) <= n for n in range(1, 12))
+
+
+def test_set_dressing_does_not_count_as_evidence_of_relevance():
+    """Precision comes from WHICH words match, not how many: 'tech' and 'meeting' are on every stock
+    clip while 'debrief' is on almost none, so counting them equally let two pieces of scenery
+    outvote the one word that identifies the shot."""
+    vocab = {"interview", "debrief", "hiring", "engineer", "meeting", "tech", "panel", "resume"}
+    beat = "tech interviewers debrief meeting"
+    # A clip echoing ONLY the beat's set dressing is the right world but the wrong subject -> dropped.
+    assert _clip_ok(beat, "tech, meeting, people, footage", vocab) is False
+    # Naming what the beat is actually about is enough, even though it is a single word.
+    assert _clip_ok(beat, "debrief, office, people", vocab) is True
+
+
+def test_search_terms_keeps_the_discriminating_word_over_set_dressing():
+    # The query is capped at 4 words. Truncating by POSITION spent a slot on "tech" and cut "resume",
+    # so the search asked for generic office footage and the relevance check had nothing to match on.
+    assert _search_terms("tech hiring manager reviewing resume laptop") == (
+        "hiring manager reviewing resume"
+    )
+    assert "interview" in _search_terms("candidate typing laptop glass interview room")
+    # Set dressing still BACKFILLS spare slots rather than wasting them.
+    assert _search_terms("tech interviewers debrief meeting corporate conference room").split() == [
+        "interviewers",
+        "debrief",
+        "conference",
+        "tech",
+    ]
+    # A beat that is already short is untouched.
+    assert _search_terms("developer typing") == "developer typing"
+
 
 @respx.mock
 def test_pixabay_positive_context_drops_unrelated_clip():
     respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
-        return_value=httpx.Response(200, json={"hits": [
-            {"videos": {"large": {"url": "https://cdn.pixabay.com/code.mp4"}},
-             "tags": "developer, code, laptop"},
-            {"videos": {"large": {"url": "https://cdn.pixabay.com/valentine.mp4"}},
-             "tags": "valentine, love, hearts"},  # off-topic for a software video
-        ]})
+        return_value=httpx.Response(
+            200,
+            json={
+                "hits": [
+                    {
+                        "videos": {"large": {"url": "https://cdn.pixabay.com/code.mp4"}},
+                        "tags": "developer, code, laptop",
+                    },
+                    {
+                        "videos": {"large": {"url": "https://cdn.pixabay.com/valentine.mp4"}},
+                        "tags": "valentine, love, hearts",
+                    },  # off-topic for a software video
+                ]
+            },
+        )
     )
     urls = PixabayBrollClient("key").search(
         "developer typing", context="developer code laptop office computer software engineer"
@@ -138,12 +232,21 @@ def test_pixabay_positive_context_drops_unrelated_clip():
 @respx.mock
 def test_pixabay_drops_off_topic_clips_by_tags():
     respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
-        return_value=httpx.Response(200, json={"hits": [
-            {"videos": {"large": {"url": "https://cdn.pixabay.com/office.mp4"}},
-             "tags": "office, business, computer"},
-            {"videos": {"large": {"url": "https://cdn.pixabay.com/moon.mp4"}},
-             "tags": "moon, night, sky"},  # off-topic for an office query -> dropped
-        ]})
+        return_value=httpx.Response(
+            200,
+            json={
+                "hits": [
+                    {
+                        "videos": {"large": {"url": "https://cdn.pixabay.com/office.mp4"}},
+                        "tags": "office, business, computer",
+                    },
+                    {
+                        "videos": {"large": {"url": "https://cdn.pixabay.com/moon.mp4"}},
+                        "tags": "moon, night, sky",
+                    },  # off-topic for an office query -> dropped
+                ]
+            },
+        )
     )
     assert PixabayBrollClient("key").search("busy modern office") == [
         "https://cdn.pixabay.com/office.mp4"
@@ -153,9 +256,17 @@ def test_pixabay_drops_off_topic_clips_by_tags():
 @respx.mock
 def test_pixabay_keeps_off_topic_subject_when_query_asks_for_it():
     respx.get(url__startswith="https://pixabay.com/api/videos/").mock(
-        return_value=httpx.Response(200, json={"hits": [
-            {"videos": {"large": {"url": "https://cdn.pixabay.com/moon.mp4"}}, "tags": "moon, night"},
-        ]})
+        return_value=httpx.Response(
+            200,
+            json={
+                "hits": [
+                    {
+                        "videos": {"large": {"url": "https://cdn.pixabay.com/moon.mp4"}},
+                        "tags": "moon, night",
+                    },
+                ]
+            },
+        )
     )
     # The video really is about the moon, so the moon clip is kept.
     assert PixabayBrollClient("key").search("full moon timelapse") == [
@@ -166,12 +277,25 @@ def test_pixabay_keeps_off_topic_subject_when_query_asks_for_it():
 @respx.mock
 def test_pexels_drops_off_topic_by_url_slug():
     respx.get(url__startswith="https://api.pexels.com/videos/search").mock(
-        return_value=httpx.Response(200, json={"videos": [
-            {"url": "https://www.pexels.com/video/developer-typing-code-101/",
-             "video_files": [{"link": "https://videos.pexels.com/code.mp4", "width": 1920}]},
-            {"url": "https://www.pexels.com/video/woman-applying-red-lipstick-202/",
-             "video_files": [{"link": "https://videos.pexels.com/lipstick.mp4", "width": 1920}]},
-        ]})
+        return_value=httpx.Response(
+            200,
+            json={
+                "videos": [
+                    {
+                        "url": "https://www.pexels.com/video/developer-typing-code-101/",
+                        "video_files": [
+                            {"link": "https://videos.pexels.com/code.mp4", "width": 1920}
+                        ],
+                    },
+                    {
+                        "url": "https://www.pexels.com/video/woman-applying-red-lipstick-202/",
+                        "video_files": [
+                            {"link": "https://videos.pexels.com/lipstick.mp4", "width": 1920}
+                        ],
+                    },
+                ]
+            },
+        )
     )
     assert PexelsBrollClient("key").search("developer typing code") == [
         "https://videos.pexels.com/code.mp4"
@@ -188,7 +312,7 @@ class _StubClient:
         self._urls = urls
         self._boom = boom
 
-    def search(self, query, *, context=""):
+    def search(self, query, *, context="", moment=""):
         if self._boom:
             raise RuntimeError("rate limited")
         return list(self._urls)
@@ -205,6 +329,64 @@ def test_multi_broll_combines_and_survives_a_failing_source():
 
 def test_multi_broll_disabled_when_no_enabled_clients():
     assert MultiBrollClient([_StubClient([], enabled=False)]).enabled is False
+
+
+def test_moment_terms_keeps_only_the_words_that_identify_the_line():
+    terms = moment_terms(
+        "Amazon's rubric is focused on real-world hardware bottlenecks and inference latency"
+    )
+    assert {"rubric", "hardware", "bottleneck", "inference", "latency"} <= terms
+    # Set dressing carries no information about WHICH claim this is, so it cannot be the thing a
+    # clip matches on.
+    assert not terms & {"office", "laptop", "screen", "desk", "computer"}
+
+
+def test_norm_folds_plurals_and_gerunds_but_leaves_short_words_alone():
+    assert _norm("servers") == _norm("server")
+    assert _norm("pipelines") == _norm("pipeline")
+    assert _norm("interviewers") == _norm("interview")
+    assert _norm("monitoring") == _norm("monitor")
+    assert _norm("bottlenecks") == _norm("bottleneck")
+    # A blind "es" strip would leave "pipelin" and miss the singular; only a sibilant stem takes es.
+    assert _norm("matches") == "match"
+    # Trimming below four characters would collide unrelated words, so it is left untouched.
+    assert _norm("code") == "code"
+    assert _norm("ads") == "ads"
+    assert _norm("class") == "class"
+
+
+def test_clip_must_name_something_the_line_it_sits_under_actually_says():
+    """A beat is written ONCE for a whole scene, but a scene runs 45-90 s across several claims, so a
+    clip can satisfy the beat and still be sitting under a line it has nothing to do with. Measured on
+    run 0021: 'developer working on laptop coffee shop night' was showing under a line about inference
+    latency and hardware bottlenecks."""
+    vocab = frozenset({"developer", "laptop", "latency", "hardware", "server", "coffee", "night"})
+    query = "developer laptop coffee shop"
+    tags = "developer, coffee, shop, laptop, night"
+    spoken = moment_terms(
+        "Amazon's rubric is focused on hardware bottlenecks and inference latency"
+    )
+    # It answers the BEAT, so the beat gate alone lets it through...
+    assert _clip_ok(query, tags, vocab) is True
+    # ...but it names nothing the line actually says, so the moment gate drops it.
+    assert _clip_ok(query, tags, vocab, spoken) is False
+    # A clip that DOES depict what the line is about survives both gates.
+    on_topic = "server, rack, hardware, latency, datacenter"
+    assert _clip_ok("server rack hardware", on_topic, vocab, spoken) is True
+
+
+def test_moment_gate_matches_across_plurals():
+    vocab = frozenset({"server", "rack", "cooling"})
+    spoken = moment_terms("the servers stay hot because the cooling racks are undersized")
+    # The clip says "server"; the line says "servers". Stemming is what keeps this from being a miss.
+    assert _clip_ok("server rack", "server, rack, datacenter", vocab, spoken) is True
+
+
+def test_no_moment_leaves_the_gate_exactly_as_it_was():
+    """Callers that know nothing about the narration (and every pre-existing test) must be unaffected."""
+    vocab = frozenset({"developer", "code"})
+    assert _clip_ok("developer code", "developer, code, laptop", vocab) is True
+    assert _clip_ok("developer code", "developer, code, laptop", vocab, frozenset()) is True
 
 
 def test_broll_source_from_url():
@@ -245,7 +427,9 @@ def test_picker_never_reuses_a_clip_by_default():
     pool = ["a", "b", "c"]
     picks = [picker.pick(list(pool)) for _ in range(3)]
     assert sorted(picks) == ["a", "b", "c"]  # each used exactly once
-    assert picker.pick(list(pool)) is None  # pool exhausted -> caller must reach for a different clip
+    assert (
+        picker.pick(list(pool)) is None
+    )  # pool exhausted -> caller must reach for a different clip
 
 
 def test_picker_is_deterministic_and_takes_the_most_relevant():

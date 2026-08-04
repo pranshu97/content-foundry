@@ -351,9 +351,66 @@ def voiceover(
 
 
 @app.command()
-def visuals(run_id: str = typer.Option(..., "--run-id")) -> None:
-    """Stage 5."""
+def visuals(
+    run_id: str = typer.Option(..., "--run-id"),
+    force_images: bool = typer.Option(
+        False, "--force-images", help="Also re-generate the AI images (default: keep the existing)."
+    ),
+    free_images: bool = typer.Option(
+        False,
+        "--free-images",
+        help="Use the free GOOGLE_API_KEY for images instead of the paid one.",
+    ),
+) -> None:
+    """Stage 5. Re-picks B-roll clips and KEEPS every generated image already on disk.
+
+    Re-running visuals is usually about the footage, so the images (which cost an API call each, and
+    which you may have replaced by hand) are left alone unless you ask with --force-images."""
+    os.environ["VISUALS_REDO_IMAGES"] = "true" if force_images else "false"
+    if free_images:
+        os.environ["GOOGLE_IMAGE_USE_PAID_KEY"] = "false"
+    reset_settings_cache()
     _run(run_id=run_id, from_stage="visuals", to_stage="visuals", force=True)
+
+
+@app.command()
+def shots(run_id: str = typer.Option(..., "--run-id")) -> None:
+    """Regenerate ONLY the generated images of a run, leaving every stock B-roll clip untouched.
+
+    Re-running the whole visuals stage re-downloads each clip from a random page (so your edit
+    changes) and redoes the thumbnail. This redoes just the AI images, in place, and writes every
+    prompt to shot_prompts.json — edit an image by hand in a better model and drop it back over
+    assets/scenes/scene_N_shot_M.png, then re-render."""
+    from .agents.visuals import Visuals
+    from .models import Script, VisualPackage
+    from .pipeline.artifacts import load_model, run_paths, save_model
+    from .providers import build_image_provider, build_llm_provider
+
+    _apply_run_format(run_id)  # a Short's shots stay vertical on a refinement
+    settings = get_settings()
+    paths = run_paths(run_id, settings.output_dir)
+    script_path, visuals_path = paths.artifact("script"), paths.artifact("visuals")
+    for label, path in (("script", script_path), ("visuals", visuals_path)):
+        if not path.exists():
+            raise typer.BadParameter(f"No {label}.json for run {run_id!r} at {path}")
+
+    script = Script.model_validate_json(script_path.read_text(encoding="utf-8"))
+    visuals = load_model(VisualPackage, visuals_path, expected_stage="visuals")
+    try:
+        llm = build_llm_provider(settings)
+    except Exception:  # without an LLM the deterministic template still produces a prompt
+        llm = None
+
+    agent = Visuals(settings, build_image_provider(settings), None, llm)
+    count = agent.regenerate_shot_images(script, visuals, run_root=paths.root)
+    if count:
+        save_model(visuals, visuals_path)  # persist the new prompts + sources
+    console.print(
+        f"  [green]✓[/] regenerated [bold]{count}[/] image(s)   "
+        f"[dim]prompts[/] {paths.root / 'shot_prompts.json'}"
+    )
+    if not count:
+        console.print("  [yellow]No generated images in this run — every shot is stock B-roll.[/]")
 
 
 @app.command()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from content_foundry.agents.script_generator import _str_or_none
-from content_foundry.production.sound_design import mix_sfx
+from content_foundry.production.sound_design import mix_sfx, plan_sfx_positions
 from content_foundry.providers.sfx import NullSfxClient, SfxLibrary
 
 # The 10 sound effects shipped with the repo.
@@ -36,6 +36,31 @@ def test_null_client_is_disabled_and_resolves_nothing():
     client = NullSfxClient()
     assert client.enabled is False
     assert client.resolve("whoosh") is None
+
+
+def test_well_spaced_cues_keep_their_exact_moment():
+    # Scene cues sit tens of seconds apart, so nothing may be nudged off its beat.
+    assert plan_sfx_positions([(0.0, 1.2), (53.0, 0.8), (99.5, 1.0)]) == [0.0, 53.0, 99.5]
+
+
+def test_colliding_cues_play_one_after_another():
+    # The subscribe bell landing on a scene cue must queue behind it, not stack on top of it.
+    positions = plan_sfx_positions([(10.0, 1.0), (10.2, 0.5)])
+    assert positions[0] == 10.0
+    # Starts only after the first effect has finished (10.0 + 1.0) plus the spacing beat.
+    assert positions[1] is not None and positions[1] >= 11.0
+    assert positions[1] > positions[0] + 1.0
+
+
+def test_effect_shifted_too_far_is_dropped_not_misfired():
+    # A long effect would drag the next one seconds past the line it punctuates -> drop it instead.
+    assert plan_sfx_positions([(10.0, 30.0), (10.5, 1.0)]) == [10.0, None]
+
+
+def test_dropped_effect_does_not_block_a_later_one():
+    positions = plan_sfx_positions([(10.0, 30.0), (10.5, 1.0), (99.0, 1.0)])
+    assert positions[1] is None
+    assert positions[2] == 99.0
 
 
 def test_mix_sfx_is_noop_when_nothing_resolves(tmp_path):
@@ -83,7 +108,6 @@ def test_relative_gain_targets_narration_loudness():
     # A silent/undecodable clip or narration (non-finite dBFS) is left untouched.
     assert _relative_gain(-20.0, float("-inf"), -8.0) == 0.0
     assert _relative_gain(float("-inf"), -5.0, -8.0) == 0.0
-
 
 
 def test_str_or_none_coercion():

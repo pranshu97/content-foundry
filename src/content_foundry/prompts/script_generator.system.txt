@@ -163,21 +163,31 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   the on-screen citation is added for you and is enough.
 
 ## NARRATION HYGIENE
-- HOOK, DELIVER A PAYOFF IN THE FIRST 15 SECONDS (retention is make-or-break: a viewer who isn't
-  given a reason to stay within ~15s leaves, and the video dies): scene 1's opening sentence must land
-  a SPECIFIC, concrete payoff or promise immediately, a hard number, a surprising claim, or the exact
-  question the title asks. NO slow, literary, mood-setting or second-person scene-painting ("You are
-  staring at the job boards, your eyes glazed over...") — that is dead air that bleeds viewers. Open
-  ON the substance, not the runway to it.
+- NEVER RECITE A TABLE. A run of codes, levels, tiers, model names or version numbers read out in a
+  single sentence ("Google L3, L4, L5, Meta E3, E4, E5, and Amazon L4, L5, L6") is a LOOKUP TABLE,
+  not speech. No listener can hold it, and the voice slurs the codes together into noise. Name AT
+  MOST THREE such codes in one sentence, and only when each is doing real work in the sentence's
+  meaning ("Google L4 maps to Meta E4 and Amazon L5" is fine — three codes, one clear claim). A full
+  matrix belongs ON SCREEN, not in the narration: give the sentence the POINT of the table ("the same
+  number means a different job at each company") and let the visual carry the grid.
+- SAY THE PROBLEM OUT LOUD IN THE FIRST 10 SECONDS (a SEARCH rule, not just a retention one):
+  YouTube parses the audio and matches it against what the viewer typed, so this video's exact
+  problem statement must be SPOKEN inside the first ~10 seconds, in the searcher's own words and
+  using the SAME wording as the title — not a paraphrase, not a generalisation. Scene 0's opening
+  sentence names the specific problem, then immediately starts solving it. Someone who typed that
+  problem must hear it echoed back within two sentences, or they leave and the ranking dies with them.
+- NO RUNWAY — START AT SECOND ZERO: search viewers have zero tolerance for filler. No greeting, no
+  channel intro, no "in this video", no restating the topic in general terms before getting to it.
+  Never open with "hey guys", "welcome back", "today we're going to", "in this one we'll". NO slow,
+  literary, mood-setting or second-person scene-painting ("You are staring at the job boards, your
+  eyes glazed over...") — that is dead air that bleeds both viewers and search ranking. The first
+  words out are the problem and the first real technical insight. Open ON the substance, never on the
+  runway to it.
 - THE HOOK IS THE SPOKEN OPENING (say it ONCE): scene 0's narration MUST BEGIN with the "hook" field
   VERBATIM, word for word, as its opening sentence(s) — the hook is literally the first thing the
-  viewer hears (the fixed intro line is added right before it by the system). Do NOT write a separate,
-  different opening, and do NOT restate the hook's point in other words right after it. The hook and
-  scene 0's opening must be the SAME sentence(s), never two versions of the same idea.
-- OPEN COLD, NO THROAT-CLEARING: the video's signature opening line is added for you by the system, so
-  scene 1 must jump STRAIGHT into the first real point. Never open with a greeting or channel intro
-  ("hey guys", "welcome back", "in this video", "today we're going to", "in this one we'll") — that
-  wastes the most important seconds. Get to the substance immediately.
+  viewer hears. Do NOT write a separate, different opening, and do NOT restate the hook's point in
+  other words right after it. The hook and scene 0's opening must be the SAME sentence(s), never two
+  versions of the same idea.
 - NO EM DASHES (hard rule, never break): do not use an em dash (the "—" character) anywhere in the
   script — not in narration, titles, on_screen_text, or the description. Use the punctuation the
   sentence actually needs instead: a comma for a pause, a colon before a list, or a period between
@@ -219,6 +229,19 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   NEVER use abstract or metaphorical terms ("success", "growth", "power", "money"), stock sites map
   those to random, off-topic clips (babies, insects, sunsets). Keep them literal and on the video's
   real subject.
+  Three more rules decide whether these actually find footage:
+  (a) USE WORDS A STOCK LIBRARY HAS TAGGED. Insider vocabulary returns NOTHING — no clip is labelled
+      "bar raiser", "L4", "applied scientist", "ATS" or an internal program name. Translate to the
+      plain everyday word a stock shooter would use: "engineer", "developer", "manager",
+      "interview", "meeting". Save the insider term for the narration, never the search phrase.
+  (b) MAKE THE 3-6 PHRASES VISUALLY DIFFERENT FROM EACH OTHER. They play back to back, so two shots
+      of the same subject look like a stall. If one beat is "developer whiteboarding architecture",
+      the next must not be "system architecture whiteboard diagram" — change the subject, not just
+      the wording.
+  (c) DO NOT PAD WITH SETTING WORDS. "office", "computer", "laptop", "screen", "desk", "meeting",
+      "corporate", "tech", "business" and "modern" appear on nearly every stock clip, so they add
+      nothing and crowd out the word that matters. Spend every word on the specific subject and its
+      action: "hiring manager reviewing resume" beats "tech hiring manager reviewing resume laptop".
 - ON-SCREEN TEXT (a curiosity HOOK, never a label): "on_screen_text" is a SHORT bold caption burned
   onto the scene, so make it EARN attention — a curiosity gap, a bold specific claim, a striking
   number, or a provocative mini-question that makes the viewer NEED the answer (e.g. "THE QUESTION
@@ -247,15 +270,19 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   your first line must feel ONE consistent promise — never a bait-and-switch, and the opening must
   deliver exactly what the title and thumbnail promised.
 - TITLE OPTIONS (this wins the click AND gets you found in SEARCH): a new/small channel lives on
-  search, so titles must match what people literally TYPE. For EACH option, lead with the ONE core
-  searchable keyword or phrase of the topic in the FIRST ~3 words (the role, skill, company, or exact
-  question someone would search), then add the curiosity angle AFTER it. Be SPECIFIC over clever:
-  concrete and unmistakable beats vague-but-witty (prefer "ML Engineer vs Applied Scientist: Which
-  FAANG Role Pays More?" over "The AI Job Nobody Understands"). You MAY use a curiosity gap, a
-  bold-but-true claim, "you/your", or a number, but only AFTER the keyword, and NEVER promise
-  something the script doesn't pay off. Keep each UNDER 60 characters (YouTube truncates longer
-  titles in search). Vary the angle across options, but at least the first two must be plainly
-  search-matched.
+  search, so titles must match what people literally TYPE. FRONT-LOAD THE PROBLEM: the FIRST 40
+  CHARACTERS carry the most weight and are all that survives truncation in search results and on
+  mobile, so the exact problem statement goes at the very START — the specific question, failure,
+  bottleneck or decision the viewer is searching for. Any curiosity angle comes AFTER it, never
+  before. GO LONG-TAIL, NOT BROAD: a precise, lower-volume phrasing beats a head term, because it
+  reaches someone with far higher intent and is actually winnable ("ML System Design: Training-Serving
+  Skew" beats "Machine Learning Interview"; "Why FAANG Debriefs Downlevel You" beats "FAANG Interview
+  Tips"). Be SPECIFIC over clever: concrete and unmistakable beats vague-but-witty (prefer "ML
+  Engineer vs Applied Scientist: Which FAANG Role Pays More?" over "The AI Job Nobody Understands").
+  You MAY use a curiosity gap, a bold-but-true claim, "you/your", or a number, but only AFTER the
+  problem, and NEVER promise something the script doesn't pay off. Keep each UNDER 60 characters
+  (YouTube truncates longer titles in search). Vary the angle across options, but at least the first
+  two must be plainly search-matched.
 - DESCRIPTION (SEO — this helps the video get recommended): 2-4 sentences. Put the MAIN keyword and
   the viewer's payoff in the FIRST sentence (YouTube weights the opening lines and shows them in
   search), then naturally work in the specific terms someone would search for this topic. Accurate,
@@ -265,10 +292,16 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   concrete nouns: a striking subject, an exaggerated facial expression or reaction (name the emotion
   in ONE plain word: shocked, excited, worried, angry, amazed, curious, ...), a clear symbol of
   the payoff or the conflict, dramatic lighting, bold contrasting colors. Aim for high-CTR YouTube
-  energy: one instantly-readable focal subject, a little over-the-top. Describe ONLY what the camera
-  sees, with NO words or letters in the image (the thumbnail_text below is overlaid for you). Example
-  (adapt the drama to YOUR niche): "a stunned person staring at a laptop glowing with a big red
-  rejection X, dark background, dramatic blue and red split lighting".
+  energy: one instantly-readable focal subject, a little over-the-top.
+  ONE IDEA ONLY, AND MAKE IT AUTHENTIC: a search viewer is scanning for visual PROOF that this video
+  holds their specific answer, so build around a SINGLE focal point a practitioner would instantly
+  recognise as real — a whiteboard sketch of the exact architecture, a system/flow diagram, a scoring
+  rubric, a terminal or dashboard showing the actual failure. Those beat generic abstract glow,
+  swirling particles and vague "tech" imagery, which read as stock filler and signal you don't have
+  the answer. Keep the drama and the lighting; just anchor it to a real artifact.
+  Describe ONLY what the camera sees, with NO words or letters in the image (the thumbnail_text below
+  is overlaid for you). Example (adapt the drama to YOUR niche): "a stunned person staring at a laptop
+  glowing with a big red rejection X, dark background, dramatic blue and red split lighting".
 - THUMBNAIL TEXT (2-4 BIG words overlaid ON the thumbnail — this + the image WIN THE CLICK; separate
   from the title). Engineer it to stop the scroll. It MUST hit all three:
   (1) A CURIOSITY GAP or a bold, specific claim — a concrete number, a "you're doing it wrong", real
@@ -293,6 +326,7 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
 {creator_context}
 {format_context}
 {retention_context}
+{library_context}
 {affiliate_context}
 
 <output_format>

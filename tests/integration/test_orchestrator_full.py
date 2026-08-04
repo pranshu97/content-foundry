@@ -272,16 +272,28 @@ def test_plan_instructions_routes_research_and_script(monkeypatch, fakes):
         "research_focus": ["find the real scoring-matrix terms and what they mean"],
         "research_queries": ["engineering interview scoring rubric Strong Hire Lean Hire"],
         "script_directions": ["show a realistic mocked-up feedback form"],
+        "outline": ["name the frustration", "reveal the rubric"],
+        "avoid": ["that the interview is a pure coding test"],
+        "terminology": ["Lean Hire"],
     }
     orch = Orchestrator(s, notifier=NullNotifier(), llm_provider=fakes.LLM(script_json=plan_json))
     orch._run_instructions = "deliver actual rubrics; show a feedback form; explain the matrix"
     paths = run_paths("8888", s.output_dir)
     ensure_run_dirs(paths)
     orch._plan_instructions("ML system design interview", paths)
-    # research gets the fact-finding focus (bulleted) + the concrete queries; the script gets delivery.
-    assert orch._research_focus_text == "- find the real scoring-matrix terms and what they mean"
+    # Research gets the fact-finding focus + the concrete queries; the script gets delivery, the
+    # running order and the takes to refute. Each bucket is LABELLED, because a running order is not
+    # a delivery note and merging them into one anonymous list is what flattened the plan.
+    assert "FIND AND VERIFY:" in orch._research_focus_text
+    assert "- find the real scoring-matrix terms and what they mean" in orch._research_focus_text
     assert orch._research_queries == ["engineering interview scoring rubric Strong Hire Lean Hire"]
-    assert orch._script_directions_text == "- show a realistic mocked-up feedback form"
+    assert "HOW TO DELIVER IT:" in orch._script_directions_text
+    assert "RUNNING ORDER:" in orch._script_directions_text
+    assert "- reveal the rubric" in orch._script_directions_text
+    assert "ARGUE AGAINST THESE" in orch._script_directions_text
+    # Terminology is deliberately routed to BOTH: research verifies the term, the script uses it.
+    assert "Lean Hire" in orch._research_focus_text
+    assert "Lean Hire" in orch._script_directions_text
     assert (paths.root / "instruction_plan.json").exists()  # routed plan written for inspection
 
 

@@ -20,9 +20,41 @@ _WORD = re.compile(r"[a-z0-9]+")
 # Generic words that shouldn't drive "relatedness" (the niche is dropped separately at call time).
 _STOP = frozenset(
     {
-        "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "how", "why", "your",
-        "you", "that", "this", "is", "are", "it", "vs", "video", "videos", "guide", "best", "top",
-        "ways", "tips", "get", "make", "new", "2024", "2025", "2026", "2027",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "how",
+        "why",
+        "your",
+        "you",
+        "that",
+        "this",
+        "is",
+        "are",
+        "it",
+        "vs",
+        "video",
+        "videos",
+        "guide",
+        "best",
+        "top",
+        "ways",
+        "tips",
+        "get",
+        "make",
+        "new",
+        "2024",
+        "2025",
+        "2026",
+        "2027",
     }
 )
 
@@ -39,9 +71,7 @@ class PastVideo:
 def _vocab(*texts: str) -> set[str]:
     words: set[str] = set()
     for text in texts:
-        words |= {
-            w for w in _WORD.findall((text or "").lower()) if len(w) > 2 and w not in _STOP
-        }
+        words |= {w for w in _WORD.findall((text or "").lower()) if len(w) > 2 and w not in _STOP}
     return words
 
 
@@ -83,14 +113,19 @@ def gather_past_videos(runs_dir, *, exclude_run_id: str, niche: str = "") -> lis
         vocab = frozenset(_vocab(title, " ".join(str(t) for t in tags)) - drop)
         out.append(
             PastVideo(
-                run_id=child.name, title=title, link=link,
-                privacy=(pr.get("privacy_status") or "").strip(), vocab=vocab,
+                run_id=child.name,
+                title=title,
+                link=link,
+                privacy=(pr.get("privacy_status") or "").strip(),
+                vocab=vocab,
             )
         )
     return out
 
 
-def recommend(current_vocab: set[str], past_videos: list[PastVideo], *, count: int = 2) -> list[PastVideo]:
+def recommend(
+    current_vocab: set[str], past_videos: list[PastVideo], *, count: int = 2
+) -> list[PastVideo]:
     """The ``count`` most related prior videos: most tag/title overlap first, newest as the tiebreak
     (so a channel with no overlap still backfills with the freshest uploads)."""
     ranked = sorted(
@@ -124,6 +159,40 @@ def build_end_screen(
             "your catalog grows."
         )
     return payload
+
+
+def library_context(past_videos) -> str:
+    """The prompt block telling the writer which videos this channel can HONESTLY point to.
+
+    A script that says "check out our guide on X, linked on screen" when no such video exists is a
+    broken promise to the viewer AND a dead end-screen slot. The channel's real library is already
+    known here (``gather_past_videos`` reads it from the published runs), so the writer is given the
+    list and forbidden from inventing anything outside it — the same resolve-first shape that fixed
+    affiliate links promising a resource publish-time search could not find.
+
+    Deliberately strict: a creator instruction cannot conjure a video into existence, so when the ask
+    names one that is not on the list the close simply drops the cross-reference.
+    """
+    titles = [
+        (getattr(v, "title", "") or "").strip()
+        for v in (past_videos or [])
+        if getattr(v, "title", "")
+    ]
+    rule = (
+        "NEVER point the viewer to another video on this channel unless it is named above, and never "
+        "say a video is 'linked on screen', 'in the description' or 'up next' unless it is named "
+        "above. If the creator's instructions ask you to point at a video that is NOT listed, DO NOT "
+        "invent it and DO NOT describe it as existing — simply close with the like/subscribe nudge "
+        "and the sign-off. Promising a video that does not exist strands the viewer on a dead link."
+    )
+    if not titles:
+        return "PREVIOUSLY PUBLISHED VIDEOS ON THIS CHANNEL: none yet.\n" + rule + "\n"
+    listed = "\n".join(f"- {t}" for t in titles)
+    return (
+        "PREVIOUSLY PUBLISHED VIDEOS ON THIS CHANNEL (the ONLY videos you may point the viewer to):\n"
+        f"{listed}\n"
+        f"{rule}\n"
+    )
 
 
 def write_end_screen(path, payload: dict) -> None:

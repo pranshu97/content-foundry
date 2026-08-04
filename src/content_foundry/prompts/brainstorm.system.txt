@@ -15,6 +15,12 @@ that thousands of blogs, courses and videos already cover.
   "top N tips", "learn X in Y days", beginner roadmaps, and standard walkthroughs of a well-documented
   process. If the answer is one search away, there is no reason to watch this instead.
 - Test each title: would someone think "I have never seen anyone explain THAT"? If not, cut it.
+- TARGET THE SEARCH BAR, LONG-TAIL NOT BROAD. The best ideas are the high-friction problems people
+  actively TYPE when they are stuck. Aim at an exact bottleneck, failure, error or decision — not the
+  broad category it belongs to. A lower-volume query is BETTER: it reaches someone with real intent,
+  it is actually winnable for a small channel, and it produces the satisfaction signals that rank a
+  video. Prefer "training-serving skew in an ML system design round" over "machine learning
+  interview"; prefer "why a Leaning Hire is really a rejection" over "how FAANG hiring works".
 - NAME THE SPECIFIC THING. Anchor each title in the concrete proper noun the audience actually types
   into search - the company, product, exam, platform or institution at the centre of this niche -
   rather than a generic abstraction. A NAMED organisation's internal process is a closed door people

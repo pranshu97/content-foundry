@@ -163,10 +163,26 @@ DEFAULT_SCRIPT_JSON = {
 }
 
 DEFAULT_JUDGE_JSON = {
-    "actionability": {"justification": "Concrete steps.", "evidence": "ship a portfolio", "score_1_5": 4},
-    "insight": {"justification": "Reframes entry path.", "evidence": "bottom rung is gone", "score_1_5": 4},
-    "engagement": {"justification": "Opens a strong loop.", "evidence": "bottom rung is gone", "score_1_5": 4},
-    "wittiness": {"justification": "Light, lively voice.", "evidence": "counterintuitive", "score_1_5": 4},
+    "actionability": {
+        "justification": "Concrete steps.",
+        "evidence": "ship a portfolio",
+        "score_1_5": 4,
+    },
+    "insight": {
+        "justification": "Reframes entry path.",
+        "evidence": "bottom rung is gone",
+        "score_1_5": 4,
+    },
+    "engagement": {
+        "justification": "Opens a strong loop.",
+        "evidence": "bottom rung is gone",
+        "score_1_5": 4,
+    },
+    "wittiness": {
+        "justification": "Light, lively voice.",
+        "evidence": "counterintuitive",
+        "score_1_5": 4,
+    },
 }
 
 GENERIC_SCRIPT_JSON = {
@@ -224,9 +240,18 @@ class FakeLLMProvider:
             self._served_bad = True
             text = "this is not json"
         else:
-            text = self.script_json if isinstance(self.script_json, str) else json.dumps(self.script_json)
-        return LLMResponse(text=text, model=model or "fake", provider="fake",
-                           prompt_tokens=120, completion_tokens=240)
+            text = (
+                self.script_json
+                if isinstance(self.script_json, str)
+                else json.dumps(self.script_json)
+            )
+        return LLMResponse(
+            text=text,
+            model=model or "fake",
+            provider="fake",
+            prompt_tokens=120,
+            completion_tokens=240,
+        )
 
 
 class FakeDataSource:
@@ -261,7 +286,9 @@ class FakeTTS:
         if not self._with_timings:
             return audio, None
         words = text.split()
-        timings = [WordTiming(word=w, start=float(i), end=float(i) + 0.5) for i, w in enumerate(words)]
+        timings = [
+            WordTiming(word=w, start=float(i), end=float(i) + 0.5) for i, w in enumerate(words)
+        ]
         return audio, timings
 
 
@@ -286,12 +313,14 @@ class FakeBrollClient:
 
     def __init__(self, urls: list[str] | None = None):
         # A pool of distinct clips so the visuals stage can hand each scene a fresh one.
-        self._urls = urls if urls is not None else [
-            f"https://videos.pexels.com/video-files/clip_{i}.mp4" for i in range(10)
-        ]
+        self._urls = (
+            urls
+            if urls is not None
+            else [f"https://videos.pexels.com/video-files/clip_{i}.mp4" for i in range(10)]
+        )
         self.downloaded: list[str] = []
 
-    def search(self, query: str, *, context: str = "") -> list[str]:
+    def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         return list(self._urls)
 
     def download(self, url: str) -> bytes:
@@ -314,10 +343,25 @@ class FakeRenderBackend:
         self.last_subscribe = None
         self.last_like = None
 
-    def render(self, *, segments, audio_path, captions_path, output_path, resolution, fps,
-               burn_captions=True, overlay=None, citations_path=None, speed=1.0,
-               transition="none", transition_sec=0.5, color_warmth=0.0, subscribe=None,
-               like=None) -> str:
+    def render(
+        self,
+        *,
+        segments,
+        audio_path,
+        captions_path,
+        output_path,
+        resolution,
+        fps,
+        burn_captions=True,
+        overlay=None,
+        citations_path=None,
+        speed=1.0,
+        transition="none",
+        transition_sec=0.5,
+        color_warmth=0.0,
+        subscribe=None,
+        like=None,
+    ) -> str:
         self.calls += 1
         self.last_overlay = overlay
         self.last_citations_path = citations_path
@@ -354,20 +398,44 @@ class FakeSfxClient:
 def sample_signals() -> list[NormalizedSignal]:
     now = utcnow()
     return [
-        NormalizedSignal(source="adzuna", kind="posting_trend",
-                         title="Open junior developer postings", value="31", unit="% YoY decline",
-                         observed_at=now, url="https://adzuna.example/1",
-                         raw={"snippet": "junior software engineer postings -31% YoY"}),
-        NormalizedSignal(source="adzuna", kind="salary",
-                         title="Junior developer", value="$112,000", unit="per year",
-                         observed_at=now, url="https://adzuna.example/2"),
-        NormalizedSignal(source="layoffs", kind="layoff",
-                         title="BigCo cuts 1200 engineering roles", value="1200", unit="employees",
-                         observed_at=now, url="https://layoffs.example/3"),
-        NormalizedSignal(source="news", kind="news",
-                         title="Hiring slows for entry-level tech", value=None, unit=None,
-                         observed_at=now, url="https://news.example/4",
-                         raw={"snippet": "entry-level tech hiring slows"}),
+        NormalizedSignal(
+            source="adzuna",
+            kind="posting_trend",
+            title="Open junior developer postings",
+            value="31",
+            unit="% YoY decline",
+            observed_at=now,
+            url="https://adzuna.example/1",
+            raw={"snippet": "junior software engineer postings -31% YoY"},
+        ),
+        NormalizedSignal(
+            source="adzuna",
+            kind="salary",
+            title="Junior developer",
+            value="$112,000",
+            unit="per year",
+            observed_at=now,
+            url="https://adzuna.example/2",
+        ),
+        NormalizedSignal(
+            source="layoffs",
+            kind="layoff",
+            title="BigCo cuts 1200 engineering roles",
+            value="1200",
+            unit="employees",
+            observed_at=now,
+            url="https://layoffs.example/3",
+        ),
+        NormalizedSignal(
+            source="news",
+            kind="news",
+            title="Hiring slows for entry-level tech",
+            value=None,
+            unit=None,
+            observed_at=now,
+            url="https://news.example/4",
+            raw={"snippet": "entry-level tech hiring slows"},
+        ),
     ]
 
 
@@ -390,17 +458,27 @@ def data_brief(sample_signals) -> DataBrief:
 def _script_from_json(payload: dict, *, run_id="TESTRUN", template_id="contrarian") -> Script:
     scenes = [
         SceneCue(
-            index=sc["index"], narration=sc["narration"], on_screen_text=sc.get("on_screen_text"),
-            b_roll_keywords=sc.get("b_roll_keywords", []), fact_ref=sc.get("fact_ref"),
+            index=sc["index"],
+            narration=sc["narration"],
+            on_screen_text=sc.get("on_screen_text"),
+            b_roll_keywords=sc.get("b_roll_keywords", []),
+            fact_ref=sc.get("fact_ref"),
         )
         for sc in payload["scenes"]
     ]
     return Script(
-        run_id=run_id, template_id=template_id, title_options=payload["title_options"],
-        hook=payload["hook"], scenes=scenes, cta=payload["cta"], description=payload["description"],
-        tags=payload["tags"], thumbnail_concept=payload["thumbnail_concept"],
+        run_id=run_id,
+        template_id=template_id,
+        title_options=payload["title_options"],
+        hook=payload["hook"],
+        scenes=scenes,
+        cta=payload["cta"],
+        description=payload["description"],
+        tags=payload["tags"],
+        thumbnail_concept=payload["thumbnail_concept"],
         word_count=sum(len(s.narration.split()) for s in scenes),
-        grounded_fact_refs=payload["grounded_fact_refs"], synthetic_disclosure=True,
+        grounded_fact_refs=payload["grounded_fact_refs"],
+        synthetic_disclosure=True,
         provenance=Provenance(produced_by="script_generator", model="fake"),
     )
 
@@ -449,4 +527,3 @@ def generic_payload():
     import copy
 
     return copy.deepcopy(GENERIC_SCRIPT_JSON)
-

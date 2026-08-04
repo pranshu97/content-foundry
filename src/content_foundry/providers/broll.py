@@ -379,18 +379,125 @@ _GENERIC_SUBJECTS = frozenset(
     }
 )
 
+# Set dressing a stock library tags almost EVERY clip in a tech/office niche with. Matching one of
+# these says nothing about whether the clip shows what the beat actually asked for — "tech" and
+# "meeting" are on everything, "debrief" is on nothing — so counting them as evidence lets two pieces
+# of scenery outvote the one word that carries the shot. Excluded from a beat's SPECIFIC words so the
+# decision rests on its discriminating terms (whiteboard, algorithm, resume, debrief, python).
+_STOCK_FILLER = frozenset(
+    {
+        "office",
+        "computer",
+        "laptop",
+        "screen",
+        "monitor",
+        "desk",
+        "room",
+        "table",
+        "chair",
+        "meeting",
+        "business",
+        "corporate",
+        "company",
+        "workplace",
+        "colleague",
+        "employee",
+        "staff",
+        "tech",
+        "technology",
+        "digital",
+        "modern",
+        "professional",
+        "indoor",
+        "indoors",
+        "building",
+    }
+)
 
-def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
+# Ceiling on how many of a beat's specific words a clip must echo. TWO is deliberate: a stock clip
+# carries only a handful of broad tags, so demanding three distinct hits is unreachable for almost
+# every beat and starves the video of motion (it took run 0021 from ~22 clips down to 6). Precision
+# comes from _STOCK_FILLER making those hits MEAN something, not from raising this number.
+_MAX_REQUIRED_MATCHES = 2
+
+
+def _required_matches(specific_count: int) -> int:
+    """How many of a beat's DISCRIMINATING words a clip's tags/slug must name to count as relevant.
+
+    Two thirds rounded up, capped at ``_MAX_REQUIRED_MATCHES``, and 1 when the beat offers only one
+    or two such words.
+
+    The cap matters more than the fraction. ``_search_terms`` trims every beat to 4 words, so almost
+    all of them arrive with the same specific-word count and this function has effectively only two
+    settings — which is why nudging it from 2 to 3 collapsed a whole run's stock footage. Relevance is
+    therefore bought by EXCLUDING set dressing from the input (see ``_STOCK_FILLER``) rather than by
+    demanding more hits: matching "debrief" is worth more than matching "tech" and "meeting" together.
+
+    A one- or two-word beat needs a single match because what survives filtering is already the
+    discriminating term, and stock tags name SUBJECTS while rarely echoing a beat's verb or mood
+    ("developer, code, laptop" for "developer typing").
+    """
+    if specific_count <= 2:
+        return 1
+    return min(_MAX_REQUIRED_MATCHES, -(-2 * specific_count // 3))
+
+
+_VERB_SUFFIXES = ("ing", "ers", "er", "ed")
+
+
+def _norm(word: str) -> str:
+    """Fold a word onto its rough stem so a tag and a spoken word that mean the same thing match.
+
+    Only trims when at least four characters survive, which keeps the common real cases (servers ->
+    server, interviewers -> interview, monitoring -> monitor, pipelines -> pipeline) without
+    mangling short words into collisions. Plurals follow the actual English rule rather than a blind
+    "es" strip: "pipelines" is "pipeline"+s, so taking "es" would leave "pipelin" and MISS the
+    singular — only a stem ending in a sibilant really takes "es" (boxes, matches). Deliberately
+    crude: an unmatched pair costs one stock clip and falls back to a generated image, whereas an
+    over-eager stem would let an unrelated clip pass.
+    """
+    for suffix in _VERB_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    if word.endswith("es") and len(word) - 2 >= 4 and word[-3] in "sxzcho":
+        return word[:-2]
+    if word.endswith("s") and not word.endswith("ss") and len(word) - 1 >= 4:
+        return word[:-1]
+    return word
+
+
+def moment_terms(text: str) -> frozenset[str]:
+    """The DISCRIMINATING words of the line a shot will actually sit under, stemmed for matching.
+
+    Set dressing and generic subjects are removed for the same reason they are removed from a beat:
+    a clip that shares only "laptop" or "office" with the narration has told the viewer nothing.
+    """
+    return frozenset(
+        _norm(w)
+        for w in re.findall(r"[a-z]+", (text or "").lower())
+        if len(w) >= 3 and w not in _GENERIC_SUBJECTS and w not in _STOCK_FILLER
+    )
+
+
+def _clip_ok(
+    query: str,
+    meta,
+    vocab: frozenset[str] | set[str],
+    moment: frozenset[str] = frozenset(),
+) -> bool:
     """Keep a candidate clip only when it is NOT an off-topic stock subject the query never asked for
     AND — when we know this video's vocabulary (``vocab``) — its tags/slug (a) actually touch that
-    vocabulary AND (b) name ENOUGH of THIS beat's SPECIFIC words (at least half, rounded up). The vocab
-    check stops holiday/greeting/unrelated clips that dodge the denylist (e.g. a 'Happy Valentine's
-    Day' clip in a software video); the per-beat specific-word check is the HIGH-CONFIDENCE gate that
-    stops a clip which merely shares a generic 'person/hand/office' word (a honey-scraping clip for an
-    ML-interview beat) OR shares just one word of a rich multi-word beat. With NO vocabulary we can't
-    positively filter, so keep; but a clip with NO tags/slug while a vocabulary IS known is
-    unverifiable (a bare stock URL) and is DROPPED. Now that a rejected clip falls back to a GENERATED
-    image, we hold clips to this much higher bar rather than show anything off-topic."""
+    vocabulary, (b) name ENOUGH of THIS beat's SPECIFIC words (see ``_required_matches``), and (c) name
+    something the line it will sit under actually says (``moment``). The vocab check stops
+    holiday/greeting/unrelated clips that dodge the denylist (e.g. a 'Happy Valentine's Day' clip in a
+    software video); the per-beat specific-word check stops a clip which merely shares a generic
+    'person/hand/office' word (a honey-scraping clip for an ML-interview beat); the moment check is
+    what stops a clip that matches the BEAT but not the moment — a beat is written once for a whole
+    scene, so "developer working on laptop coffee shop night" was passing under a line about inference
+    latency and hardware bottlenecks. With NO vocabulary we can't positively filter, so keep; but a
+    clip with NO tags/slug while a vocabulary IS known is unverifiable (a bare stock URL) and is
+    DROPPED. Now that a rejected clip falls back to a GENERATED image, we hold clips to this much
+    higher bar rather than show anything off-topic."""
     if _off_topic(query, meta):
         return False
     if not vocab:
@@ -407,16 +514,25 @@ def _clip_ok(query: str, meta, vocab: frozenset[str] | set[str]) -> bool:
         return False
     # HIGH-CONFIDENCE MATCH: the clip must actually name what THIS beat asked for. From the beat we
     # take its SPECIFIC words (concrete subject/action, ignoring generic 'person/hand/shot' filler)
-    # and require the clip's own tags/slug to name at least HALF of them (rounded up, floor 1). One
-    # shared word with a rich 3-4 word beat is a weak, borderline match — reject it so the shot falls
-    # back to a bespoke GENERATED image that depicts the WHOLE beat. Monotonic tightening: the floor is
-    # 1, so a 1-2 word beat still needs just one match — nothing the looser gate accepted is newly cut.
+    # and require the clip's own tags/slug to name TWO THIRDS of them (rounded up), and at least TWO
+    # whenever the beat offers two. A clip matching one word of a rich beat is a borderline match that
+    # reads as filler on screen; rejecting it falls back to a bespoke GENERATED image depicting the
+    # WHOLE beat, which is now the more relevant option. Only a genuinely single-word beat can pass on
+    # one match.
     specific = {
         w
         for w in re.findall(r"[a-z]+", (query or "").lower())
-        if len(w) >= 3 and w not in _GENERIC_SUBJECTS
+        if len(w) >= 3 and w not in _GENERIC_SUBJECTS and w not in _STOCK_FILLER
     }
-    if specific and len(meta_words & specific) < max(1, (len(specific) + 1) // 2):
+    if specific and len(meta_words & specific) < _required_matches(len(specific)):
+        return False
+    # THE MOMENT GATE: the beat is written once per SCENE, but a scene runs 45-90 s and carries several
+    # different claims, so a clip that satisfies the beat can still be sitting under a line it has
+    # nothing to do with. Require the clip to name at least one discriminating word from the words
+    # actually spoken over it. Stemmed on both sides so "servers"/"server" and "pipelines"/"pipeline"
+    # count. When the line offers no concrete word at all (pure abstraction) there is nothing to
+    # verify against and nothing worth showing as stock, so the shot goes to a generated image.
+    if moment and not {_norm(w) for w in meta_words} & moment:
         return False
     return bool(meta_words & vocab)
 
@@ -428,11 +544,13 @@ class BrollClient(Protocol):
     @property
     def enabled(self) -> bool: ...
 
-    def search(self, query: str, *, context: str = "") -> list[str]:
+    def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         """Return candidate downloadable clip URLs for the query (best first; [] if no match).
 
         ``context`` is an optional bag of words describing the whole video; clips whose tags touch
-        nothing in it are dropped."""
+        nothing in it are dropped. ``moment`` is the narration this shot will actually sit under;
+        clips that name nothing it says are dropped too, because a beat is written once per scene
+        and cannot tell which of the scene's several claims a clip will land on."""
         ...
 
     def download(self, url: str) -> bytes: ...
@@ -443,7 +561,7 @@ class NullBrollClient:
 
     enabled = False
 
-    def search(self, query: str, *, context: str = "") -> list[str]:
+    def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         return []
 
     def download(self, url: str) -> bytes:  # pragma: no cover - never called when disabled
@@ -462,7 +580,7 @@ class PexelsBrollClient:
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
 
-    def search(self, query: str, *, context: str = "") -> list[str]:
+    def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
 
         resp = httpx.get(
@@ -478,10 +596,11 @@ class PexelsBrollClient:
         )
         resp.raise_for_status()
         vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
+        spoken = moment_terms(moment)
         urls: list[str] = []
         for video in resp.json().get("videos", []):
             files = sorted(video.get("video_files", []), key=lambda f: f.get("width", 0))
-            if files and _clip_ok(query, _slug_words(video.get("url", "")), vocab):
+            if files and _clip_ok(query, _slug_words(video.get("url", "")), vocab, spoken):
                 urls.append(files[-1]["link"])
         return urls
 
@@ -504,7 +623,7 @@ class PixabayBrollClient:
         self._pool_size = min(200, max(3, pool_size))  # Pixabay requires per_page in [3, 200]
         self._rng = rng or random.Random()
 
-    def search(self, query: str, *, context: str = "") -> list[str]:
+    def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
 
         resp = httpx.get(
@@ -519,13 +638,14 @@ class PixabayBrollClient:
         )
         resp.raise_for_status()
         vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
+        spoken = moment_terms(moment)
         urls: list[str] = []
         for hit in resp.json().get("hits", []):
             renditions = hit.get("videos", {})
             for size in ("large", "medium", "small", "tiny"):
                 link = (renditions.get(size) or {}).get("url")
                 if link:
-                    if _clip_ok(query, hit.get("tags", ""), vocab):
+                    if _clip_ok(query, hit.get("tags", ""), vocab, spoken):
                         urls.append(link)
                     break
         return urls
@@ -550,7 +670,7 @@ class CoverrBrollClient:
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
 
-    def search(self, query: str, *, context: str = "") -> list[str]:
+    def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
 
         resp = httpx.get(
@@ -566,10 +686,11 @@ class CoverrBrollClient:
         )
         resp.raise_for_status()
         vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
+        spoken = moment_terms(moment)
         urls: list[str] = []
         for hit in resp.json().get("hits", []):
             link = (hit.get("urls") or {}).get("mp4")
-            if link and _clip_ok(query, [hit.get("title", ""), hit.get("tags", "")], vocab):
+            if link and _clip_ok(query, [hit.get("title", ""), hit.get("tags", "")], vocab, spoken):
                 urls.append(link)
         return urls
 
@@ -588,11 +709,11 @@ class MultiBrollClient:
     def enabled(self) -> bool:
         return bool(self._clients)
 
-    def search(self, query: str, *, context: str = "") -> list[str]:
+    def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         pools: list[list[str]] = []
         for client in self._clients:
             try:
-                pools.append(client.search(query, context=context))
+                pools.append(client.search(query, context=context, moment=moment))
             except Exception:  # one source failing must not sink the scene
                 pools.append([])
         return _interleave(pools)

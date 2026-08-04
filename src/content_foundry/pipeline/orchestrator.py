@@ -480,13 +480,25 @@ class Orchestrator:
     def _plan_instructions(self, idea, paths) -> None:
         """Agent 1.4: decompose --instructions into a ROUTED plan so research + the script each act on
         the right parts (research gets the fact-finding focus + concrete web-search queries; the script
-        gets the delivery directions). Best-effort — the planner falls back to a verbatim plan on
-        failure, so this only REFINES the verbatim defaults set in run()."""
+        gets the delivery directions, the running order, the takes to argue against and the exact
+        vocabulary). Best-effort — the planner falls back to a verbatim plan on failure, so this only
+        REFINES the verbatim defaults set in run()."""
         if not self.s.instruction_planner_enabled:
             return
         self._emit("step", label="Planning your instructions")
         plan = InstructionPlanner(self.s, self._llm_provider()).plan(idea, self._run_instructions)
-        focus, directions = _bullets(plan.research_focus), _bullets(plan.script_directions)
+        # Terminology is routed to BOTH sides on purpose: research has to VERIFY the terms, and the
+        # script has to USE them exactly. Getting one wrong is what an expert audience notices first.
+        focus = _sections(
+            ("FIND AND VERIFY", plan.research_focus),
+            ("GET THIS VOCABULARY RIGHT", plan.terminology),
+        )
+        directions = _sections(
+            ("HOW TO DELIVER IT", plan.script_directions),
+            ("RUNNING ORDER", plan.outline),
+            ("ARGUE AGAINST THESE — name them and refute them", plan.avoid),
+            ("USE THIS VOCABULARY EXACTLY", plan.terminology),
+        )
         if focus:
             self._research_focus_text = focus
         if directions:
@@ -497,7 +509,8 @@ class Orchestrator:
             "done",
             label="Instruction plan",
             detail=f"{len(plan.research_focus)} research · {len(plan.research_queries)} queries · "
-            f"{len(plan.script_directions)} script",
+            f"{len(plan.script_directions)} script · {len(plan.outline)} beats · "
+            f"{len(plan.avoid)} myths · {len(plan.terminology)} terms",
         )
 
     def _write_plan_debug(self, paths, plan) -> None:
@@ -711,6 +724,7 @@ class Orchestrator:
                 research=research,
                 affiliate_candidates=aff_cands,
                 instructions=self._script_directions_text,
+                past_videos=self._published_videos(run_id),
             )
             self.repo.add_attempt(
                 attempt_id, run_id, db_offset + attempt_number, template.id, forced
@@ -997,6 +1011,22 @@ class Orchestrator:
             self._publish_notifications(run_id, pub)
 
         self._emit("done", label=label)
+
+    def _published_videos(self, run_id: str) -> list:
+        """The channel's REAL published videos, so the writer can only cross-reference ones that
+        exist. A script that promises "our guide on X, linked on screen" when X was never made is a
+        broken promise to the viewer and a dead end-screen slot — and the list is already known here,
+        so there is no reason to let the model guess. Best-effort: on any failure the writer simply
+        gets an empty list, which forbids cross-references outright rather than inviting invention."""
+        try:
+            from ..production.end_screen import gather_past_videos
+
+            return gather_past_videos(
+                Path(self.s.output_dir) / "runs", exclude_run_id=run_id, niche=self.s.target_niche
+            )
+        except Exception as exc:  # a sidecar lookup must never block generation
+            self.log.warning("published_videos_lookup_failed", error=str(exc))
+            return []
 
     def _write_end_screen(self, run_id: str, script, pub: PublishResult, paths) -> None:
         """Best-effort sidecar: record the 2 most related prior videos (name + link) for the manual
@@ -1285,6 +1315,17 @@ class Orchestrator:
 def _bullets(items: list[str]) -> str:
     """Render planner directives as a clean bullet list for a prompt block ('' when empty)."""
     return "\n".join(f"- {it}" for it in items if it and it.strip())
+
+
+def _sections(*blocks: tuple[str, list[str]]) -> str:
+    """Render several LABELLED bullet lists into one steer block, skipping any that are empty.
+
+    The labels matter: the planner's buckets mean different things to the writer (a running order is
+    not a delivery note, and a myth to refute is not a topic to cover), and merging them into one
+    anonymous list is what made a rich plan read as a flat pile of suggestions.
+    """
+    parts = [f"{title}:\n{_bullets(items)}" for title, items in blocks if _bullets(items)]
+    return "\n\n".join(parts)
 
 
 def run_pipeline(

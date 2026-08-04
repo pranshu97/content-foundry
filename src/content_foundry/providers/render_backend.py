@@ -69,6 +69,42 @@ def resolve_ffmpeg(configured: str = "") -> str | None:
     return None
 
 
+def _still_stream(path, width, height, fps, seconds, motion):  # pragma: no cover - needs ffmpeg
+    """A still as a video beat — with a slow camera move when one was chosen for it.
+
+    Without a move a generated image sits frozen between moving B-roll and the cut reads as a stall.
+
+    The still is generated AT ``fps`` (``framerate=``) rather than ffmpeg's 25 fps default for
+    images. That matters: zoompan with ``d=1`` emits exactly one frame per input frame, so a 25 fps
+    source would yield 25*seconds frames tagged at ``fps`` — a silently SHORTER beat (2.0s became
+    1.67s in testing), which would slide every later scene off the narration. The trailing fps filter
+    keeps that guarantee even if a source ever arrives at another rate.
+
+    Rendered at ``OVERSAMPLE``x the output BEFORE the move because zoompan steps x/y in whole pixels:
+    at 1x a slow pan visibly stutters, and a zoom would be upscaling the delivered frame.
+    """
+    import ffmpeg  # lazy: optional dependency, imported the same way elsewhere in this module
+
+    from ..production.motion import OVERSAMPLE, motion_expressions
+
+    # The caller splits "1920x1080" and passes the halves as STRINGS. They must be coerced before any
+    # arithmetic: "1920" * 2 is "19201920", which ffmpeg rejects as a picture size rather than
+    # failing loudly here.
+    out_w, out_h = int(width), int(height)
+    frames = max(int(round(seconds * fps)), 2)
+    expressions = motion_expressions(motion or "", frames)
+    source = ffmpeg.input(path, loop=1, t=seconds, framerate=fps)
+    if not expressions:
+        return _scale_cover(source, out_w, out_h).filter("setsar", "1").filter("fps", fps)
+    zoom, pan_x, pan_y = expressions
+    return (
+        _scale_cover(source, out_w * OVERSAMPLE, out_h * OVERSAMPLE)
+        .filter("zoompan", z=zoom, x=pan_x, y=pan_y, d=1, s=f"{out_w}x{out_h}", fps=fps)
+        .filter("setsar", "1")
+        .filter("fps", fps)
+    )
+
+
 def _probe_seconds(path: str) -> float:
     """Best-effort clip duration in seconds via ffprobe; 0.0 when it can't be determined (the caller
     then freeze-pads to fill the beat instead of guessing — it still never loops the clip)."""
@@ -279,6 +315,7 @@ class FfmpegBackend:
             # A scene may be a sequence of beat clips (finer B-roll); build them, then treat the
             # whole scene as one stream so captions, citations, sfx and transitions stay scene-level.
             beats = list(seg.clips) or [(seg.visual_path, max(seg.duration, 0.1))]
+            moves = list(getattr(seg, "motions", ()) or [])
             substreams = []
             last = len(beats) - 1
             for j, (path, clip_dur) in enumerate(beats):
@@ -301,10 +338,8 @@ class FfmpegBackend:
                         .filter("setpts", "PTS-STARTPTS")
                     )
                 else:
-                    s = (
-                        _scale_cover(ffmpeg.input(path, loop=1, t=d), width, height)
-                        .filter("setsar", "1")
-                        .filter("fps", fps)
+                    s = _still_stream(
+                        path, width, height, fps, d, moves[j] if j < len(moves) else ""
                     )
                 substreams.append(s)
             seg_stream = (

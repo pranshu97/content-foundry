@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import re
 from io import BytesIO
 from pathlib import Path
@@ -9,6 +11,7 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, SceneVisual, Script, VisualPackage, VisualShot, VoiceoverAsset
 from ..production.captions import write_srt
+from ..providers.broll import _STOCK_FILLER
 
 _THUMB_REL = "assets/thumbnail.png"
 _CAPTIONS_REL = "assets/captions.srt"
@@ -313,7 +316,13 @@ def _search_terms(beat: str, *, min_words: int = 2, max_words: int = 4) -> str:
     auxiliaries, and filler so only the concrete subject/action words remain, then cap at
     ``max_words`` (over-long queries return nothing). If stripping leaves too few words, keep a SHORT
     raw beat whole for context, but for a LONG beat use the content words (never a run of leading
-    filler like "how to get a")."""
+    filler like "how to get a").
+
+    When there are more words than fit, DISCRIMINATING ones win the remaining slots. Truncating by
+    position alone spends them on set dressing and cuts the word that identifies the shot: "tech
+    hiring manager reviewing resume laptop" became "tech hiring manager reviewing", dropping
+    "resume" — so the search looked for generic office footage and the relevance check had nothing
+    specific left to match on."""
     raw = [w for w in re.split(r"[^a-z0-9]+", (beat or "").lower()) if w]
     kept = [w for w in raw if w not in _QUERY_STOPWORDS]
     if len(kept) >= min_words:
@@ -322,6 +331,11 @@ def _search_terms(beat: str, *, min_words: int = 2, max_words: int = 4) -> str:
         words = raw  # short beat -> keep it whole so a lone content word still has context
     else:
         words = kept or raw  # long beat stripped thin -> the content word(s), not leading filler
+    if len(words) > max_words:
+        # Stable partition: keep original order within each group, just demote the set dressing.
+        words = [w for w in words if w not in _STOCK_FILLER] + [
+            w for w in words if w in _STOCK_FILLER
+        ]
     return " ".join(words[:max_words]) or (beat or "").strip()
 
 
@@ -357,6 +371,81 @@ class _BrollPicker:
         return None
 
 
+_SHOT_PROMPTS_REL = "shot_prompts.json"
+# Every extension a single shot slot can be written as. When a beat switches between stock clip and
+# generated image across runs, the losing file must go or the folder shows two answers for one shot.
+_SHOT_SUFFIXES = (".mp4", ".png")
+
+
+def _drop_stale_shot_files(stem: Path) -> None:
+    """Delete any previously written file for this shot slot, whatever extension it used.
+
+    Best-effort: a locked/absent file must never break the run, since the artifact that actually
+    drives the render is the path recorded in ``visuals.json``, not what happens to be on disk.
+    """
+    for suffix in _SHOT_SUFFIXES:
+        with contextlib.suppress(OSError):
+            stem.with_suffix(suffix).unlink(missing_ok=True)
+
+
+def write_shot_prompts(scene_visuals: list[SceneVisual], run_root: Path) -> int:
+    """Write every GENERATED shot's image prompt to ``shot_prompts.json``, keyed ``scene_N_shot_M``.
+
+    Exists so the operator can take a prompt straight to a better image model by hand and drop the
+    result back over ``assets/scenes/scene_N_shot_M.png`` — the free generator is the quality
+    ceiling, not the prompt. Stock B-roll shots carry no prompt and are skipped. Best-effort: a write
+    failure must never break the visuals stage.
+    """
+    out: dict[str, str] = {}
+    for scene in scene_visuals:
+        for j, shot in enumerate(scene.shots or []):
+            if shot.prompt:
+                out[f"scene_{scene.scene_index}_shot_{j}"] = shot.prompt
+    if not out:
+        return 0
+    with contextlib.suppress(OSError):
+        (run_root / _SHOT_PROMPTS_REL).write_text(
+            json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    return len(out)
+
+
+def _read_shot_prompts(run_root: Path) -> dict[str, str]:
+    """Previous run's ``shot_prompts.json`` (``scene_N_shot_M`` -> prompt), or empty when absent.
+
+    Used so an image that is REUSED rather than regenerated still reports the prompt it was actually
+    made from. Best-effort: a missing or corrupt file simply means no prompts are known.
+    """
+    try:
+        data = json.loads((run_root / _SHOT_PROMPTS_REL).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def narration_windows(narration: str, count: int) -> list[str]:
+    """Split a scene's narration into ``count`` consecutive word-slices, one per shot.
+
+    Shots divide a scene's duration EVENLY (see ``_build_shots``), so shot *j* is on screen for
+    roughly the j-th slice of what is said. Handing the image director the whole scene instead makes
+    it guess: a 60-second scene carries several different claims, and the model ends up decorating
+    the generic beat phrase ("hiring manager reviewing resume") while the narration is actually
+    talking about compensation bands. Giving each shot its own window is what lets the picture
+    illustrate the sentence it appears under.
+    """
+    words = (narration or "").split()
+    if count <= 0:
+        return []
+    if not words:
+        return [""] * count
+    per = len(words) / count
+    out: list[str] = []
+    for j in range(count):
+        start, end = round(j * per), round((j + 1) * per)
+        out.append(" ".join(words[start:end]) or narration.strip())
+    return out
+
+
 class Visuals:
     def __init__(self, settings, image_provider=None, broll_client=None, llm_provider=None):
         self._settings = settings
@@ -366,6 +455,8 @@ class Visuals:
         self._relevance_context = ""
         self._video_title = ""  # per-run context for the Scene Image Director
         self._video_description = ""
+        self._used_compositions: list[str] = []  # cross-scene variety for generated images
+        self._existing_prompts: dict[str, str] = {}  # prior shot_prompts.json, for reused images
         self._log = get_logger(component="visuals")
 
     def run(
@@ -374,6 +465,10 @@ class Visuals:
         durations = {st.scene_index: (st.end - st.start) for st in voiceover.scene_timings}
         scenes_dir = run_root / "assets" / "scenes"
         scenes_dir.mkdir(parents=True, exist_ok=True)
+        # Images already on disk are REUSED unless this run was asked to redo them, so re-running
+        # visuals to re-pick B-roll no longer burns an image call per shot or discards anything the
+        # operator replaced by hand. Their prompts come from the previous run so the record stays true.
+        self._existing_prompts = _read_shot_prompts(run_root)
 
         scene_visuals: list[SceneVisual] = []
         # A bag of words describing THIS video (every scene's directed B-roll queries). It is handed
@@ -390,6 +485,7 @@ class Visuals:
         # recognises (the same context that lifted the thumbnail director).
         self._video_title = (script.title_options or [""])[0] or ""
         self._video_description = script.description or ""
+        self._used_compositions = []  # reset per run
         # Per-run picker: de-dupes, caps reuse, never repeats a clip in consecutive scenes, and always
         # takes the MOST relevant clip (deterministic — no diversity sampling; misses fall back to a
         # generated image).
@@ -408,6 +504,8 @@ class Visuals:
         # Thumbnail (also exposed as the standalone `thumbnail` command for quick regeneration).
         thumbnail_text = self.render_thumbnail(script, run_root=run_root)
 
+        write_shot_prompts(scene_visuals, run_root)
+
         return VisualPackage(
             run_id=run_id,
             thumbnail_path=_THUMB_REL,
@@ -419,6 +517,49 @@ class Visuals:
                 produced_by="visuals", model=None, config_hash=self._settings.config_hash
             ),
         )
+
+    def regenerate_shot_images(
+        self, script: Script, visuals: VisualPackage, *, run_root: Path
+    ) -> int:
+        """Re-generate ONLY the GENERATED (.png) shots of an existing run, in place.
+
+        Every stock B-roll clip is left exactly as it is. Re-running the whole visuals stage would
+        re-fetch each clip from a random page and change the edit (and redo the thumbnail), so this
+        is the fast, non-destructive loop for iterating on image prompts alone. Mutates ``visuals``
+        (each regenerated shot's ``source`` and ``prompt``) and rewrites ``shot_prompts.json``;
+        the caller saves the updated package. Returns how many images were redone.
+        """
+        self._video_title = (script.title_options or [""])[0] or ""
+        self._video_description = script.description or ""
+        self._used_compositions = []  # fresh cross-scene variety budget for this pass
+        by_index = {s.index: s for s in script.scenes}
+        redone = 0
+        for scene_visual in visuals.scenes:
+            generated = [sh for sh in (scene_visual.shots or []) if sh.path.endswith(".png")]
+            scene = by_index.get(scene_visual.scene_index)
+            if not generated or scene is None:
+                continue
+            # Windows are computed over ALL of the scene's shots so each regenerated image keeps the
+            # slice of narration it actually plays under, even when only some shots are images.
+            all_shots = scene_visual.shots or []
+            windows = narration_windows(scene.narration, len(all_shots))
+            positions = {id(sh): j for j, sh in enumerate(all_shots)}
+            prompts = self._shot_image_prompts(
+                scene, [(positions[id(sh)], windows[positions[id(sh)]]) for sh in generated]
+            )
+            for shot in generated:
+                j = positions[id(shot)]
+                prompt = prompts.get(j) or build_image_prompt(
+                    [shot.query], scene.on_screen_text, self._settings.visual_style
+                )
+                shot.source = self._render_shot_image(
+                    prompt, run_root / shot.path, caption=scene.on_screen_text or shot.query
+                )
+                shot.prompt = prompt
+                redone += 1
+        write_shot_prompts(visuals.scenes, run_root)
+        self._log.info("shot_images_regenerated", count=redone)
+        return redone
 
     def render_thumbnail(self, script: Script, *, run_root: Path, prompt: str | None = None) -> str:
         """Compose ONLY the thumbnail and return its overlay text. Shared by the visuals stage and the
@@ -463,10 +604,11 @@ class Visuals:
             self._log.info("thumbnail_capped", bytes=path.stat().st_size)
 
     # ------------------------------------------------------------------ scene
-    def _broll_candidates(self, keywords: list[str]) -> list[str]:
+    def _broll_candidates(self, keywords: list[str], *, moment: str = "") -> list[str]:
         """Pull a pool per keyword (a few searches, one per 'context') and combine — so each scene
         gets a richer, more on-topic set than a single blended query would; downstream de-dup keeps
-        the mix varied."""
+        the mix varied. ``moment`` is the narration the shot will sit under, which the provider's
+        relevance gate uses to reject a clip that fits the scene-level beat but not the actual line."""
         combined: list[str] = []
         for kw in keywords[:3]:
             term = (kw or "").strip()
@@ -474,7 +616,9 @@ class Visuals:
                 continue
             try:
                 combined.extend(
-                    self._broll.search(_search_terms(term), context=self._relevance_context)
+                    self._broll.search(
+                        _search_terms(term), context=self._relevance_context, moment=moment
+                    )
                 )
             except Exception as exc:  # a flaky search must not kill the scene
                 self._log.warning("broll_search_failed", query=term, error=str(exc))
@@ -493,32 +637,65 @@ class Visuals:
             1, min(len(beats), int(duration // (_MIN_SHOT_SEC * pace)) or 1, _MAX_SHOTS_PER_SCENE)
         )
         chosen = beats[:n]
+        # Each shot carries the slice of narration it will be on screen for. This is computed BEFORE
+        # the clips are claimed because the stock search needs it too: a beat is written once for a
+        # whole scene, so without the line a clip only has to match the scene's general subject and
+        # lands under whichever of its several claims happens to be playing.
+        windows = narration_windows(scene.narration, len(chosen))
         # First pass: try to claim a RELEVANT, fresh clip for each beat FROM ITS OWN search (not a
         # borrowed clip from another beat — that is exactly the "irrelevant shot" we want to avoid).
-        clips = [picker.pick(self._broll_candidates([beat])) for beat in chosen]
+        clips = [
+            picker.pick(self._broll_candidates([beat], moment=window))
+            for beat, window in zip(chosen, windows, strict=True)
+        ]
         # Beats with no perfect clip -> generate an image. Craft all their prompts in ONE LLM call.
-        gap_beats = [b for b, u in zip(chosen, clips, strict=True) if not u]
-        gap_prompts = self._shot_image_prompts(scene, gap_beats)
-        if gap_beats and not gap_prompts:
+        # Each shot is identified by INDEX and carries only the slice of narration it will be on
+        # screen for; the stock-search beat is deliberately NOT sent, because it pulls the image
+        # toward generic footage of the domain instead of toward the claim being made.
+        # An image already on disk is KEPT unless this run was told to redo images: regenerating costs
+        # an API call per shot and would silently throw away anything replaced by hand.
+        reuse = not self._settings.visuals_redo_images
+        keep: dict[int, str] = {}  # shot index -> the prompt that image was originally made from
+        gap_shots: list[tuple[int, str]] = []
+        for j, (url, window) in enumerate(zip(clips, windows, strict=True)):
+            if url:
+                continue
+            key = f"scene_{scene.index}_shot_{j}"
+            if reuse and (run_root / f"assets/scenes/{key}.png").exists():
+                keep[j] = self._existing_prompts.get(key, "")
+            else:
+                gap_shots.append((j, window))
+        gap_prompts = self._shot_image_prompts(scene, gap_shots)
+        if gap_shots and not gap_prompts:
             # Every gap then falls back to build_image_prompt(), which is DETERMINISTIC per beat — so
             # the same beat yields the byte-identical image on every run. Loud, because it looks like
             # "the images never change" rather than like a failure.
             self._log.warning(
                 "scene_image_director_no_prompts",
                 scene=scene.index,
-                beats=len(gap_beats),
+                beats=len(gap_shots),
                 hint="falling back to the deterministic template; generated images will not vary",
             )
         found: list[tuple[str, str, str, str]] = []  # (rel_path, source, query, prompt)
         for j, (beat, url) in enumerate(zip(chosen, clips, strict=True)):
             stem = f"assets/scenes/scene_{scene.index}_shot_{j}"
+            if not url and j in keep:
+                # Reused as-is: leave the file (and any hand-made replacement) completely untouched.
+                found.append((f"{stem}.png", "reused", beat, keep[j]))
+                continue
+            # A beat that used to resolve to a stock clip may now resolve to a generated image (or the
+            # reverse), which would leave scene_N_shot_M.mp4 sitting next to scene_N_shot_M.png. The
+            # render only ever opens the path recorded in visuals.json, so the stale twin is harmless
+            # to the video — but it makes the folder impossible to read by hand and invites editing the
+            # file that is no longer used. Clear the other extension so what is on disk IS the decision.
+            _drop_stale_shot_files(run_root / stem)
             if url:
                 rel = f"{stem}.mp4"
                 (run_root / rel).write_bytes(self._broll.download(url))
                 found.append((rel, _broll_source(url), beat, ""))
             else:
                 rel = f"{stem}.png"
-                prompt = gap_prompts.get(beat) or build_image_prompt(
+                prompt = gap_prompts.get(j) or build_image_prompt(
                     [beat], scene.on_screen_text, self._settings.visual_style
                 )
                 source = self._render_shot_image(
@@ -533,23 +710,30 @@ class Visuals:
             for r, src, q, p in found
         ]
 
-    def _shot_image_prompts(self, scene, beats: list[str]) -> dict[str, str]:
-        """Witty, richly descriptive image prompts for the beats that got NO stock B-roll — one LLM
-        call for the whole scene (grounded in its narration). Empty dict when off / no LLM / on any
-        failure, so the caller uses its deterministic template."""
-        if not beats or self._llm is None or not self._settings.scene_image_director_enabled:
+    def _shot_image_prompts(self, scene, shots: list[tuple[int, str]]) -> dict[int, str]:
+        """Witty, richly descriptive image prompts for the shots that got NO stock B-roll — one LLM
+        call for the whole scene. ``shots`` pairs each shot's index with the words spoken while it is
+        on screen. Empty dict when off / no LLM / on any failure, so the caller uses its deterministic
+        template."""
+        if not shots or self._llm is None or not self._settings.scene_image_director_enabled:
             return {}
         try:
-            from .scene_image_director import SceneImageDirector
+            from .scene_image_director import SceneImageDirector, composition_signature
 
-            return SceneImageDirector(self._settings, self._llm).compose(
-                beats=beats,
+            prompts = SceneImageDirector(self._settings, self._llm).compose(
+                shots=shots,
                 narration=getattr(scene, "narration", "") or "",
                 on_screen_text=scene.on_screen_text or "",
                 niche=getattr(self._settings, "target_niche", "") or "",
                 title=self._video_title,
                 description=self._video_description,
+                already_used=self._used_compositions,
             )
+            # Remember what this scene committed to. Each scene is its OWN LLM call with no memory of
+            # the others, so without this every scene independently reaches for the same safe
+            # composition (one run opened 8 of 12 shots with "over-the-shoulder...").
+            self._used_compositions.extend(composition_signature(p) for p in prompts.values())
+            return prompts
         except Exception as exc:  # a prompt-writing failure must never break the visuals stage
             self._log.warning("scene_image_director_skipped", error=str(exc))
             return {}

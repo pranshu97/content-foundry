@@ -215,6 +215,15 @@ class Settings(BaseSettings):
     # match the consistent pauses. Set comfortably ABOVE a natural pause (default 1000 ms) so ONLY the
     # outliers move and every normal pause is left byte-identical; 0 disables the internal cap.
     tts_max_pause_ms: int = Field(1000, ge=0, le=5000)
+    # Silence held at the very START of the narration, before the first word. Opening on speech at
+    # sample zero sounds abrupt and clips the first syllable on players that fade in. The first
+    # scene's visual is held over this beat, so nothing desyncs. 0 disables it.
+    voiceover_lead_in_sec: float = Field(0.5, ge=0.0, le=5.0)
+    # Silence reserved before a scene that fires a sound effect. Effects are cued at the scene start —
+    # which is exactly the first word — so without this room every effect plays OVER the narration.
+    # The effect is trimmed to fit this beat, so it lands clean and the voice comes in after it.
+    # 0 disables the reserved room (effects then overlap the voice again).
+    sfx_gap_sec: float = Field(1.0, ge=0.0, le=5.0)
 
     # ---------- Visuals ----------
     image_provider: Literal["openai", "stability", "google", "pollinations", "none"] = "openai"
@@ -223,10 +232,29 @@ class Settings(BaseSettings):
     image_fallback_provider: Literal["openai", "stability", "google", "pollinations", "none"] = (
         "none"
     )
-    # Google image model when IMAGE_PROVIDER=google (uses GOOGLE_API_KEY). Nano Banana
+    # Google image model when IMAGE_PROVIDER=google. Nano Banana
     # (gemini-2.5-flash-image) is the durable default; imagen-4.0-ultra-generate-001 (and -std/-fast)
     # also work but Imagen is deprecated (shuts down 2026-08-17).
     google_image_model: str = "gemini-2.5-flash-image"
+    # GOOGLE_IMAGE_MODELS: comma-separated, BEST-FIRST image models tried IN ORDER, exactly like
+    # GOOGLE_MODELS does for text. On ANY error (quota/429, bad id/404, 5xx) the chain moves to the
+    # next one, so the best model is always attempted first and a quota wall degrades to the next best
+    # instead of dropping straight to the free fallback provider. Blank = just GOOGLE_IMAGE_MODEL.
+    google_image_models: str = ""
+    # Key used for IMAGE GENERATION ONLY. Image models need a BILLED Google project while the text
+    # models can stay on the free tier, so this is deliberately separate from GOOGLE_API_KEY: the LLM
+    # chain never reads it and can never spend against the paid project. Blank = reuse GOOGLE_API_KEY
+    # (the original single-key behaviour).
+    google_image_api_key: str = ""
+    # Which key image generation actually uses. True = the paid project (GOOGLE_IMAGE_API_KEY) when it
+    # is set; False = force the free/shared GOOGLE_API_KEY, so you can iterate on prompts without
+    # spending. Override per run with `visuals --free-images` / `--paid-images`.
+    google_image_use_paid_key: bool = True
+    # Re-generating a scene's images costs an API call each and throws away anything replaced by
+    # hand. The standalone `visuals` command therefore REUSES the images already on disk (pass
+    # `visuals --force-images` to redo them). The default here stays true because a full pipeline run
+    # rewrites the script, and images made for the previous wording would be stale.
+    visuals_redo_images: bool = True
     stability_api_key: str = ""
     pexels_api_key: str = ""
     pixabay_api_key: str = ""  # optional 2nd free B-roll source (more variety across videos)
@@ -349,6 +377,12 @@ class Settings(BaseSettings):
     scene_transition_sec: float = Field(0.5, ge=0.1, le=2.0)
     # Warm the whole video (0 = neutral/off, 1 = strongly warm). Pushes mids/highlights toward amber.
     color_warmth: float = Field(0.0, ge=0.0, le=1.0)
+    # Slow camera move on GENERATED STILLS so they don't sit frozen between moving B-roll clips (the
+    # cut to a static frame reads as the video stalling). "auto" picks the move that matches each
+    # shot's composition, read from the prompt that made it; "none" leaves stills static. Real footage
+    # is never touched. Deliberately motion only — colour/brightness modulation would make the stills
+    # visibly diverge from the surrounding clips instead of blending in.
+    image_motion: Literal["auto", "none"] = "auto"
     # A small "Subscribe" badge that fades in at the video's midpoint for a few seconds.
     subscribe_nudge_enabled: bool = False
     subscribe_nudge_sec: float = Field(4.0, ge=1.0, le=12.0)
@@ -640,6 +674,26 @@ class Settings(BaseSettings):
         return self.shorts_burn_captions if self.is_short else self.captions_enabled
 
     @property
+    def google_image_models_list(self) -> list[str]:
+        """Best-first Google IMAGE model ids for the fallback chain (``GOOGLE_IMAGE_MODELS``), falling
+        back to the single ``GOOGLE_IMAGE_MODEL`` when the list is blank."""
+        models = [m.strip() for m in self.google_image_models.split(",") if m.strip()]
+        return models or ([self.google_image_model] if self.google_image_model else [])
+
+    @property
+    def effective_google_image_api_key(self) -> str:
+        """Key for Google IMAGE generation: the dedicated (billed) one when set, else GOOGLE_API_KEY.
+
+        Read ONLY by the image provider. Text generation always uses ``google_api_key`` directly, so a
+        paid image project can never be billed for the LLM traffic. With
+        ``google_image_use_paid_key`` off this deliberately returns the free/shared key even when the
+        paid one is configured, so a prompt-iteration run costs nothing.
+        """
+        if not self.google_image_use_paid_key:
+            return self.google_api_key
+        return self.google_image_api_key or self.google_api_key
+
+    @property
     def effective_scene_transition(self) -> str:
         """Scene transition for the format (Shorts favour fast hard cuts)."""
         return self.shorts_scene_transition if self.is_short else self.scene_transition
@@ -724,8 +778,10 @@ class Settings(BaseSettings):
         for _img in (self.image_provider, self.image_fallback_provider):
             if _img == "stability" and not self.stability_api_key:
                 raise ValueError("IMAGE_PROVIDER=stability requires STABILITY_API_KEY")
-            if _img == "google" and not self.google_api_key:
-                raise ValueError("IMAGE_PROVIDER=google requires GOOGLE_API_KEY")
+            if _img == "google" and not self.effective_google_image_api_key:
+                raise ValueError(
+                    "IMAGE_PROVIDER=google requires GOOGLE_IMAGE_API_KEY (or GOOGLE_API_KEY)"
+                )
 
         if self.render_backend == "avatar":
             if self.avatar_provider == "none":

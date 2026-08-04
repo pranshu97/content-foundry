@@ -8,6 +8,7 @@ from pathlib import Path
 from content_foundry.production.end_screen import (
     build_end_screen,
     gather_past_videos,
+    library_context,
     recommend,
     write_end_screen,
 )
@@ -17,7 +18,9 @@ def _make_run(runs: Path, run_id: str, *, title: str, tags, video_id="", url="",
     d = runs / run_id
     d.mkdir(parents=True, exist_ok=True)
     pr = {
-        "chosen_title": title, "youtube_video_id": video_id, "video_url": url,
+        "chosen_title": title,
+        "youtube_video_id": video_id,
+        "video_url": url,
         "privacy_status": privacy,
     }
     (d / "publish_result.json").write_text(json.dumps(pr), encoding="utf-8")
@@ -27,7 +30,9 @@ def _make_run(runs: Path, run_id: str, *, title: str, tags, video_id="", url="",
 
 def test_gather_skips_unpublished_and_excludes_current(tmp_path):
     runs = tmp_path / "runs"
-    _make_run(runs, "0001", title="System Design Interview Guide", tags=["system design"], video_id="AAA")
+    _make_run(
+        runs, "0001", title="System Design Interview Guide", tags=["system design"], video_id="AAA"
+    )
     _make_run(runs, "0002", title="Never uploaded", tags=["x"], video_id="")  # no id -> skipped
     _make_run(runs, "0003", title="Current one", tags=["y"], video_id="CCC")
     past = gather_past_videos(runs, exclude_run_id="0003", niche="tech careers")
@@ -38,7 +43,13 @@ def test_gather_skips_unpublished_and_excludes_current(tmp_path):
 def test_recommend_prefers_topical_overlap_then_recency(tmp_path):
     runs = tmp_path / "runs"
     _make_run(runs, "0001", title="Cooking pasta", tags=["cooking"], video_id="A")
-    _make_run(runs, "0002", title="System Design Interview", tags=["system design", "interview"], video_id="B")
+    _make_run(
+        runs,
+        "0002",
+        title="System Design Interview",
+        tags=["system design", "interview"],
+        video_id="B",
+    )
     _make_run(runs, "0005", title="Old unrelated", tags=["gardening"], video_id="E")
     past = gather_past_videos(runs, exclude_run_id="9999", niche="tech careers")
     recs = recommend({"system", "design", "interview"}, past, count=2)
@@ -49,17 +60,31 @@ def test_recommend_prefers_topical_overlap_then_recency(tmp_path):
 
 def test_build_end_screen_payload_shape_and_note(tmp_path):
     runs = tmp_path / "runs"
-    _make_run(runs, "0001", title="System Design Interview", tags=["system design"],
-              video_id="B", privacy="unlisted")
+    _make_run(
+        runs,
+        "0001",
+        title="System Design Interview",
+        tags=["system design"],
+        video_id="B",
+        privacy="unlisted",
+    )
     payload = build_end_screen(
-        runs, run_id="0002", title="How to ace the system design interview",
-        tags=["system design", "faang"], niche="tech careers", count=2,
+        runs,
+        run_id="0002",
+        title="How to ace the system design interview",
+        tags=["system design", "faang"],
+        niche="tech careers",
+        count=2,
     )
     assert payload["for_video"].startswith("How to ace")
     assert len(payload["recommendations"]) == 1
     rec = payload["recommendations"][0]
-    assert rec == {"name": "System Design Interview", "link": "https://youtu.be/B",
-                   "privacy": "unlisted", "run_id": "0001"}
+    assert rec == {
+        "name": "System Design Interview",
+        "link": "https://youtu.be/B",
+        "privacy": "unlisted",
+        "run_id": "0001",
+    }
     assert "note" in payload  # only 1 available, needed 2
 
 
@@ -79,6 +104,32 @@ def test_write_end_screen_roundtrip(tmp_path):
 
 def test_missing_runs_dir_is_empty(tmp_path):
     assert gather_past_videos(tmp_path / "nope", exclude_run_id="0001") == []
+
+
+def test_library_context_lists_only_real_videos_and_forbids_inventing_one(tmp_path):
+    """A script that says "check out our guide on X, linked on screen" when X was never made is a
+    broken promise and a dead end-screen slot. Run 0022 shipped exactly that, because the creator's
+    instructions asked for a video that did not exist and nothing checked. The writer now gets the
+    real library and is told it may not go outside it."""
+    runs = tmp_path / "runs"
+    _make_run(runs, "0001", title="What They Actually Write Down", tags=["interview"], video_id="A")
+    _make_run(runs, "0002", title="Tech Layoffs: 5 Things to Do", tags=["layoffs"], video_id="B")
+    block = library_context(gather_past_videos(runs, exclude_run_id="0003"))
+
+    assert "What They Actually Write Down" in block
+    assert "Tech Layoffs: 5 Things to Do" in block
+    # The rule has to name the exact phrasings that strand a viewer, not just say "be accurate".
+    assert "linked on screen" in block
+    assert "in the description" in block
+    # A creator instruction cannot conjure a video into existence.
+    assert "DO NOT" in block and "invent it" in block
+
+
+def test_library_context_with_no_published_videos_forbids_cross_references():
+    """A brand-new channel is the case where invention is most tempting and most damaging."""
+    block = library_context([])
+    assert "none yet" in block
+    assert "NEVER point the viewer to another video" in block
 
 
 def test_recommendations_comment_formats_links_or_empty():
@@ -101,4 +152,3 @@ def test_recommendations_comment_formats_links_or_empty():
     assert recommendations_comment([{"name": "X", "link": "https://youtu.be/Z"}]).startswith(
         "More videos you might like:"
     )
-

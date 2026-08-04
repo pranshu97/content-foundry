@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -17,12 +18,22 @@ from ..safeguards.disclosure import resolve_publish_outcome
 _THUMB_SET_ATTEMPTS = 4
 _THUMB_SET_BACKOFF_SEC = 5.0
 
+_VIDEO_ID_RE = re.compile(r"(?:youtu\.be/|[?&]v=|/embed/|/shorts/)([A-Za-z0-9_-]{6,})")
+
+
+def _video_id_from_link(link: str) -> str:
+    """The video id inside a watch/share link, or "" when the link isn't a YouTube video URL."""
+    match = _VIDEO_ID_RE.search(link or "")
+    return match.group(1) if match else ""
+
 
 class Publisher:
     def __init__(self, settings, publisher, search_provider=None):
         self._settings = settings
         self._pub = publisher
-        self._search = search_provider  # kept for compatibility; affiliate links now resolve pre-gen
+        self._search = (
+            search_provider  # kept for compatibility; affiliate links now resolve pre-gen
+        )
         self._log = get_logger(component="publisher")
 
     def _affiliate_links(self, script: Script) -> list[AffiliateLink]:
@@ -43,17 +54,53 @@ class Publisher:
             from ..production.end_screen import build_end_screen, recommendations_comment
 
             payload = build_end_screen(
-                run_root.parent, run_id=run_id, title=title,
-                tags=list(getattr(script, "tags", []) or []), niche=self._settings.target_niche,
+                run_root.parent,
+                run_id=run_id,
+                title=title,
+                tags=list(getattr(script, "tags", []) or []),
+                niche=self._settings.target_niche,
                 count=self._settings.end_screen_count,
             )
+            recs = self._with_live_titles(payload.get("recommendations", []))
             return recommendations_comment(
-                payload.get("recommendations", []),
+                recs,
                 header=self._settings.recommend_comment_header,
             )
         except Exception as exc:  # a recommendations failure must never abort the upload
             self._log.warning("recommend_comment_failed", error=str(exc))
             return ""
+
+    def _with_live_titles(self, recs: list[dict]) -> list[dict]:
+        """Replace each recommendation's name with the title the video CURRENTLY has on YouTube.
+
+        The picks come from local run history, which records the title as it was at upload time — so
+        a video renamed in Studio afterwards would be linked under a name that no longer exists.
+        Best-effort and read-only (the public Data-API key): with no key, no network, or no match, the
+        stored name is kept.
+        """
+        ids = [_video_id_from_link(str(r.get("link") or "")) for r in recs]
+        ids = [i for i in ids if i]
+        if not ids:
+            return recs
+        try:
+            from ..providers import build_youtube_data_client
+
+            live = {
+                v.get("id"): (v.get("title") or "").strip()
+                for v in build_youtube_data_client(self._settings).video_stats(ids)
+            }
+        except Exception as exc:  # never block a publish on a title refresh
+            self._log.warning("recommend_title_refresh_failed", error=str(exc))
+            return recs
+        out: list[dict] = []
+        for rec in recs:
+            vid = _video_id_from_link(str(rec.get("link") or ""))
+            title = live.get(vid, "")
+            if title and title != rec.get("name"):
+                self._log.info("recommend_title_refreshed", video_id=vid, title=title)
+                rec = {**rec, "name": title}
+            out.append(rec)
+        return out
 
     def run(
         self,
@@ -139,10 +186,25 @@ class Publisher:
             except Exception as exc:  # a playlist-add failure must not abort the upload
                 self._log.warning("playlist_add_failed", error=str(exc))
 
-        # Best-effort: post ONE top comment right after publishing (identical for Shorts and long-
-        # form; needs the force-ssl scope). It links the most related PRIOR videos on the channel —
-        # the same "watch next" picks as the end screen — and optionally adds an affiliate/subscribe
-        # nudge. Posted even when PUBLISH_TOP_COMMENT is off, as long as there are videos to recommend.
+        disclosure_set = bool(self._pub.try_set_disclosure(video_id))
+        effective_privacy, upload_status = resolve_publish_outcome(
+            publish_mode=s.publish_mode,
+            requested_privacy=s.youtube_privacy_status,
+            disclosure_set=disclosure_set,
+            require_manual_disclosure_before_public=s.require_manual_disclosure_before_public,
+        )
+        if effective_privacy != "private":
+            self._pub.set_privacy(video_id, effective_privacy)
+
+        # Best-effort: post ONE top comment (identical for Shorts and long-form; needs the force-ssl
+        # scope). It links the most related PRIOR videos on the channel — the same "watch next" picks
+        # as the end screen — and optionally adds an affiliate/subscribe nudge. Posted even when
+        # PUBLISH_TOP_COMMENT is off, as long as there are videos to recommend.
+        #
+        # ORDER MATTERS: this runs AFTER set_privacy. Every upload starts PRIVATE (the disclosure
+        # gate), and YouTube refuses comments on a private video — posting here used to fail on every
+        # single publish and the best-effort handler swallowed it, so the comment silently never
+        # appeared. A video that stays private still can't take one, which is why that is logged.
         comment = ""
         if hasattr(self._pub, "add_comment"):
             parts: list[str] = []
@@ -155,21 +217,18 @@ class Publisher:
                     parts.append(aff_block)
                 parts.append((channel_cta_block(s) or s.channel_cta_text or "").strip())
             comment = youtube_safe_text("\n\n".join(p for p in parts if p).strip())
-            if comment:
+            if comment and effective_privacy == "private":
+                self._log.warning(
+                    "comment_skipped_private_video",
+                    hint="YouTube refuses comments on a private video; set YOUTUBE_PRIVACY_STATUS "
+                    "to unlisted/public (or publish it) and the comment will post",
+                )
+            elif comment:
                 try:
                     self._pub.add_comment(video_id, comment)
+                    self._log.info("comment_posted", chars=len(comment))
                 except Exception as exc:  # a comment failure must not abort the upload
-                    self._log.warning("comment_failed", error=str(exc))
-
-        disclosure_set = bool(self._pub.try_set_disclosure(video_id))
-        effective_privacy, upload_status = resolve_publish_outcome(
-            publish_mode=s.publish_mode,
-            requested_privacy=s.youtube_privacy_status,
-            disclosure_set=disclosure_set,
-            require_manual_disclosure_before_public=s.require_manual_disclosure_before_public,
-        )
-        if effective_privacy != "private":
-            self._pub.set_privacy(video_id, effective_privacy)
+                    self._log.warning("comment_failed", error=str(exc)[:300])
 
         return PublishResult(
             run_id=run_id,
@@ -185,7 +244,5 @@ class Publisher:
                 {"label": lnk.label, "url": lnk.url, "blurb": lnk.blurb} for lnk in aff_links
             ],
             published_at=utcnow() if effective_privacy == "public" else None,
-            provenance=Provenance(
-                produced_by="publisher", model=None, config_hash=s.config_hash
-            ),
+            provenance=Provenance(produced_by="publisher", model=None, config_hash=s.config_hash),
         )

@@ -36,16 +36,26 @@ class _FakePub:
 
 def _video() -> VideoAsset:
     return VideoAsset(
-        run_id="R", video_path="assets/video.mp4", duration_sec=10.0, resolution="1920x1080",
-        fps=30, backend="fake", has_captions=True, file_size_bytes=7,
+        run_id="R",
+        video_path="assets/video.mp4",
+        duration_sec=10.0,
+        resolution="1920x1080",
+        fps=30,
+        backend="fake",
+        has_captions=True,
+        file_size_bytes=7,
         provenance=Provenance(produced_by="renderer"),
     )
 
 
 def _visuals() -> VisualPackage:
     return VisualPackage(
-        run_id="R", thumbnail_path="assets/thumbnail.png", thumbnail_text="t",
-        captions_path="assets/captions.srt", visual_style="clean", scenes=[],
+        run_id="R",
+        thumbnail_path="assets/thumbnail.png",
+        thumbnail_text="t",
+        captions_path="assets/captions.srt",
+        visual_style="clean",
+        scenes=[],
         provenance=Provenance(produced_by="visuals"),
     )
 
@@ -77,11 +87,22 @@ def test_dry_run_produces_private_draft(settings, good_script):
 
 def _visuals_with_scenes(duration: float) -> VisualPackage:
     return VisualPackage(
-        run_id="R", thumbnail_path="assets/thumbnail.png", thumbnail_text="t",
-        captions_path="assets/captions.srt", visual_style="clean",
-        scenes=[SceneVisual(scene_index=i, kind="image", path=f"assets/scenes/scene_{i}.png",
-                            source="card", prompt_or_query="p", duration_sec=duration)
-                for i in range(3)],
+        run_id="R",
+        thumbnail_path="assets/thumbnail.png",
+        thumbnail_text="t",
+        captions_path="assets/captions.srt",
+        visual_style="clean",
+        scenes=[
+            SceneVisual(
+                scene_index=i,
+                kind="image",
+                path=f"assets/scenes/scene_{i}.png",
+                source="card",
+                prompt_or_query="p",
+                duration_sec=duration,
+            )
+            for i in range(3)
+        ],
         provenance=Provenance(produced_by="visuals"),
     )
 
@@ -116,6 +137,8 @@ def test_seo_disabled_uses_raw_metadata(monkeypatch, good_script):
 def test_top_comment_posted_when_enabled(monkeypatch, good_script):
     # Opt-in: a best-effort channel-CTA comment is posted after upload (DryRun records it).
     monkeypatch.setenv("PUBLISH_TOP_COMMENT", "true")
+    # A private video cannot take a comment at all, so the comment path needs a published state.
+    monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "unlisted")
     monkeypatch.setenv("CHANNEL_CTA_ENABLED", "true")
     monkeypatch.setenv("YOUTUBE_CHANNEL_URL", "https://youtube.com/@x")
     reset_settings_cache()
@@ -141,8 +164,13 @@ def test_recommendation_comment_links_related_videos(monkeypatch, tmp_path, good
     prior = runs / "0001"
     prior.mkdir(parents=True, exist_ok=True)
     (prior / "publish_result.json").write_text(
-        json.dumps({"chosen_title": "System Design Interview Guide",
-                    "youtube_video_id": "PRIOR123", "privacy_status": "public"}),
+        json.dumps(
+            {
+                "chosen_title": "System Design Interview Guide",
+                "youtube_video_id": "PRIOR123",
+                "privacy_status": "public",
+            }
+        ),
         encoding="utf-8",
     )
     (prior / "script.json").write_text(
@@ -151,6 +179,7 @@ def test_recommendation_comment_links_related_videos(monkeypatch, tmp_path, good
     (runs / "0002").mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setenv("RECOMMEND_COMMENT_ENABLED", "true")
+    monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "unlisted")  # a private video takes no comment
     monkeypatch.setenv("PUBLISH_TOP_COMMENT", "false")  # recommendations post independently
     reset_settings_cache()
     pub = DryRunPublisher()
@@ -160,6 +189,120 @@ def test_recommendation_comment_links_related_videos(monkeypatch, tmp_path, good
     comments = [kw["text"] for name, kw in pub.calls if name == "add_comment"]
     assert comments and "https://youtu.be/PRIOR123" in comments[0]
     assert "System Design Interview Guide" in comments[0]
+
+
+def test_recommendation_comment_uses_the_videos_current_title(monkeypatch, tmp_path, good_script):
+    """Run history records the title as it was at UPLOAD time, so a video renamed in Studio later
+    would be linked under a name that no longer exists. The live title wins."""
+    import json
+
+    runs = tmp_path / "runs"
+    prior = runs / "0001"
+    prior.mkdir(parents=True, exist_ok=True)
+    (prior / "publish_result.json").write_text(
+        json.dumps(
+            {
+                "chosen_title": "Old Name From Upload Day",
+                "youtube_video_id": "PRIOR123",
+                "privacy_status": "public",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (prior / "script.json").write_text(
+        json.dumps({"tags": list(good_script.tags)}), encoding="utf-8"
+    )
+    (runs / "0002").mkdir(parents=True, exist_ok=True)
+
+    class _Data:
+        def video_stats(self, video_ids):
+            assert video_ids == ["PRIOR123"]  # the id is parsed out of the youtu.be link
+            return [{"id": "PRIOR123", "title": "Renamed Later In Studio"}]
+
+    monkeypatch.setattr("content_foundry.providers.build_youtube_data_client", lambda _s: _Data())
+    monkeypatch.setenv("RECOMMEND_COMMENT_ENABLED", "true")
+    monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "unlisted")
+    monkeypatch.setenv("PUBLISH_TOP_COMMENT", "false")
+    reset_settings_cache()
+    pub = DryRunPublisher()
+    Publisher(get_settings(), pub).run(
+        "0002", _video(), good_script, _visuals(), run_root=runs / "0002"
+    )
+    comment = [kw["text"] for name, kw in pub.calls if name == "add_comment"][0]
+    assert "Renamed Later In Studio" in comment
+    assert "Old Name From Upload Day" not in comment
+
+
+def test_recommendation_comment_keeps_stored_name_when_lookup_fails(
+    monkeypatch, tmp_path, good_script
+):
+    # No Data-API key / no network must never block a publish or blank out the name.
+    import json
+
+    runs = tmp_path / "runs"
+    prior = runs / "0001"
+    prior.mkdir(parents=True, exist_ok=True)
+    (prior / "publish_result.json").write_text(
+        json.dumps(
+            {
+                "chosen_title": "System Design Interview Guide",
+                "youtube_video_id": "PRIOR123",
+                "privacy_status": "public",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (prior / "script.json").write_text(
+        json.dumps({"tags": list(good_script.tags)}), encoding="utf-8"
+    )
+    (runs / "0002").mkdir(parents=True, exist_ok=True)
+
+    def _boom(_s):
+        raise RuntimeError("no key")
+
+    monkeypatch.setattr("content_foundry.providers.build_youtube_data_client", _boom)
+    monkeypatch.setenv("RECOMMEND_COMMENT_ENABLED", "true")
+    monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "unlisted")
+    monkeypatch.setenv("PUBLISH_TOP_COMMENT", "false")
+    reset_settings_cache()
+    pub = DryRunPublisher()
+    Publisher(get_settings(), pub).run(
+        "0002", _video(), good_script, _visuals(), run_root=runs / "0002"
+    )
+    comment = [kw["text"] for name, kw in pub.calls if name == "add_comment"][0]
+    assert "System Design Interview Guide" in comment
+
+
+def test_comment_is_posted_only_after_the_video_leaves_private(monkeypatch, tmp_path, good_script):
+    """Every upload starts PRIVATE (the disclosure gate) and YouTube refuses comments on a private
+    video. Posting before set_privacy failed on EVERY publish and the best-effort handler swallowed
+    it, so the top comment silently never appeared."""
+    monkeypatch.setenv("PUBLISH_TOP_COMMENT", "true")
+    monkeypatch.setenv("RECOMMEND_COMMENT_ENABLED", "false")
+    monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "unlisted")
+    reset_settings_cache()
+    pub = DryRunPublisher()
+    Publisher(get_settings(), pub).run("0001", _video(), good_script, _visuals(), run_root=tmp_path)
+    order = [name for name, _ in pub.calls]
+    assert "add_comment" in order, "the comment must be posted"
+    assert "set_privacy" in order
+    assert order.index("set_privacy") < order.index(
+        "add_comment"
+    ), "the video must leave private BEFORE the comment is attempted"
+
+
+def test_comment_is_skipped_loudly_when_the_video_stays_private(monkeypatch, tmp_path, good_script):
+    # A video held back as private cannot take a comment at all — don't fire a doomed request.
+    monkeypatch.setenv("PUBLISH_TOP_COMMENT", "true")
+    monkeypatch.setenv("RECOMMEND_COMMENT_ENABLED", "false")
+    monkeypatch.setenv("YOUTUBE_PRIVACY_STATUS", "private")
+    reset_settings_cache()
+    pub = DryRunPublisher()
+    result = Publisher(get_settings(), pub).run(
+        "0001", _video(), good_script, _visuals(), run_root=tmp_path
+    )
+    assert result.privacy_status == "private"
+    assert not [c for c in pub.calls if c[0] == "add_comment"]
 
 
 def test_recommendation_comment_skipped_when_no_prior_videos(monkeypatch, tmp_path, good_script):
@@ -173,4 +316,3 @@ def test_recommendation_comment_skipped_when_no_prior_videos(monkeypatch, tmp_pa
         "0001", _video(), good_script, _visuals(), run_root=tmp_path / "runs" / "0001"
     )
     assert not [c for c in pub.calls if c[0] == "add_comment"]
-

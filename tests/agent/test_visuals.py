@@ -16,12 +16,20 @@ def _voiceover(script) -> VoiceoverAsset:
         SceneTiming(scene_index=s.index, start=float(s.index * 3), end=float(s.index * 3 + 3))
         for s in script.scenes
     ]
-    words = [WordTiming(word=w, start=float(i), end=float(i) + 0.4)
-             for i, w in enumerate(script.hook.split())]
+    words = [
+        WordTiming(word=w, start=float(i), end=float(i) + 0.4)
+        for i, w in enumerate(script.hook.split())
+    ]
     return VoiceoverAsset(
-        run_id="R", audio_path="assets/narration.mp3", duration_sec=float(len(script.scenes) * 3),
-        sample_rate=16000, voice_id="v", provider="fake",
-        word_timings=words, scene_timings=scene_timings, provenance=Provenance(produced_by="voiceover"),
+        run_id="R",
+        audio_path="assets/narration.mp3",
+        duration_sec=float(len(script.scenes) * 3),
+        sample_rate=16000,
+        voice_id="v",
+        provider="fake",
+        word_timings=words,
+        scene_timings=scene_timings,
+        provenance=Provenance(produced_by="voiceover"),
     )
 
 
@@ -74,7 +82,8 @@ def test_thumbnail_prompt_is_saved_edited_and_overridable(settings, good_script,
     # An explicit override wins over the saved file and is itself saved back.
     img3 = _RecordingImage()
     Visuals(settings, img3, None).render_thumbnail(
-        good_script, run_root=tmp_path, prompt="EXPLICIT OVERRIDE")
+        good_script, run_root=tmp_path, prompt="EXPLICIT OVERRIDE"
+    )
     assert img3.last_prompt == "EXPLICIT OVERRIDE"
     assert prompt_file.read_text(encoding="utf-8") == "EXPLICIT OVERRIDE"
 
@@ -107,7 +116,9 @@ def test_thumbnail_fallback_bg_is_a_designed_nonempty_frame():
     assert bg.size == (1280, 720) and bg.mode == "RGB"
     colors = bg.getcolors(maxcolors=200000)
     assert colors is not None and len(colors) > 500  # rich, not a flat fill
-    assert list(bg.getdata()) != list(_gradient_bg((1280, 720)).getdata())  # richer than a plain gradient
+    assert list(bg.getdata()) != list(
+        _gradient_bg((1280, 720)).getdata()
+    )  # richer than a plain gradient
 
 
 def test_visuals_render_cards_and_captions(settings, good_script, tmp_path):
@@ -170,8 +181,13 @@ def test_visuals_generate_image_when_a_beat_has_no_broll(settings, good_script, 
     scene.b_roll_keywords = ["handshake across a desk", "the abstract dread of impostor syndrome"]
     one = good_script.model_copy(update={"scenes": [scene]})
     vo = VoiceoverAsset(
-        run_id="0001", audio_path="assets/narration.mp3", duration_sec=6.0, sample_rate=16000,
-        voice_id="v", provider="fake", word_timings=[],
+        run_id="0001",
+        audio_path="assets/narration.mp3",
+        duration_sec=6.0,
+        sample_rate=16000,
+        voice_id="v",
+        provider="fake",
+        word_timings=[],
         scene_timings=[SceneTiming(scene_index=scene.index, start=0.0, end=6.0)],
         provenance=Provenance(produced_by="voiceover"),
     )
@@ -182,7 +198,7 @@ def test_visuals_generate_image_when_a_beat_has_no_broll(settings, good_script, 
         def __init__(self):
             self.downloaded: list[str] = []
 
-        def search(self, query, *, context=""):
+        def search(self, query, *, context="", moment=""):
             # Only the concrete "handshake" beat matches; the abstract beat returns nothing.
             hit = "https://videos.pexels.com/video-files/handshake.mp4"
             return [hit] if "handshake" in query else []
@@ -208,17 +224,133 @@ def test_visuals_generate_image_when_a_beat_has_no_broll(settings, good_script, 
         assert (tmp_path / shot.path).exists()
 
 
+def test_visuals_keeps_existing_images_unless_asked_to_redo(
+    settings, good_script, tmp_path, fakes, monkeypatch
+):
+    """Re-running visuals is usually about the FOOTAGE. Regenerating every image costs an API call
+    each and silently discards anything replaced by hand, so an image already on disk is kept."""
+    from pathlib import Path
+
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    scene = good_script.scenes[0]
+    scene.b_roll_keywords = ["the abstract dread of impostor syndrome"]
+    one = good_script.model_copy(update={"scenes": [scene]})
+    vo = VoiceoverAsset(
+        run_id="0001",
+        audio_path="assets/narration.mp3",
+        duration_sec=6.0,
+        sample_rate=16000,
+        voice_id="v",
+        provider="fake",
+        word_timings=[],
+        scene_timings=[SceneTiming(scene_index=scene.index, start=0.0, end=6.0)],
+        provenance=Provenance(produced_by="voiceover"),
+    )
+
+    class _NoBroll:
+        enabled = True
+
+        def search(self, query, *, context="", moment=""):
+            return []
+
+        def download(self, url):  # pragma: no cover - never reached
+            raise AssertionError("no clip should be downloaded")
+
+    # First pass generates the image.
+    image = fakes.Image()
+    Visuals(settings, image_provider=image, broll_client=_NoBroll()).run(
+        "0001", one, vo, run_root=tmp_path
+    )
+    shot_png = tmp_path / f"assets/scenes/scene_{scene.index}_shot_0.png"
+    assert shot_png.exists()
+    shot_png.write_bytes(b"HAND-MADE REPLACEMENT")  # stand in for an operator's own image
+    after_first = image.calls
+
+    # Second pass with redo OFF: the file is left exactly as-is and no new image is generated.
+    monkeypatch.setenv("VISUALS_REDO_IMAGES", "false")
+    reset_settings_cache()
+    again = fakes.Image()
+    pkg = Visuals(get_settings(), image_provider=again, broll_client=_NoBroll()).run(
+        "0001", one, vo, run_root=tmp_path
+    )
+    assert shot_png.read_bytes() == b"HAND-MADE REPLACEMENT"  # untouched
+    shot = next(s for s in pkg.scenes[0].shots if Path(s.path).suffix == ".png")
+    assert shot.source == "reused"
+    assert after_first > 0  # the first pass really did generate
+
+    # Third pass with redo ON: the image is remade.
+    monkeypatch.setenv("VISUALS_REDO_IMAGES", "true")
+    reset_settings_cache()
+    forced = fakes.Image()
+    Visuals(get_settings(), image_provider=forced, broll_client=_NoBroll()).run(
+        "0001", one, vo, run_root=tmp_path
+    )
+    assert shot_png.read_bytes() != b"HAND-MADE REPLACEMENT"  # regenerated on request
+
+
+def test_broll_search_is_given_the_words_the_shot_will_sit_under(
+    settings, good_script, tmp_path, fakes
+):
+    """The stock search used to receive only the scene-level beat. A scene runs 45-90 s across
+    several claims, so a clip that matched the beat then landed under whichever claim happened to be
+    playing — measured on run 0021, 'developer working on laptop coffee shop night' was showing under
+    a line about inference latency. The provider's relevance gate cannot reject that without knowing
+    the line, so each beat must search with its own slice of the narration."""
+    seen: list[str] = []
+
+    class _Recorder:
+        enabled = True
+
+        def search(self, query, *, context="", moment=""):
+            seen.append(moment)
+            return []
+
+        def download(self, url):  # pragma: no cover - nothing is returned to download
+            raise AssertionError("no clip should be downloaded")
+
+    scene = good_script.scenes[0]
+    scene.narration = "First half of the claim. " + "Second half says something else entirely."
+    scene.b_roll_keywords = ["a beat", "another beat"]
+    one = good_script.model_copy(update={"scenes": [scene]})
+    vo = VoiceoverAsset(
+        run_id="0001",
+        audio_path="assets/narration.mp3",
+        duration_sec=20.0,
+        sample_rate=16000,
+        voice_id="v",
+        provider="fake",
+        word_timings=[],
+        scene_timings=[SceneTiming(scene_index=scene.index, start=0.0, end=20.0)],
+        provenance=Provenance(produced_by="voiceover"),
+    )
+    Visuals(settings, image_provider=fakes.Image(), broll_client=_Recorder()).run(
+        "0001", one, vo, run_root=tmp_path
+    )
+    assert len(seen) == 2, "each beat searches with its own slice of the narration"
+    assert seen[0] != seen[1]
+    assert "First half" in seen[0]
+    assert "entirely" in seen[1]
+
+
 def test_visuals_split_long_scene_into_ordered_beat_clips(settings, good_script, tmp_path, fakes):
     # A longer scene with several ordered keywords -> one B-roll clip per beat (moment-matched),
     # instead of a single broad clip for the whole scene.
     scene = good_script.scenes[0]
     scene.b_roll_keywords = [
-        "handshake across a desk", "reading a job offer letter", "typing on a laptop",
+        "handshake across a desk",
+        "reading a job offer letter",
+        "typing on a laptop",
     ]
     one = good_script.model_copy(update={"scenes": [scene]})
     vo = VoiceoverAsset(
-        run_id="0001", audio_path="assets/narration.mp3", duration_sec=6.0, sample_rate=16000,
-        voice_id="v", provider="fake", word_timings=[],
+        run_id="0001",
+        audio_path="assets/narration.mp3",
+        duration_sec=6.0,
+        sample_rate=16000,
+        voice_id="v",
+        provider="fake",
+        word_timings=[],
         scene_timings=[SceneTiming(scene_index=scene.index, start=0.0, end=6.0)],
         provenance=Provenance(produced_by="voiceover"),
     )
@@ -238,33 +370,50 @@ def test_visuals_split_long_scene_into_ordered_beat_clips(settings, good_script,
 
 def test_thumbnail_text_decoupled_from_title(settings, good_script, tmp_path):
     vo = VoiceoverAsset(
-        run_id="R", audio_path="assets/narration.mp3", duration_sec=6.0, sample_rate=16000,
-        voice_id="v", provider="fake", word_timings=[],
-        scene_timings=[SceneTiming(scene_index=s.index, start=0.0, end=3.0)
-                       for s in good_script.scenes],
+        run_id="R",
+        audio_path="assets/narration.mp3",
+        duration_sec=6.0,
+        sample_rate=16000,
+        voice_id="v",
+        provider="fake",
+        word_timings=[],
+        scene_timings=[
+            SceneTiming(scene_index=s.index, start=0.0, end=3.0) for s in good_script.scenes
+        ],
         provenance=Provenance(produced_by="voiceover"),
     )
     # A dedicated thumbnail_text wins over the title (they're independent now).
-    s1 = good_script.model_copy(update={
-        "title_options": ["How Recommendation Engines Work"],
-        "thumbnail_text": "THEY'RE WATCHING YOU", "time_sensitive": False,
-    })
-    pkg = Visuals(settings, image_provider=None, broll_client=None).run("R", s1, vo, run_root=tmp_path)
+    s1 = good_script.model_copy(
+        update={
+            "title_options": ["How Recommendation Engines Work"],
+            "thumbnail_text": "THEY'RE WATCHING YOU",
+            "time_sensitive": False,
+        }
+    )
+    pkg = Visuals(settings, image_provider=None, broll_client=None).run(
+        "R", s1, vo, run_root=tmp_path
+    )
     assert pkg.thumbnail_text == "THEY'RE WATCHING YOU"  # decoupled, not the title
     # An empty thumbnail_text falls back to a SHORT punchy version of the title (never the whole
     # long title, which is unreadable overlaid on a thumbnail).
-    s2 = good_script.model_copy(update={
-        "title_options": ["How to Get Into FAANG in 2026 (From a FAANG AI Scientist)"],
-        "thumbnail_text": "", "time_sensitive": False,
-    })
-    pkg2 = Visuals(settings, image_provider=None, broll_client=None).run("R", s2, vo, run_root=tmp_path)
+    s2 = good_script.model_copy(
+        update={
+            "title_options": ["How to Get Into FAANG in 2026 (From a FAANG AI Scientist)"],
+            "thumbnail_text": "",
+            "time_sensitive": False,
+        }
+    )
+    pkg2 = Visuals(settings, image_provider=None, broll_client=None).run(
+        "R", s2, vo, run_root=tmp_path
+    )
     assert pkg2.thumbnail_text == "Get Into FAANG in 2026"  # shortened fallback, not the full title
 
 
 def test_fallback_thumb_text_shortens_and_handles_empty():
     from content_foundry.agents.visuals import _fallback_thumb_text
 
-    assert _fallback_thumb_text(
-        "How to Actually Get Into FAANG in 2026 (From a FAANG AI Scientist)"
-    ) == "Actually Get Into FAANG in 2026"
+    assert (
+        _fallback_thumb_text("How to Actually Get Into FAANG in 2026 (From a FAANG AI Scientist)")
+        == "Actually Get Into FAANG in 2026"
+    )
     assert _fallback_thumb_text("") == ""

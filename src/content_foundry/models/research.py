@@ -26,7 +26,9 @@ class ResearchBrief(BaseModel):
     idea: str = ""  # the chosen video idea this research supports
     points: list[ResearchPoint] = Field(default_factory=list)
     source_urls: list[str] = Field(default_factory=list)  # pages actually fetched + read
-    used_model: str | None = None  # LLM that synthesized it; None when the deterministic fallback ran
+    used_model: str | None = (
+        None  # LLM that synthesized it; None when the deterministic fallback ran
+    )
     generated_at: datetime = Field(default_factory=utcnow)
 
 
@@ -40,3 +42,9 @@ class InstructionPlan(BaseModel):
     research_focus: list[str] = Field(default_factory=list)  # what to FIND/verify in research
     research_queries: list[str] = Field(default_factory=list)  # concrete web searches to run
     script_directions: list[str] = Field(default_factory=list)  # what the script should DO/present
+    # Long instructions usually carry an explicit running order ("transition into", "next", "conclude")
+    # and a set of contrasts ("X rather than Y"). Both were being flattened into topic statements, so
+    # the video lost the spine and the contrarian edge the creator actually asked for.
+    outline: list[str] = Field(default_factory=list)  # the running order, in order, when implied
+    avoid: list[str] = Field(default_factory=list)  # wrong takes to argue AGAINST, not just omit
+    terminology: list[str] = Field(default_factory=list)  # insider terms to verify and use exactly

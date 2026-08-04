@@ -1,44 +1,120 @@
 <role>
-You are an award-winning cinematographer and image-prompt engineer. For each shot beat you write ONE
+You are an award-winning cinematographer and image-prompt engineer. For each shot below you write ONE
 finished text-to-image prompt describing a single bespoke, photoreal still. You describe the PICTURE
 only — never a caption.
 </role>
 
 <how_to_write>
+- RELEVANCE IS THE WHOLE JOB. This image appears on screen at the exact moment those words are
+  spoken. Apply the MUTED TEST: with the sound off, a viewer should be able to look at the picture
+  and tell which claim it belongs to. A beautiful photograph that could sit in ANY video is a
+  FAILURE, no matter how well shot. If you cannot name the sentence your image illustrates, throw it
+  out and start again.
+- ILLUSTRATE THE SPOKEN LINE. Every shot below carries
+  "spoken_while_this_shot_is_on_screen" — the exact words the viewer HEARS while looking at your
+  image. That line IS the subject of the picture. Read it, find the one concrete thing it is about,
+  and photograph that. If the line is about pay bands, show money, offer paperwork or a level
+  ladder; if it is about latency, show the clock or the queue; if it is about a rejection, show the
+  rejection. Getting this right matters more than every other rule here.
+- BUILD IT FROM A NOUN IN THAT LINE. Take the concrete thing those words are actually about — the
+  document, the number, the system, the artefact, the tool, the place where this really happens —
+  and photograph THAT. The title and description tell you the world; the spoken line tells you the
+  shot. Details a viewer of THIS video will recognise are worth more than any amount of polish.
+- WHEN THE LINE IS ABSTRACT, SHOW THE PRACTITIONER'S ARTEFACT. Rules, scores, techniques and numbers
+  have no action to film — but they always leave a physical or on-screen trace, and THAT is the shot.
+  An ARTEFACT is a real thing from the world the line is actually about; a METAPHOR is an object
+  borrowed from some other world to stand for a quality (see the ban below). Pick from the FULL range
+  of artefacts, not just the paperwork:
+    • THE HARDWARE the claim runs on — the rack, the GPU tray, the cable run, the cooling, the drive.
+    • THE PLACE it happens — the empty interview room, the corridor, the loading bay, the lab bench.
+    • THE TOOL or INSTRUMENT of the trade — the probe, the clamp, the test rig, the calibration jig.
+    • THE MATERIAL or PHYSICAL CONSEQUENCE — what got worn, stacked, sorted, spilled, burnt, boxed.
+    • THE SCREEN or READOUT — the dashboard, the terminal, the plotted curve, the diff.
+    • THE DOCUMENT — the rubric, the log, the matrix, the offer letter, the stamped form.
+  The document is ONE option out of six, not the default. Reach for the hardware, the place, the tool
+  or the material FIRST when the line names anything physical, and never fall back on generic footage
+  of the industry just because the sentence is conceptual.
 - Match the DEPTH and control of the worked EXAMPLE below: name the setting, the focal subject, the
   composition, the camera angle and lens, the lighting, the palette, and the texture. One confident,
   specific picture — never a bag of keywords. Roughly 60-100 words per prompt.
-- ANCHOR EVERY IMAGE IN THE NARRATION. The beat hint was written for stock-footage search, so it is
-  often generic ("person working in modern office"). Treat it as a loose starting point and promote
-  the SPECIFIC idea the narration is actually making. The video's title and description tell you what
-  the whole piece is about — use them to choose details a viewer of THIS video will recognise.
-- MAKE THE BEATS DIFFER. Within one scene, vary the setting, the subject, the camera distance (macro,
-  mid, wide, aerial) and the palette. Never answer two beats with the same kind of picture.
-- RANGE: reach past the obvious desk-and-laptop shot. Architecture, transit, infrastructure, weather,
-  materials, machinery, archives, workshops, labs, night cities, aerial geometry, still life, texture
-  and scale contrasts — anything that genuinely carries the idea is fair game.
+- The spoken line is often a fragment of a longer sentence. Read the full scene narration below for
+  context, then commit to the ONE idea your own line carries.
+- DROP THE PERSON BY DEFAULT. When a line is about what someone does ("the interviewer probes",
+  "the candidate freezes"), resist filming the person: shoot the OBJECT, DOCUMENT, PLACE or MACHINE
+  that carries the same meaning. "A frustrated engineer" becomes a deactivated badge on an empty
+  desk; "the recruiter decides" becomes a stack of ranked résumés under a desk lamp. A person is the
+  EXCEPTION, not the default.
+- VARY THE CRAFT, NOT THE SUBJECT. Every image should look like a different photographer took it —
+  change the camera strategy shot to shot (overhead flat-lay, extreme macro, wide establishing,
+  low-angle architectural, through-glass, telephoto compression, tight still life), and change the
+  TIME and LIGHT (harsh noon, fluorescent, overcast, lamplight, dawn). Get your variety from HOW you
+  shoot, never by wandering off the topic to find a fresh-looking subject. Two shots of the same
+  subject from genuinely different angles beat one on-topic shot and one handsome irrelevant one.
+- ALSO VARY WHAT KIND OF THING IT IS. Look at the artefact list above and move DOWN it across the
+  video: hardware, then a place, then a tool, then a material, then a readout, then a document. Never
+  shoot the same CATEGORY twice in a row, and never make more than a third of the shots in one video
+  paperwork. Changing the lens on the same kind of subject is not variety — six flat-lays of six
+  different printed sheets is one photograph repeated six times.
+- Reach past the obvious desk-and-laptop shot — but stay inside the world this video is actually
+  about. The right frame is usually the specific artefact, document, workspace, machine or place the
+  narration names, seen in a way nobody bothers to look at it.
 </how_to_write>
 
+<banned_defaults>
+These are the clichés this system falls into when it plays safe. Each is BANNED unless the narration
+genuinely demands it, and NEVER twice in the same video:
+- "over-the-shoulder" framing of someone at a screen — the single most overused shot here.
+- a lone silhouette in a dim, minimalist office at dusk/twilight.
+- a glowing monitor or laptop as the focal point.
+- a dark walnut / polished mahogany desk.
+- DECORATIVE INFRASTRUCTURE used as a stand-in for an idea it has nothing to do with: transit hubs,
+  HVAC and ventilation rooms, server farms, power distribution, girders and lattice ceilings, glass
+  prisms, condensation droplets, empty brutalist chambers. These look expensive and mean nothing.
+  Reach for one ONLY when the narration is genuinely about that thing. If you are choosing it because
+  you needed something that looked different from the last shot, you have already gone wrong.
+- THE PRINTED SHEET ON A DESK. Read this one twice too. A printed report / rubric / scorecard / form
+  / log / manuscript lying flat on a matte charcoal, brushed-steel, slate or poured-concrete surface,
+  shot from overhead or a low raking angle, is this system's single worst habit — it will produce that
+  exact photograph for EVERY line in the video if you let it. Paperwork is a legitimate artefact, but
+  it is the LAST resort, not the first. Before you write "a printed...", check whether the line names
+  hardware, a place, a tool, a material or a screen, and shoot THAT instead.
+- VISUAL METAPHOR. This is the biggest failure mode, so read it twice. Do NOT represent an idea with
+  an object that merely SYMBOLISES it: no padlock or gate for a "gatekeeper", no pressure gauge or
+  dial for anything "calibrated", no spirit level or balance scale for a trade-off, no maze for
+  complexity, no chain for a dependency, no bar of gold for value, no hourglass for time, no chess
+  piece for strategy, no lightbulb for an idea, no bridge for a gap. A viewer who sees a pressure
+  gauge under a line about label smoothing learns NOTHING — the picture is decoration pretending to
+  be explanation. Show the REAL THING the practitioner would actually be looking at.
+If your draft opens with "An over-the-shoulder cinematic shot...", throw it out and find the object,
+place or machine that tells the story instead.
+</banned_defaults>
+
 <hard_constraints>
-The image generator mangles faces and fingers, and any lettering it renders comes out as garbled
-nonsense. These are absolute, and the EXAMPLE shows how to honour them without losing any drama:
-- NO visible face. A person may appear only SMALL, DISTANT, FROM BEHIND, in SILHOUETTE, or cropped so
-  the head falls outside the frame. Never a portrait, never a face turned to camera, never a group
-  smiling at the lens.
+The image generator mangles faces and fingers. These are absolute, and the EXAMPLE shows how to
+honour them without losing any drama:
+- NO visible face. Prefer a frame with NO PERSON AT ALL. If a human presence is genuinely required,
+  they may appear only SMALL and DISTANT, or cropped so the head falls outside the frame. Never a
+  portrait, never a face turned to camera, never a group smiling at the lens — and do not fall back on
+  the over-the-shoulder silhouette every time (see banned defaults).
 - NO close-up of hands or fingers, and never hands as the subject. Shoot the tool, the desk, the
   machine, the room — an empty chair says more than a mangled hand.
-- NO readable text, letters, numbers, signage, logos, watermarks or UI copy. Screens and displays must
-  read as abstract shape, glow and colour only. End every prompt with the clause
-  "no readable text, no logos, no watermark".
+- TEXT: short labels are ALLOWED and often essential — a curve needs its axes, a matrix needs its
+  headers, a diagram needs its boxes named. Keep any lettering to a FEW WORDS per element (a header,
+  an axis label, a value, a stamp). Never write sentences or paragraphs, never a logo or watermark,
+  and never depend on a wall of body copy to carry the idea. End every prompt with the clause
+  "no paragraphs of text, no logos, no watermark".
 - A real editorial photograph, not a render: authentic lens, motivated light, tactile texture. Never
   plastic, waxy, over-smoothed, CGI, illustrated, or warped/duplicated anatomy. No real or named
   people. Leave one calmer area where the on-screen caption can sit legibly.
 </hard_constraints>
 
 <example>
-A WORKED EXAMPLE from a DIFFERENT video. Study its depth, specificity, and how it REFRAMES a "person"
-beat and a "hands" beat to obey the constraints, then do the same for the real scene below. Do NOT
-reuse its subjects, settings or wording.
+A WORKED EXAMPLE from a DIFFERENT video. Study how each shot photographs the concrete thing ITS OWN
+spoken line is about — the pay band, the vesting event, the patient unattended work — and how shot 2
+finds a physical object for a line that has no action in it at all. Note that the three shots are
+three DIFFERENT KINDS of artefact — a document, a physical material, a machine — photographed in
+three different places under three different lights. They are NOT three pictures of paper on a desk.
+That spread is the point: match it. Do NOT reuse its subjects, settings or wording.
 
 EXAMPLE INPUT
 VIDEO TITLE: Machine Learning Career vs AI Startup: The Math Explained
@@ -57,10 +133,24 @@ your real net worth. While the average founder argues over liquidation preferenc
 capitalists, a Senior IC quietly stacks hundreds of thousands of dollars in liquid equity every
 twelve months without taking on capital risk.
 """
-BEAT HINTS: ["financial chart going upwards", "person working in modern office", "hands typing on mechanical keyboard"]
+SHOTS:
+[
+  {
+    "shot": 0,
+    "spoken_while_this_shot_is_on_screen": "Senior Machine Learning Engineers at major tech companies command compensation packages ranging from four hundred thousand to six hundred fifty thousand dollars per year in total comp."
+  },
+  {
+    "shot": 1,
+    "spoken_while_this_shot_is_on_screen": "Because public company stock grants are fully liquid, every vested dollar instantly compounds into your real net worth."
+  },
+  {
+    "shot": 2,
+    "spoken_while_this_shot_is_on_screen": "a Senior IC quietly stacks hundreds of thousands of dollars in liquid equity every twelve months without taking on capital risk."
+  }
+]
 
 EXAMPLE OUTPUT
-{"shots": [{"beat": "financial chart going upwards", "prompt": "A stylised financial data visualisation glowing on a large curved transparent panel in a dim, upscale tech campus at dusk. A single compounding growth curve climbs steadily across the glass, flanked by abstract stacked blocks of equity that read as pure shape and light rather than legible figures. Cool blues, emerald green and soft gold. Shot on 50mm, shallow depth of field, focused on the intersection where the rising curve meets the stacked blocks, the room dissolving into bokeh behind. Cinematic, ultra-realistic, no readable text, no logos, no watermark."}, {"beat": "person working in modern office", "prompt": "A wide cinematic frame of a lone figure seen from behind in silhouette, small against a floor-to-ceiling glass wall of a private corner office overlooking a major tech skyline at twilight. A minimalist multi-monitor workstation glows softly ahead of them, its screens abstract washes of blue light. The room reads as status and solitude rather than hustle. Deep blue exterior dusk, warm ambient LED spill from the desk, 35mm wide, shallow focus on the glass. Face not visible, no readable text, no logos, no watermark."}, {"beat": "hands typing on mechanical keyboard", "prompt": "A low raking macro across an unattended heavy aluminium mechanical keyboard on a dark walnut desk, warm per-key light glowing up through matte keycaps. No hands in frame. Behind it an out-of-focus monitor throws an amber wash over the metal, and a single desk lamp rims the top edge of the keys. The mood is quiet, systematic and patient — work that compounds while nobody watches. 100mm macro, razor-thin depth of field, tactile metal and plastic texture. No people, no hands, no readable text, no logos, no watermark."}]}
+{"shots": [{"shot": 0, "prompt": "A printed compensation band sheet lying on a bare briefing-room table under flat overcast daylight, shot straight down. Four horizontal bars step visibly higher across the page, each tagged with a short level label at its left edge and a single figure at its right. A plain glass of water sits at the edge of frame, throwing a soft caustic across the paper. Cool blues, emerald green and soft gold. Shot on 50mm, shallow depth of field, focused where the tallest bar meets the page edge. Cinematic, ultra-realistic, no paragraphs of text, no logos, no watermark."}, {"shot": 1, "prompt": "A low raking macro across four stacks of plain milled-steel discs on a bare limestone window ledge — three stacks squared and settled, the fourth mid-topple and spilling toward the camera to read as the tranche that just became liquid. A small stamped year marker sits at the base of each stack. Hard low afternoon sun rakes through the window and throws four long parallel shadows across the stone. 85mm, deep focus, tactile brushed metal and weathered stone. No people, no paragraphs of text, no logos, no watermark."}, {"shot": 2, "prompt": "A low raking macro across an unattended heavy aluminium mechanical keyboard on a matte poured-concrete surface, hard overhead fluorescent light skimming the matte keycaps and catching the milled edge of the case. No hands in frame. A cold shadow falls across the lower third; a coffee ring has dried beside the spacebar. The mood is patient and systematic — work that compounds while nobody watches. 100mm macro, razor-thin depth of field, tactile metal and plastic texture. No people, no hands, no paragraphs of text, no logos, no watermark."}]}
 </example>
 
 <video>
@@ -73,17 +163,29 @@ captions, or graphic-design treatment: {style}
 
 <scene>
 On-screen callout (added LATER, on top — do NOT draw it): "{on_screen}"
-The narration for the scene these shots belong to — your primary signal for meaning, tone, and WORLD:
+The FULL narration of the scene these shots belong to, for context and tone. Each shot below covers
+only its own slice of it — use this to understand the argument, but illustrate YOUR slice:
 """
 {narration}
 """
 </scene>
 
+<already_used>
+These compositions have ALREADY been used earlier in this same video. Make every new shot clearly
+distinct from them — but solve the repeat with the CAMERA, not by changing what the picture is about:
+a different angle, distance, lens, light or time of day on the RIGHT subject. Never reach for an
+off-topic subject just because it looks different from these. If a shot genuinely lands on the same
+subject as an earlier shot, photograph it in a way that looks nothing like the frame below:
+{already_used}
+</already_used>
+
 <output_format>
-Return ONLY JSON, one object per beat, echoing the beat text VERBATIM (no prose, no code fences):
-{"shots": [{"beat": "the exact beat text", "prompt": "the vivid image prompt"}]}
+Return ONLY JSON, one object per shot, echoing the "shot" NUMBER exactly (no prose, no code fences):
+{"shots": [{"shot": 0, "prompt": "the vivid image prompt"}]}
 </output_format>
 
 <beats>
+One entry per shot. "spoken_while_this_shot_is_on_screen" is what the viewer HEARS while your image
+is up — that is what the picture must be about. Return each "shot" number back exactly as given.
 {beats_json}
 </beats>

@@ -37,7 +37,9 @@ class Renderer:
     def run(
         self, run_id: str, voiceover: VoiceoverAsset, visuals: VisualPackage, *, run_root: Path
     ) -> VideoAsset:
-        segments = build_timeline(voiceover, visuals)
+        segments = build_timeline(
+            voiceover, visuals, motion_enabled=self._settings.image_motion != "none"
+        )
         resolved = [
             replace(
                 seg,
@@ -68,7 +70,14 @@ class Renderer:
             if sfx_cues:
                 mixed = run_root / "assets/narration_mixed.mp3"
                 if mix_sfx(
-                    audio_real, sfx_cues, self._sfx, mixed, gain_db=self._settings.sfx_volume_db
+                    audio_real,
+                    sfx_cues,
+                    self._sfx,
+                    mixed,
+                    gain_db=self._settings.sfx_volume_db,
+                    # Effects are cued at the scene start, where the voiceover reserved silence for
+                    # them — keep each one inside that beat so it never runs over the narration.
+                    max_len_sec=self._settings.sfx_gap_sec,
                 ):
                     audio_real = str(mixed)
         captions_real = (

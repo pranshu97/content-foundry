@@ -34,23 +34,42 @@ class Voiceover:
                 else _estimate(scene.narration)
             )
 
-        # 2) Lock timings to the MEASURED audio. Byte-concatenating separate MP3s leaves encoder
+        # 2) Reserve silence BEFORE a scene's narration so nothing has to play over the voice: an
+        # opening beat so the video doesn't start abruptly on speech, and a clear beat for any scene
+        # with a sound effect (effects are cued at the scene start, i.e. exactly on the first word,
+        # so without this every effect talks over the narration). A scene needing both takes the
+        # longer of the two rather than stacking them into a long dead opening.
+        lead_in = max(0.0, float(self._settings.voiceover_lead_in_sec))
+        sfx_gap = max(0.0, float(self._settings.sfx_gap_sec))
+        gaps = [
+            max(lead_in if i == 0 else 0.0, sfx_gap if scene.sfx else 0.0)
+            for i, scene in enumerate(scenes)
+        ]
+
+        # 3) Lock timings to the MEASURED audio. Byte-concatenating separate MP3s leaves encoder
         # delay/padding between them, so the track plays LONGER than the summed estimates and the
         # visuals drift AHEAD of the voice -- scenes cut mid-sentence, worse every scene. Decoding +
         # re-encoding once removes the gaps and gives exact per-scene lengths. Falls back to the old
         # estimate + byte-concat path when the audio can't be decoded (test fakes / no pydub+ffmpeg).
-        decoded = _decode_concat(chunks)
+        decoded = _decode_concat(chunks, gaps=gaps)
         if decoded is not None:
             durations, audio_bytes = decoded
         else:
             durations, audio_bytes = estimates, b"".join(chunks)
+            # The fallback path can't pad the audio, so it must NOT shift the timings either — doing
+            # so would slide every caption and visual off the voice by the reserved gaps.
+            gaps = [0.0] * len(scenes)
 
         word_timings: list[WordTiming] = []
         scene_timings: list[SceneTiming] = []
         cursor = 0.0
-        for scene, timings, est, dur in zip(
-            scenes, provider_timings, estimates, durations, strict=True
+        for scene, timings, est, dur, gap in zip(
+            scenes, provider_timings, estimates, durations, gaps, strict=True
         ):
+            # The scene OWNS its gap: its visual (and its sound effect, cued at this same start) begin
+            # here, then the voice comes in once the silence has played out.
+            scene_start = cursor
+            cursor += gap
             if timings:
                 # Rescale provider/even timings onto the real scene length so words stay aligned.
                 scale = (dur / est) if est > 1e-6 else 1.0
@@ -63,7 +82,7 @@ class Voiceover:
             else:
                 word_timings.extend(_even_split(scene.narration.split(), cursor, cursor + dur))
             scene_timings.append(
-                SceneTiming(scene_index=scene.index, start=cursor, end=cursor + dur)
+                SceneTiming(scene_index=scene.index, start=scene_start, end=cursor + dur)
             )
             cursor += dur
 
@@ -100,25 +119,33 @@ def _even_split(words: list[str], start: float, end: float) -> list[WordTiming]:
     ]
 
 
-def _decode_concat(chunks: list[bytes]) -> tuple[list[float], bytes] | None:
+def _decode_concat(
+    chunks: list[bytes], *, gaps: list[float] | None = None
+) -> tuple[list[float], bytes] | None:
     """Decode each MP3 chunk to its TRUE length and re-encode ONE gapless track, returning
     ``(per-scene seconds, mp3 bytes)``. This is what keeps the visuals locked to the voice: byte-
     concatenating separate MP3s leaves encoder delay/padding between them, so the audio plays longer
-    than the summed estimates and scenes cut mid-sentence. Returns ``None`` when pydub/ffmpeg is
-    unavailable or any chunk is undecodable (e.g. the test fakes), so the caller falls back to
-    estimates + raw byte concatenation (the original behavior)."""
+    than the summed estimates and scenes cut mid-sentence. ``gaps`` inserts that many seconds of
+    silence BEFORE each chunk (the opening beat / room for a sound effect); the returned durations
+    stay pure narration, so the caller stays the single owner of where the gaps land on the timeline.
+    Returns ``None`` when pydub/ffmpeg is unavailable or any chunk is undecodable (e.g. the test
+    fakes), so the caller falls back to estimates + raw byte concatenation (the original behavior)."""
     try:
         from pydub import AudioSegment  # lazy: needs pydub + ffmpeg
     except Exception:  # pragma: no cover - pydub is present in real installs
         return None
+    pads = list(gaps or [])
     combined = None
     durations: list[float] = []
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
         try:
             seg = AudioSegment.from_file(BytesIO(chunk))
         except Exception:
             return None  # undecodable (e.g. the 32-null-byte fake) -> estimates + byte concat
         durations.append(len(seg) / 1000.0)  # pragma: no cover - real audio only
+        gap = pads[i] if i < len(pads) else 0.0  # pragma: no cover - real audio only
+        if gap > 0:  # pragma: no cover - real audio only
+            seg = AudioSegment.silent(duration=int(gap * 1000)) + seg
         combined = seg if combined is None else combined + seg  # pragma: no cover
     if combined is None or not durations:  # pragma: no cover - real audio only
         return None

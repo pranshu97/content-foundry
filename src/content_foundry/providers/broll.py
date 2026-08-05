@@ -532,6 +532,11 @@ def _clip_ok(
     # actually spoken over it. Stemmed on both sides so "servers"/"server" and "pipelines"/"pipeline"
     # count. When the line offers no concrete word at all (pure abstraction) there is nothing to
     # verify against and nothing worth showing as stock, so the shot goes to a generated image.
+    #
+    # ONE HIT IS THE FLOOR, DO NOT RAISE IT. Requiring two was MEASURED on run 0023 and took its stock
+    # footage from 4 clips to ZERO. The asymmetry is why: `_search_terms` trims a clip's query to 4
+    # words while a narration window carries 16-22 discriminating words, so "share two" is a demand on
+    # the CLIP's tiny vocabulary, not on the line's rich one -- the same trap as `_required_matches`.
     if moment and not {_norm(w) for w in meta_words} & moment:
         return False
     return bool(meta_words & vocab)

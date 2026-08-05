@@ -183,7 +183,9 @@ class Settings(BaseSettings):
     require_script_approval: bool = False
 
     # ---------- Voiceover (TTS) ----------
-    tts_provider: Literal["elevenlabs", "openai", "edge", "piper", "chatterbox"] = "elevenlabs"
+    tts_provider: Literal["elevenlabs", "openai", "edge", "piper", "chatterbox", "indextts"] = (
+        "elevenlabs"
+    )
     elevenlabs_api_key: str = ""
     tts_voice_id: str = "Rachel"
     # Alternate the narrator by run-id parity: male voice for ODD run ids, female for EVEN. Leave
@@ -227,6 +229,29 @@ class Settings(BaseSettings):
     # silence there costs expressiveness. Condense the reference to its densest window of speech
     # before cloning. 0 disables and hands the clip over exactly as recorded.
     tts_reference_window_sec: float = Field(12.0, ge=0.0, le=60.0)
+    # WHICH window to take, i.e. which delivery to clone. "auto" derives it from the script template
+    # (contrarian -> punchy, data deep-dive -> authoritative, case study -> energetic); name a tone to
+    # force it everywhere. "neutral" just takes the densest speech.
+    tts_tone: Literal["auto", "neutral", "authoritative", "punchy", "energetic"] = "auto"
+    # IndexTTS-2 (TTS_PROVIDER=indextts): emotion is DISENTANGLED from timbre, so the clone stays
+    # your voice while the delivery is steered separately. It needs numpy>=2 and a newer
+    # transformers than Chatterbox pins, so it CANNOT share this interpreter -- clone
+    # https://github.com/index-tts/index-tts , `uv sync --all-extras` there, and point these at that
+    # checkout. Blank interpreter = provider unavailable.
+    indextts_python: str = ""  # <index-tts>/.venv/Scripts/python.exe
+    indextts_model_dir: str = ""  # <index-tts>/checkpoints
+    indextts_cfg_path: str = ""  # defaults to <model_dir>/config.yaml
+    indextts_fp16: bool = True  # half precision; materially lower VRAM on a 6 GB card
+    # Dtype for the SPEAKER-ENCODING model (w2v-bert). This does NOT synthesise audio -- s2mel and
+    # BigVGAN, which do, stay fp32 either way -- so it trades VOICE SIMILARITY against VRAM. fp16 has
+    # more mantissa bits than bf16 (10 vs 7) so it is the more precise 16-bit option; bf16 carries
+    # fp32's exponent range instead, which only matters if fp16 were overflowing. fp32 skips the
+    # conversion for maximum fidelity and costs ~1.2 GB more.
+    indextts_precision: Literal["fp16", "bf16", "fp32"] = "fp16"
+    # "off" = a plain voice clone (the honest like-for-like baseline against Chatterbox);
+    # "auto" = steer emotion from the script template via tts_tone.
+    indextts_emotion: Literal["off", "auto"] = "off"
+    indextts_emo_alpha: float = Field(0.6, ge=0.0, le=1.0)  # the model's own docs suggest <=0.6
     # Silence held at the very START of the narration, before the first word. Opening on speech at
     # sample zero sounds abrupt and clips the first syllable on players that fade in. The first
     # scene's visual is held over this beat, so nothing desyncs. 0 disables it.
@@ -795,6 +820,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "TTS_PROVIDER=chatterbox requires TTS_REFERENCE_CLIP (a short WAV of your voice)"
             )
+
+        if self.tts_provider == "indextts":
+            if not self.tts_reference_clip:
+                raise ValueError(
+                    "TTS_PROVIDER=indextts requires TTS_REFERENCE_CLIP (a short WAV of your voice)"
+                )
+            if not self.indextts_python or not self.indextts_model_dir:
+                raise ValueError(
+                    "TTS_PROVIDER=indextts requires INDEXTTS_PYTHON (the index-tts checkout's "
+                    "venv interpreter) and INDEXTTS_MODEL_DIR (its checkpoints directory) — "
+                    "IndexTTS-2 needs numpy>=2 and cannot share this environment"
+                )
 
         for _img in (self.image_provider, self.image_fallback_provider):
             if _img == "stability" and not self.stability_api_key:

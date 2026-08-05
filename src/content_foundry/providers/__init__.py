@@ -117,6 +117,26 @@ def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSP
             edge_pad_ms=settings.tts_edge_pad_ms,
             sentence_pause_ms=settings.tts_sentence_pause_ms,
             reference_window_sec=settings.tts_reference_window_sec,
+            tone="neutral" if settings.tts_tone == "auto" else settings.tts_tone,
+        )
+    if settings.tts_provider == "indextts":
+        from .tts import IndexTTS2
+
+        return IndexTTS2(
+            settings.tts_reference_clip,
+            python_exe=settings.indextts_python,
+            model_dir=settings.indextts_model_dir,
+            cfg_path=settings.indextts_cfg_path,
+            fp16=settings.indextts_fp16,
+            precision=settings.indextts_precision,
+            emotion=settings.indextts_emotion,
+            emo_alpha=settings.indextts_emo_alpha,
+            edge_pad_ms=settings.tts_edge_pad_ms,
+            sentence_pause_ms=settings.tts_sentence_pause_ms,
+            silence_pad_ms=settings.tts_silence_pad_ms,
+            max_pause_ms=settings.tts_max_pause_ms,
+            reference_window_sec=settings.tts_reference_window_sec,
+            tone="neutral" if settings.tts_tone == "auto" else settings.tts_tone,
         )
     from .tts import OpenAITTS
 

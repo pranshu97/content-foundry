@@ -11,6 +11,28 @@ from ..models import Provenance, SceneTiming, Script, VoiceoverAsset, WordTiming
 _WORDS_PER_SEC = 2.5
 _AUDIO_REL = "assets/narration.mp3"
 
+# Which delivery to clone for each script shape. The template already encodes the video's rhetorical
+# job, so the tone comes free -- no extra model call. A contrarian piece lives on stress ("no, it is
+# actually THIS"), a data deep-dive needs room around the numbers, a case study wants narrative
+# momentum. Anything unmapped stays on the neutral baseline.
+_TEMPLATE_TONES: dict[str, str] = {
+    "contrarian": "punchy",
+    "myth_vs_reality": "punchy",
+    "data_deep_dive": "authoritative",
+    "three_step": "authoritative",
+    "problem_solution": "energetic",
+    "case_study": "energetic",
+}
+
+
+def tone_for_script(template_id: str, *, override: str = "") -> str:
+    """Delivery tone for a script: an explicit ``override`` wins, else it is derived from the
+    template. ``override='auto'`` (or blank) means derive. Pure, so it is unit-tested directly."""
+    choice = (override or "").strip().lower()
+    if choice and choice != "auto":
+        return choice
+    return _TEMPLATE_TONES.get((template_id or "").strip().lower(), "neutral")
+
 
 class Voiceover:
     def __init__(self, settings, tts_provider):
@@ -19,6 +41,15 @@ class Voiceover:
         self._log = get_logger(component="voiceover")
 
     def run(self, run_id: str, script: Script, *, run_root: Path) -> VoiceoverAsset:
+        # 0) Tell a cloning provider WHICH delivery to imitate before it prepares its reference.
+        # Best-effort: providers without a tone (ElevenLabs/Edge/OpenAI/Piper) simply don't have the
+        # hook, so this is a no-op for them.
+        tone = tone_for_script(script.template_id, override=getattr(self._settings, "tts_tone", ""))
+        setter = getattr(self._tts, "set_tone", None)
+        if callable(setter):
+            setter(tone)
+            self._log.info("voice_tone_selected", tone=tone, template=script.template_id)
+
         # 1) Synthesize every scene up front, keeping each provider's raw audio + its timings/estimate.
         scenes = sorted(script.scenes, key=lambda s: s.index)
         chunks: list[bytes] = []

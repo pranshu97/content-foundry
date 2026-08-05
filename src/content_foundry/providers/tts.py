@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+import contextlib
+import json
+from typing import Any, Protocol, runtime_checkable
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -18,6 +20,24 @@ class TTSProvider(Protocol):
     def synthesize(self, text: str) -> tuple[bytes, list[WordTiming] | None]:
         """Return ``(audio_bytes, word_timings_or_None)``. None ⇒ caller must align."""
         ...
+
+
+TONE_WEIGHTS: dict[str, dict[str, float]] = {
+    # EXACTLY today's behaviour: simply the densest speech. Density-only on purpose -- this is the
+    # safe baseline and the escape hatch, so it must not quietly drift from what was validated.
+    "neutral": {"density": 1.0, "dynamics": 0.0, "pitch": 0.0, "pace": 0.0},
+    # Deliberate and weighty: wide dynamics but SLOW, with room to breathe. For number-heavy or
+    # step-by-step material where the listener has to keep up.
+    "authoritative": {"density": -0.3, "dynamics": 1.0, "pitch": 0.2, "pace": -0.8},
+    # Emphatic: the widest dynamics and the liveliest pitch, moderately quick. For arguing against
+    # something, where the stress pattern carries the point.
+    "punchy": {"density": 0.3, "dynamics": 1.0, "pitch": 0.8, "pace": 0.4},
+    # Fast and full: dense and quick above all. Pitch stays LOW-weighted here or a merely expressive
+    # window outscores the genuinely fast one, which is punchy's job, not this one's.
+    "energetic": {"density": 0.9, "dynamics": 0.2, "pitch": 0.2, "pace": 1.0},
+}
+TONE_FEATURES = ("density", "dynamics", "pitch", "pace")
+DEFAULT_TONE = "neutral"
 
 
 def pick_voice(run_id: str | None, *, male: str, female: str, default: str) -> str:
@@ -220,6 +240,235 @@ class PiperTTS:
             return out.read_bytes()
 
 
+# Emotion vectors for IndexTTS-2, in ITS documented order:
+# [happy, angry, sad, afraid, disgusted, melancholic, surprised, calm].
+# Deliberately LOW intensities. This model will happily sound theatrical, which on an explainer
+# reads as a stunt; the aim is a lean on the delivery, not a performance. "neutral" carries no
+# vector at all so it stays a pure clone.
+TONE_EMOTIONS: dict[str, list[float]] = {
+    "neutral": [],
+    "authoritative": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.45],
+    "punchy": [0.15, 0.30, 0.0, 0.0, 0.0, 0.0, 0.10, 0.0],
+    "energetic": [0.40, 0.0, 0.0, 0.0, 0.0, 0.0, 0.15, 0.0],
+}
+
+
+class IndexTTS2:
+    """IndexTTS-2 (Bilibili) driven out-of-process -- emotion is DISENTANGLED from timbre, so the
+    voice stays yours while the delivery is steered separately.
+
+    It cannot share this interpreter: IndexTTS-2 needs numpy>=2 and a newer transformers, while
+    Chatterbox pins numpy<2 + transformers 4.44. So it lives in its own venv and is driven through
+    ``indextts2_worker.py`` over a line protocol (the same out-of-process shape ``PiperTTS`` uses,
+    but persistent -- loading the model takes tens of seconds and a video is dozens of chunks).
+
+    Setup is in the README of https://github.com/index-tts/index-tts ; point ``INDEXTTS_PYTHON`` at
+    that checkout's ``.venv`` interpreter and ``INDEXTTS_MODEL_DIR`` at its ``checkpoints``.
+    """
+
+    name = "indextts"
+
+    def __init__(
+        self,
+        reference_clip: str,
+        *,
+        python_exe: str,
+        model_dir: str,
+        cfg_path: str = "",
+        fp16: bool = True,
+        precision: str = "fp16",
+        emotion: str = "off",
+        emo_alpha: float = 0.6,
+        edge_pad_ms: int = 40,
+        sentence_pause_ms: int = 300,
+        silence_pad_ms: int = 150,
+        max_pause_ms: int = 1000,
+        reference_window_sec: float = 12.0,
+        tone: str = DEFAULT_TONE,
+    ) -> None:
+        from pathlib import Path
+
+        self._reference = reference_clip or ""
+        self._python = python_exe or ""
+        self._model_dir = model_dir or ""
+        self._cfg = cfg_path or (str(Path(model_dir) / "config.yaml") if model_dir else "")
+        self._fp16 = fp16
+        self._precision = (precision or "fp16").strip().lower()
+        self._emotion = (emotion or "off").strip().lower()
+        self._emo_alpha = emo_alpha
+        self._edge_pad_ms = edge_pad_ms
+        self._sentence_pause_ms = sentence_pause_ms
+        self._silence_pad_ms = silence_pad_ms
+        self._max_pause_ms = max_pause_ms
+        self._reference_window_sec = reference_window_sec
+        self._prepared_reference = ""
+        self._tone = tone or DEFAULT_TONE
+        self.voice = Path(self._reference).stem if self._reference else "cloned"
+        self.sample_rate = 22050  # corrected from the first synthesized file
+        self._proc: Any = None
+        self._stderr_path = ""
+
+    def set_tone(self, tone: str) -> None:
+        """Choose the delivery (see ``TONE_WEIGHTS``). Steers the emotion vector when emotion is on,
+        and always decides WHICH window of the reference gets cloned. An unknown or blank tone is
+        ignored so a caller can never break synthesis."""
+        tone = (tone or "").strip().lower()
+        if not tone or tone not in TONE_WEIGHTS or tone == self._tone:
+            return
+        self._tone = tone
+        self._prepared_reference = ""
+
+    def _conditioning_clip(self) -> str:
+        """Path to the clip to clone from -- condensed, and NOT for the reason Chatterbox needs it.
+
+        IndexTTS-2 re-derives the speaker conditioning (w2v-bert + speaker encoder) from this file on
+        EVERY ``infer`` call, so the reference's LENGTH is paid once per chunk, dozens of times per
+        video. MEASURED against the raw 102 s clip: ~166 s of fixed cost per call versus only ~1.5 s
+        per additional word -- i.e. nearly all the runtime was re-encoding the same reference over and
+        over, not generating speech. Condensing to the tone-matched window attacks that directly.
+        Falls back to the original clip on any failure."""
+        if self._prepared_reference:
+            return self._prepared_reference
+        self._prepared_reference = _prepare_reference(
+            self._reference, window_sec=self._reference_window_sec, tone=self._tone
+        )
+        return self._prepared_reference
+
+    def _emotion_vector(self) -> list[float]:
+        if self._emotion != "auto":
+            return []
+        return list(TONE_EMOTIONS.get(self._tone, []))
+
+    def _start(self):  # pragma: no cover - spawns the model process
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        if self._proc is not None:
+            return self._proc
+        if not self._python or not Path(self._python).exists():
+            raise TTSError(
+                f"INDEXTTS_PYTHON={self._python!r} is not an interpreter. Clone "
+                "https://github.com/index-tts/index-tts , run `uv sync --all-extras` there, and "
+                "point this at that checkout's .venv/Scripts/python.exe"
+            )
+        if not self._cfg or not Path(self._cfg).exists():
+            raise TTSError(
+                f"IndexTTS-2 config not found at {self._cfg!r}. Download the weights with "
+                "`hf download IndexTeam/IndexTTS-2 --local-dir=checkpoints` and set "
+                "INDEXTTS_MODEL_DIR to that checkpoints directory."
+            )
+        worker = Path(__file__).with_name("indextts2_worker.py")
+        cmd = [self._python, str(worker), "--cfg", self._cfg, "--model-dir", self._model_dir]
+        cmd += ["--precision", self._precision]
+        if self._fp16:
+            cmd.append("--fp16")
+        # stderr goes to a FILE, never a pipe: the model logs heavily while loading and an undrained
+        # pipe would fill and deadlock the worker mid-load.
+        self._stderr_path = str(Path(tempfile.gettempdir()) / "cf_indextts2.log")
+        from ..logging import get_logger
+
+        get_logger(component="tts").info(
+            "indextts2_starting", model_dir=self._model_dir, fp16=self._fp16, log=self._stderr_path
+        )
+        proc = subprocess.Popen(  # noqa: S603 - operator-configured interpreter
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=open(self._stderr_path, "w", encoding="utf-8"),  # noqa: SIM115
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+            cwd=str(Path(self._model_dir).parent) if self._model_dir else None,
+        )
+        self._proc = proc
+        ready = proc.stdout.readline() if proc.stdout else ""
+        if not ready or not json.loads(ready or "{}").get("ok"):
+            raise TTSError(f"IndexTTS-2 failed to start; see {self._stderr_path}")
+        return proc
+
+    def _request(self, job: dict) -> None:  # pragma: no cover - needs the model process
+        proc = self._start()
+        proc.stdin.write(json.dumps(job) + "\n")
+        proc.stdin.flush()
+        line = proc.stdout.readline()
+        if not line:
+            raise TTSError(f"IndexTTS-2 worker died; see {self._stderr_path}")
+        reply = json.loads(line)
+        if not reply.get("ok"):
+            raise TTSError(f"IndexTTS-2 synthesis failed: {reply.get('error')}")
+
+    def close(self) -> None:  # pragma: no cover - needs the model process
+        proc = self._proc
+        self._proc = None
+        if proc is None:
+            return
+        with contextlib.suppress(Exception):
+            proc.stdin.write(json.dumps({"stop": True}) + "\n")
+            proc.stdin.flush()
+            proc.wait(timeout=20)
+        with contextlib.suppress(Exception):
+            proc.kill()
+
+    def synthesize(self, text: str) -> tuple[bytes, list[WordTiming] | None]:  # pragma: no cover
+        import tempfile
+        from pathlib import Path
+
+        import torch
+        import torchaudio
+
+        from .text_normalize import speechify_numbers
+
+        if not self._reference or not Path(self._reference).exists():
+            raise TTSError(
+                f"Cloning reference clip not found at TTS_REFERENCE_CLIP={self._reference!r}."
+            )
+        spoken = speechify_numbers(text)
+        vector = self._emotion_vector()
+        speaker = str(Path(self._conditioning_clip()).resolve())
+        pieces = []
+        with tempfile.TemporaryDirectory() as td:
+            chunks = _chunk_for_tts(spoken, max_chars=400)
+            for i, chunk in enumerate(chunks):
+                out = str(Path(td) / f"chunk_{i}.wav")
+                job = {
+                    "text": chunk,
+                    "out": out,
+                    "speaker": speaker,
+                    "emo_alpha": self._emo_alpha,
+                }
+                if vector:
+                    job["emo_vector"] = vector
+                self._request(job)
+                wav, rate = torchaudio.load(out)
+                self.sample_rate = int(rate)
+                # Same stitching as Chatterbox: trim the chunk edges close, then put a pause back at
+                # the length the PUNCTUATION earns, so this provider inherits the fix rather than
+                # re-growing a metronome of its own.
+                piece = _trim_silence(
+                    wav,
+                    self.sample_rate,
+                    pad_ms=self._silence_pad_ms,
+                    max_pause_ms=self._max_pause_ms,
+                    edge_pad_ms=self._edge_pad_ms,
+                )
+                pieces.append(piece)
+                if i < len(chunks) - 1:
+                    gap_ms = max(
+                        0,
+                        pause_after_ms(chunk, base=self._sentence_pause_ms) - 2 * self._edge_pad_ms,
+                    )
+                    gap = int(self.sample_rate * gap_ms / 1000)
+                    if gap > 0:
+                        pieces.append(piece.new_zeros((piece.shape[0], gap)))
+            if not pieces:
+                raise TTSError("IndexTTS-2 produced no audio (the scene narration was empty).")
+            wav = torch.cat(pieces, dim=-1) if len(pieces) > 1 else pieces[0]
+        duration = float(wav.shape[-1]) / float(self.sample_rate or 22050)
+        mp3 = _wav_to_mp3(_tensor_to_wav_bytes(wav, self.sample_rate))
+        return mp3, (_even_word_timings(text, duration) or None)
+
+
 def _ensure_perth_watermarker() -> None:
     """Chatterbox watermarks its output with perth's ``PerthImplicitWatermarker``, whose internal
     import needs ``pkg_resources`` (dropped from setuptools >= 81). On a modern env perth swallows that
@@ -251,6 +500,13 @@ def _ensure_perth_watermarker() -> None:
     perth.PerthImplicitWatermarker = _NoopWatermarker
 
 
+# A cloning reference is not one uniform performance: MEASURED across 46 twelve-second windows of the
+# operator's own 102 s recording, pace varied by 46% (4.4 -> 7.0 onsets/sec) and dynamic range by 27%
+# (7.2 -> 9.5 dB), while the pitch MEDIAN moved only 10%. So which window is handed to the cloner
+# changes HOW the speaker delivers without changing WHO they sound like -- which makes the window a
+# real tone control. ``TONE_WEIGHTS`` (top of this module) holds the per-tone directions.
+
+
 class ChatterboxTTS:
     """Chatterbox (Resemble AI) — FREE, offline, zero-shot voice cloning under the MIT license, so it's
     safe for a monetized channel. Clones from a SINGLE short (~15-30s) clean reference clip of your
@@ -275,6 +531,7 @@ class ChatterboxTTS:
         edge_pad_ms: int = 40,
         sentence_pause_ms: int = 300,
         reference_window_sec: float = 12.0,
+        tone: str = DEFAULT_TONE,
     ) -> None:
         from pathlib import Path
 
@@ -287,6 +544,7 @@ class ChatterboxTTS:
         self._edge_pad_ms = edge_pad_ms
         self._sentence_pause_ms = sentence_pause_ms
         self._reference_window_sec = reference_window_sec
+        self._tone = tone or DEFAULT_TONE
         self._prepared_reference = ""
         self.voice = Path(self._reference).stem if self._reference else "cloned"
         self.sample_rate = 24000
@@ -332,6 +590,16 @@ class ChatterboxTTS:
             self.sample_rate = int(getattr(self._model, "sr", 24000))
         return self._model
 
+    def set_tone(self, tone: str) -> None:
+        """Choose the DELIVERY to clone (see ``TONE_WEIGHTS``). Called best-effort by the voiceover
+        agent once it knows what kind of video this is. Invalidates any window already prepared for a
+        different tone; an unknown/blank tone is ignored so a caller can never break synthesis."""
+        tone = (tone or "").strip().lower()
+        if not tone or tone not in TONE_WEIGHTS or tone == self._tone:
+            return
+        self._tone = tone
+        self._prepared_reference = ""
+
     def _conditioning_clip(self) -> str:
         """Path to the clip Chatterbox should actually clone from.
 
@@ -339,12 +607,13 @@ class ChatterboxTTS:
         first ~10 s for timbre (``DEC_COND_LEN``), discarding everything after. So a long recording is
         judged entirely on its opening seconds: leading silence and dead air there are what flatten the
         delivery -- the model learns "this speaker pauses constantly" and little about how they stress
-        a line. Condense the reference to its densest window of speech ONCE per process. Any failure
-        falls back to the original clip, so this can only help or no-op."""
+        a line. Condense the reference to the window whose delivery best matches this video's tone,
+        ONCE per process per tone. Any failure falls back to the original clip, so this can only help
+        or no-op."""
         if self._prepared_reference:
             return self._prepared_reference
         self._prepared_reference = _prepare_reference(
-            self._reference, window_sec=self._reference_window_sec
+            self._reference, window_sec=self._reference_window_sec, tone=self._tone
         )
         return self._prepared_reference
 
@@ -415,54 +684,6 @@ class ChatterboxTTS:
         return _wav_to_mp3(wav_bytes), (_even_word_timings(text, duration) or None)
 
 
-def _prepare_reference(
-    path: str, *, window_sec: float
-) -> str:  # pragma: no cover - needs librosa + real audio
-    """Write a trimmed copy of the cloning reference holding its densest ``window_sec`` of speech and
-    return its path (see ``ChatterboxTTS._conditioning_clip``). Returns ``path`` unchanged when the
-    clip is already short enough, when trimming is disabled (``window_sec`` <= 0), or on ANY error --
-    the original clip always remains a working fallback."""
-    if not path or window_sec <= 0:
-        return path
-    try:
-        import hashlib
-        import tempfile
-        from pathlib import Path
-
-        import librosa
-        import numpy as np
-        import soundfile as sf
-
-        audio, rate = librosa.load(path, sr=None, mono=True)
-        need = int(window_sec * rate)
-        if audio.size == 0 or audio.size <= need:
-            return path
-        hop = max(1, int(0.03 * rate))
-        frames = audio[: audio.size // hop * hop].reshape(-1, hop)
-        level = 20 * np.log10(np.sqrt((frames**2).mean(axis=1)) + 1e-9)
-        voiced = (level > (level.max() - 35.0)).tolist()
-        start, end = best_reference_window(voiced, window=max(1, need // hop))
-        clip = audio[start * hop : end * hop]
-        if clip.size == 0:
-            return path
-        stem = hashlib.sha256(f"{Path(path).resolve()}|{window_sec}".encode()).hexdigest()[:16]
-        out = Path(tempfile.gettempdir()) / f"cf_voice_ref_{stem}.wav"
-        if not out.exists():
-            sf.write(str(out), clip, rate)
-        from ..logging import get_logger
-
-        get_logger(component="tts").info(
-            "reference_clip_condensed",
-            source_sec=round(audio.size / rate, 1),
-            used_sec=round(clip.size / rate, 1),
-            offset_sec=round(start * hop / rate, 1),
-            path=str(out),
-        )
-        return str(out)
-    except Exception:
-        return path
-
-
 def _tensor_to_wav_bytes(wav, sample_rate: int) -> bytes:
     """Serialize a torch audio tensor (channels, samples) to in-memory WAV bytes."""
     import io
@@ -521,6 +742,165 @@ def best_reference_window(voiced: list[bool], *, window: int) -> tuple[int, int]
         if c > best:
             best, best_start = c, s
     return (best_start, best_start + window)
+
+
+# A cloning reference is not one uniform performance: MEASURED across 46 twelve-second windows of the
+# operator's own 102 s recording, pace varied by 46% and dynamic range by 27% while the pitch MEDIAN
+# moved only 10% -- so the window choice is a real tone control (see ``TONE_WEIGHTS`` at the top).
+def _normalize(values: list[float]) -> list[float]:
+    """Min-max a feature across candidate windows; an all-equal feature becomes neutral 0.5."""
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-9:
+        return [0.5] * len(values)
+    return [(v - lo) / (hi - lo) for v in values]
+
+
+def tone_scores(profiles: list[dict[str, float]], tone: str) -> list[float]:
+    """Score every candidate reference window against a named ``tone`` (see ``TONE_WEIGHTS``).
+
+    Each feature is min-max normalised ACROSS THE CANDIDATES first, so scoring is about which window
+    is most X *for this speaker*, never against an absolute scale that would differ per microphone.
+    An unknown tone falls back to ``DEFAULT_TONE``. Pure + deterministic, so it is unit-tested."""
+    if not profiles:
+        return []
+    weights = TONE_WEIGHTS.get(tone, TONE_WEIGHTS[DEFAULT_TONE])
+    columns = {f: _normalize([float(p.get(f, 0.0)) for p in profiles]) for f in TONE_FEATURES}
+    return [
+        sum(weights.get(f, 0.0) * columns[f][i] for f in TONE_FEATURES)
+        for i in range(len(profiles))
+    ]
+
+
+def pick_toned_window(profiles: list[dict[str, float]], tone: str) -> int:
+    """Index of the reference window that best matches ``tone``; ties keep the EARLIEST window.
+
+    Windows whose pitch median strays far from the clip's own median are DROPPED first: pitch median
+    is the identity-carrying feature (it moved only 10% across the real clip), so an outlier there is
+    a recording artefact or a different voice, and cloning from it would change who the video sounds
+    like. Returns 0 for an empty list. Pure + deterministic, so it is unit-tested directly."""
+    if not profiles:
+        return 0
+    pitches = sorted(float(p.get("pitch_hz", 0.0)) for p in profiles)
+    median = pitches[len(pitches) // 2]
+    eligible = [
+        i
+        for i, p in enumerate(profiles)
+        if median <= 0 or abs(float(p.get("pitch_hz", median)) - median) <= 0.25 * median
+    ]
+    if not eligible:
+        eligible = list(range(len(profiles)))
+    scores = tone_scores(profiles, tone)
+    return max(eligible, key=lambda i: (scores[i], -i))
+
+
+def _window_profiles(  # pragma: no cover - needs librosa + real audio
+    audio, rate: int, *, window: int, hop: int, step: int
+) -> tuple[list[dict[str, float]], list[int]]:
+    """Acoustic profile of every candidate window: density, dynamics, pitch spread, pace, pitch median.
+
+    Frame-level features are computed ONCE over the whole clip and then sliced per window (O(n) rather
+    than re-analysing each window), because a 100 s reference yields dozens of overlapping candidates.
+    Returns ``(profiles, start_frames)``."""
+    import librosa
+    import numpy as np
+
+    frames = audio[: audio.size // hop * hop].reshape(-1, hop)
+    level = 20 * np.log10(np.sqrt((frames**2).mean(axis=1)) + 1e-9)
+    voiced = level > (level.max() - 35.0)
+    f0 = librosa.yin(audio, fmin=60, fmax=350, sr=rate, frame_length=1024, hop_length=hop)
+    f0 = np.asarray(f0)[: len(level)]
+    f0 = np.where(np.isfinite(f0) & (f0 > 60) & (f0 < 350), f0, np.nan)
+    if f0.size < len(level):  # yin can return one frame fewer
+        f0 = np.pad(f0, (0, len(level) - f0.size), constant_values=np.nan)
+    onset_frames = librosa.onset.onset_detect(y=audio, sr=rate, hop_length=hop, units="frames")
+    onset_hits = np.zeros(len(level), dtype=bool)
+    onset_hits[np.clip(onset_frames, 0, len(level) - 1)] = True
+
+    profiles: list[dict[str, float]] = []
+    starts: list[int] = []
+    for s in range(0, max(1, len(level) - window + 1), max(1, step)):
+        sl = slice(s, s + window)
+        win_voiced = voiced[sl]
+        if win_voiced.sum() < 5:
+            continue
+        vdb = level[sl][win_voiced]
+        win_f0 = f0[sl]
+        win_f0 = win_f0[np.isfinite(win_f0)]
+        seconds = window * hop / rate
+        profiles.append(
+            {
+                "density": float(win_voiced.mean()),
+                "dynamics": float(vdb.std()),
+                "pitch": float(np.std(win_f0)) if win_f0.size else 0.0,
+                "pitch_hz": float(np.median(win_f0)) if win_f0.size else 0.0,
+                "pace": float(onset_hits[sl].sum()) / seconds if seconds else 0.0,
+            }
+        )
+        starts.append(s)
+    return profiles, starts
+
+
+def _prepare_reference(
+    path: str, *, window_sec: float, tone: str = DEFAULT_TONE
+) -> str:  # pragma: no cover - needs librosa + real audio
+    """Write a trimmed copy of the cloning reference holding the ``window_sec`` of speech whose
+    DELIVERY best matches ``tone``, and return its path (see ``ChatterboxTTS._conditioning_clip``).
+    Returns ``path`` unchanged when the clip is already short enough, when trimming is disabled
+    (``window_sec`` <= 0), or on ANY error -- the original clip always remains a working fallback."""
+    if not path or window_sec <= 0:
+        return path
+    try:
+        import hashlib
+        import tempfile
+        from pathlib import Path
+
+        import librosa
+        import numpy as np
+        import soundfile as sf
+
+        audio, rate = librosa.load(path, sr=None, mono=True)
+        need = int(window_sec * rate)
+        if audio.size == 0 or audio.size <= need:
+            return path
+        hop = max(1, int(0.03 * rate))
+        window = max(1, need // hop)
+        profiles, starts = _window_profiles(
+            audio, rate, window=window, hop=hop, step=max(1, window // 6)
+        )
+        if profiles:
+            best = pick_toned_window(profiles, tone)
+            start = starts[best]
+            chosen = profiles[best]
+        else:  # every window was near-silent -- fall back to the plain densest-speech scan
+            frames = audio[: audio.size // hop * hop].reshape(-1, hop)
+            level = 20 * np.log10(np.sqrt((frames**2).mean(axis=1)) + 1e-9)
+            start, _ = best_reference_window((level > (level.max() - 35.0)).tolist(), window=window)
+            chosen = {}
+        clip = audio[start * hop : (start + window) * hop]
+        if clip.size == 0:
+            return path
+        key = f"{Path(path).resolve()}|{window_sec}|{tone}"
+        stem = hashlib.sha256(key.encode()).hexdigest()[:16]
+        out = Path(tempfile.gettempdir()) / f"cf_voice_ref_{stem}.wav"
+        if not out.exists():
+            sf.write(str(out), clip, rate)
+        from ..logging import get_logger
+
+        get_logger(component="tts").info(
+            "reference_clip_condensed",
+            tone=tone,
+            source_sec=round(audio.size / rate, 1),
+            used_sec=round(clip.size / rate, 1),
+            offset_sec=round(start * hop / rate, 1),
+            candidates=len(profiles),
+            dynamics_db=round(chosen.get("dynamics", 0.0), 2),
+            pace_per_sec=round(chosen.get("pace", 0.0), 2),
+            density=round(chosen.get("density", 0.0), 2),
+            path=str(out),
+        )
+        return str(out)
+    except Exception:
+        return path
 
 
 def _keep_slices(

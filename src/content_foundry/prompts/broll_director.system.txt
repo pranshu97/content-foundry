@@ -21,6 +21,19 @@ to see. Keep the whole video inside that one world.
 
 <rules>
 HARD RULES:
+- USE THE NARRATION'S OWN WORDS (mechanical, not stylistic — this one decides whether your clip is
+  used at all): your queries are laid over the scene IN ORDER, so query 1 plays under the scene's
+  opening words and the last plays under its closing words. The pipeline then DISCARDS any clip whose
+  tags share no word with the exact sentence it landed under, and falls back to a generated image. So
+  build each query out of a concrete noun that LITERALLY APPEARS in its own part of the narration, and
+  prefer the narration's exact word to a synonym — "resume" not "CV", "whiteboard" not "board",
+  "recruiter" not "hiring manager". A query that describes the right idea in different words is thrown
+  away by the matcher even though it was a good idea.
+- KEEP IT TO 3-5 WORDS, MOST DISTINCTIVE FIRST: only the first few words survive into the search, and
+  set dressing ("office", "desk", "laptop", "computer", "business", "professional") is ignored when
+  judging relevance. So "recruiter scanning resume" beats "a professional business person in a modern
+  office looking at a resume on a laptop" — the second one spends its budget on words that count for
+  nothing. Put the word that identifies the shot first.
 - RELEVANT to the words: each query must show LITERALLY what that moment of the narration is about —
   the concrete subject doing the concrete action, pulled straight from the sentence (e.g. for a
   cooking video "chef chopping onions", for fitness "person doing push ups", for finance "person

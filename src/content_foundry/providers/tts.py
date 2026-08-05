@@ -202,15 +202,21 @@ class PiperTTS:
                 "Download a .onnx voice from https://huggingface.co/rhasspy/piper-voices"
             )
         if shutil.which(self._exe) is None:
-            raise TTSError(f"Piper executable {self._exe!r} not on PATH. Run `pip install piper-tts`.")
+            raise TTSError(
+                f"Piper executable {self._exe!r} not on PATH. Run `pip install piper-tts`."
+            )
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "out.wav"
             proc = subprocess.run(
                 [self._exe, "-m", self._model_path, "-f", str(out)],
-                input=text.encode("utf-8"), capture_output=True, check=False,
+                input=text.encode("utf-8"),
+                capture_output=True,
+                check=False,
             )
             if proc.returncode != 0 or not out.exists():
-                raise TTSError(f"Piper synthesis failed: {proc.stderr.decode('utf-8', 'ignore')[:200]}")
+                raise TTSError(
+                    f"Piper synthesis failed: {proc.stderr.decode('utf-8', 'ignore')[:200]}"
+                )
             return out.read_bytes()
 
 
@@ -257,9 +263,19 @@ class ChatterboxTTS:
 
     name = "chatterbox"
 
-    def __init__(self, reference_clip: str, *, device: str = "auto",
-                 exaggeration: float = 0.5, cfg_weight: float = 0.5,
-                 silence_pad_ms: int = 150, max_pause_ms: int = 1000) -> None:
+    def __init__(
+        self,
+        reference_clip: str,
+        *,
+        device: str = "auto",
+        exaggeration: float = 0.5,
+        cfg_weight: float = 0.5,
+        silence_pad_ms: int = 150,
+        max_pause_ms: int = 1000,
+        edge_pad_ms: int = 40,
+        sentence_pause_ms: int = 300,
+        reference_window_sec: float = 12.0,
+    ) -> None:
         from pathlib import Path
 
         self._reference = reference_clip or ""
@@ -268,6 +284,10 @@ class ChatterboxTTS:
         self._cfg_weight = cfg_weight
         self._silence_pad_ms = silence_pad_ms
         self._max_pause_ms = max_pause_ms
+        self._edge_pad_ms = edge_pad_ms
+        self._sentence_pause_ms = sentence_pause_ms
+        self._reference_window_sec = reference_window_sec
+        self._prepared_reference = ""
         self.voice = Path(self._reference).stem if self._reference else "cloned"
         self.sample_rate = 24000
         self._model = None
@@ -312,6 +332,22 @@ class ChatterboxTTS:
             self.sample_rate = int(getattr(self._model, "sr", 24000))
         return self._model
 
+    def _conditioning_clip(self) -> str:
+        """Path to the clip Chatterbox should actually clone from.
+
+        Chatterbox uses only the FIRST ~6 s of the reference for prosody (``ENC_COND_LEN``) and the
+        first ~10 s for timbre (``DEC_COND_LEN``), discarding everything after. So a long recording is
+        judged entirely on its opening seconds: leading silence and dead air there are what flatten the
+        delivery -- the model learns "this speaker pauses constantly" and little about how they stress
+        a line. Condense the reference to its densest window of speech ONCE per process. Any failure
+        falls back to the original clip, so this can only help or no-op."""
+        if self._prepared_reference:
+            return self._prepared_reference
+        self._prepared_reference = _prepare_reference(
+            self._reference, window_sec=self._reference_window_sec
+        )
+        return self._prepared_reference
+
     def synthesize(self, text: str) -> tuple[bytes, list[WordTiming] | None]:
         from pathlib import Path
 
@@ -333,24 +369,42 @@ class ChatterboxTTS:
         # stitch the audio back into one continuous scene.
         import torch
 
+        reference = self._conditioning_clip()
+        chunks = _chunk_for_tts(spoken)
         pieces = []
-        for chunk in _chunk_for_tts(spoken):
+        for i, chunk in enumerate(chunks):
             try:
                 wav = model.generate(
-                    chunk, audio_prompt_path=self._reference,
-                    exaggeration=self._exaggeration, cfg_weight=self._cfg_weight,
+                    chunk,
+                    audio_prompt_path=reference,
+                    exaggeration=self._exaggeration,
+                    cfg_weight=self._cfg_weight,
                 )
             except Exception as exc:
                 raise TTSError(f"Chatterbox synthesis failed: {exc}") from exc
             if hasattr(wav, "dim") and wav.dim() == 1:
                 wav = wav.unsqueeze(0)
             # Trim Chatterbox's leading/trailing silence per chunk so stitched sentences/scenes don't
-            # pile up long dead-air pauses (a small pad keeps a natural beat between sentences), and
-            # collapse any very long INTERNAL pause the cloner emits between two sentences in a chunk.
-            pieces.append(_trim_silence(
-                wav, self.sample_rate, pad_ms=self._silence_pad_ms,
+            # pile up dead air, and collapse any very long INTERNAL pause the cloner emits between two
+            # sentences in a chunk.
+            piece = _trim_silence(
+                wav,
+                self.sample_rate,
+                pad_ms=self._silence_pad_ms,
                 max_pause_ms=self._max_pause_ms,
-            ))
+                edge_pad_ms=self._edge_pad_ms,
+            )
+            pieces.append(piece)
+            # Then put the pause back at a length the PUNCTUATION earns. The edges above are trimmed
+            # close precisely so this explicit gap -- not the trimmer's fixed pad -- is what the
+            # listener hears, which is what stops every join sounding like the same metronome tick.
+            if i < len(chunks) - 1:
+                gap_ms = max(
+                    0, pause_after_ms(chunk, base=self._sentence_pause_ms) - 2 * self._edge_pad_ms
+                )
+                gap = int(self.sample_rate * gap_ms / 1000)
+                if gap > 0:
+                    pieces.append(piece.new_zeros((piece.shape[0], gap)))
         if not pieces:
             raise TTSError("Chatterbox produced no audio (the scene narration was empty).")
         wav = torch.cat(pieces, dim=-1) if len(pieces) > 1 else pieces[0]
@@ -359,6 +413,54 @@ class ChatterboxTTS:
         duration = float(wav.shape[-1]) / float(self.sample_rate or 24000)
         wav_bytes = _tensor_to_wav_bytes(wav, self.sample_rate)
         return _wav_to_mp3(wav_bytes), (_even_word_timings(text, duration) or None)
+
+
+def _prepare_reference(
+    path: str, *, window_sec: float
+) -> str:  # pragma: no cover - needs librosa + real audio
+    """Write a trimmed copy of the cloning reference holding its densest ``window_sec`` of speech and
+    return its path (see ``ChatterboxTTS._conditioning_clip``). Returns ``path`` unchanged when the
+    clip is already short enough, when trimming is disabled (``window_sec`` <= 0), or on ANY error --
+    the original clip always remains a working fallback."""
+    if not path or window_sec <= 0:
+        return path
+    try:
+        import hashlib
+        import tempfile
+        from pathlib import Path
+
+        import librosa
+        import numpy as np
+        import soundfile as sf
+
+        audio, rate = librosa.load(path, sr=None, mono=True)
+        need = int(window_sec * rate)
+        if audio.size == 0 or audio.size <= need:
+            return path
+        hop = max(1, int(0.03 * rate))
+        frames = audio[: audio.size // hop * hop].reshape(-1, hop)
+        level = 20 * np.log10(np.sqrt((frames**2).mean(axis=1)) + 1e-9)
+        voiced = (level > (level.max() - 35.0)).tolist()
+        start, end = best_reference_window(voiced, window=max(1, need // hop))
+        clip = audio[start * hop : end * hop]
+        if clip.size == 0:
+            return path
+        stem = hashlib.sha256(f"{Path(path).resolve()}|{window_sec}".encode()).hexdigest()[:16]
+        out = Path(tempfile.gettempdir()) / f"cf_voice_ref_{stem}.wav"
+        if not out.exists():
+            sf.write(str(out), clip, rate)
+        from ..logging import get_logger
+
+        get_logger(component="tts").info(
+            "reference_clip_condensed",
+            source_sec=round(audio.size / rate, 1),
+            used_sec=round(clip.size / rate, 1),
+            offset_sec=round(start * hop / rate, 1),
+            path=str(out),
+        )
+        return str(out)
+    except Exception:
+        return path
 
 
 def _tensor_to_wav_bytes(wav, sample_rate: int) -> bytes:
@@ -372,22 +474,77 @@ def _tensor_to_wav_bytes(wav, sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
-def _keep_slices(n: int, silent: list[tuple[int, int]], *, pad: int, max_gap: int) -> list[tuple[int, int]]:
-    """Plan which sample slices of ``[0, n)`` to KEEP so leading/trailing silence is trimmed to ``pad``
-    samples and any INTERNAL silent run longer than ``max_gap`` (0 disables) collapses to ``2*pad``
-    samples. ``silent`` = the maximal silent ``(start, end)`` runs, sorted, non-overlapping, inside
+# How long a pause should be AFTER a chunk, as a multiple of the base sentence pause, chosen by the
+# punctuation the chunk ends on. A chunk that ends mid-sentence (a long sentence force-split on word
+# boundaries) must sound CONTINUOUS -- a full sentence pause there lands as a stutter in mid-clause --
+# while a question needs a little more air after it than a plain statement.
+_PAUSE_SCALE: dict[str, float] = {
+    "": 0.25,  # no terminal punctuation => a forced mid-sentence split
+    ",": 0.5,
+    ";": 0.7,
+    ":": 0.7,
+    ".": 1.0,
+    "?": 1.25,
+    "!": 1.25,
+}
+_PAUSE_TRAILING = " \t\n\"')]}»”’"  # closing marks that can sit AFTER the real punctuation
+
+
+def pause_after_ms(chunk: str, *, base: int) -> int:
+    """Pause to insert after ``chunk`` when stitching chunks back into one scene, scaled from ``base``
+    by the punctuation the chunk ends on (see ``_PAUSE_SCALE``). Chunks are synthesized independently,
+    so WITHOUT this every join gets the SAME gap and the narration pauses on a metronome instead of on
+    the meaning. Pure + deterministic, so it is unit-tested directly."""
+    text = (chunk or "").rstrip(_PAUSE_TRAILING)
+    scale = _PAUSE_SCALE.get(text[-1] if text else "", _PAUSE_SCALE[""])
+    return max(0, int(round(max(0, base) * scale)))
+
+
+def best_reference_window(voiced: list[bool], *, window: int) -> tuple[int, int]:
+    """Pick the ``window``-frame slice of a voice-cloning reference holding the MOST speech.
+
+    Chatterbox conditions on only the FIRST few seconds of the reference clip and discards the rest,
+    so leading silence and dead air inside that window are pure loss: they are the model's entire
+    picture of how this speaker sounds. Returns ``(start, end)`` frame indices; ties keep the EARLIEST
+    window. Pure + deterministic, so it is unit-tested directly."""
+    n = len(voiced)
+    if window <= 0 or n <= window:
+        return (0, n)
+    running = 0
+    counts = [0]
+    for v in voiced:
+        running += 1 if v else 0
+        counts.append(running)
+    best_start, best = 0, -1
+    for s in range(n - window + 1):
+        c = counts[s + window] - counts[s]
+        if c > best:
+            best, best_start = c, s
+    return (best_start, best_start + window)
+
+
+def _keep_slices(
+    n: int, silent: list[tuple[int, int]], *, pad: int, max_gap: int, edge_pad: int | None = None
+) -> list[tuple[int, int]]:
+    """Plan which sample slices of ``[0, n)`` to KEEP so leading/trailing silence is trimmed to
+    ``edge_pad`` samples (defaulting to ``pad``) and any INTERNAL silent run longer than ``max_gap``
+    (0 disables) collapses to ``2*pad`` samples. The two pads are separate because the caller now adds
+    an explicit, punctuation-sized pause BETWEEN chunks: the edges are trimmed close so that inserted
+    pause is what the listener hears, while internal collapsing still lands on a natural beat.
+    ``silent`` = the maximal silent ``(start, end)`` runs, sorted, non-overlapping, inside
     ``[0, n)``. Voiced samples are NEVER cut. Pure + deterministic, so it is unit-tested directly."""
+    edge = pad if edge_pad is None else edge_pad
     drops: list[tuple[int, int]] = []
     for s, e in silent:
         lead, trail = s <= 0, e >= n
         if lead and trail:
             continue  # the whole signal is silent -> leave it to the caller
         if lead:
-            if e - s > pad:
-                drops.append((s, e - pad))  # keep only `pad` before the first word
+            if e - s > edge:
+                drops.append((s, e - edge))  # keep only `edge` before the first word
         elif trail:
-            if e - s > pad:
-                drops.append((s + pad, e))  # keep only `pad` after the last word
+            if e - s > edge:
+                drops.append((s + edge, e))  # keep only `edge` after the last word
         elif max_gap and (e - s) > max_gap:
             drops.append((s + pad, e - pad))  # collapse a very long internal pause to ~2*pad
     keep: list[tuple[int, int]] = []
@@ -411,17 +568,24 @@ def _silent_runs(voiced) -> list[tuple[int, int]]:  # pragma: no cover - needs t
         return []
     flips = (torch.nonzero(sil[1:] != sil[:-1]).flatten() + 1).tolist()
     bounds = [0, *flips, n]
-    return [
-        (bounds[k], bounds[k + 1]) for k in range(len(bounds) - 1) if bool(sil[bounds[k]])
-    ]
+    return [(bounds[k], bounds[k + 1]) for k in range(len(bounds) - 1) if bool(sil[bounds[k]])]
 
 
-def _trim_silence(wav, sample_rate: int, *, thresh: float = 0.015, pad_ms: int = 40, max_pause_ms: int = 0):  # pragma: no cover - needs torch + real audio
+def _trim_silence(
+    wav,
+    sample_rate: int,
+    *,
+    thresh: float = 0.015,
+    pad_ms: int = 40,
+    max_pause_ms: int = 0,
+    edge_pad_ms: int | None = None,
+):  # pragma: no cover - needs torch + real audio
     """Trim leading/trailing near-silence from a Chatterbox waveform tensor (channels, samples),
-    keeping a ``pad_ms`` pad, and (when ``max_pause_ms`` > 0) collapse any INTERNAL silent run longer
-    than it to ~2*pad so a rare 2-3 s dead-air gap between two sentences in a chunk stops being an
-    outlier. Only SILENT samples are ever removed (speech is untouched), and pauses shorter than the
-    cap are left byte-identical. Returns the tensor unchanged when it is all silence or on any error."""
+    keeping an ``edge_pad_ms`` pad (default ``pad_ms``), and (when ``max_pause_ms`` > 0) collapse any
+    INTERNAL silent run longer than it to ~2*``pad_ms`` so a rare 2-3 s dead-air gap between two
+    sentences in a chunk stops being an outlier. Only SILENT samples are ever removed (speech is
+    untouched), and pauses shorter than the cap are left byte-identical. Returns the tensor unchanged
+    when it is all silence or on any error."""
     try:
         import torch
 
@@ -433,8 +597,9 @@ def _trim_silence(wav, sample_rate: int, *, thresh: float = 0.015, pad_ms: int =
         if not bool(voiced.any()):
             return wav
         pad = int(sample_rate * pad_ms / 1000)
+        edge = pad if edge_pad_ms is None else int(sample_rate * edge_pad_ms / 1000)
         max_gap = int(sample_rate * max_pause_ms / 1000) if max_pause_ms else 0
-        keep = _keep_slices(n, _silent_runs(voiced), pad=pad, max_gap=max_gap)
+        keep = _keep_slices(n, _silent_runs(voiced), pad=pad, max_gap=max_gap, edge_pad=edge)
         if not keep:
             return wav
         if len(keep) == 1:
@@ -462,11 +627,30 @@ def _wav_to_mp3(wav_bytes: bytes) -> bytes:
     import subprocess
 
     if shutil.which("ffmpeg") is None:
-        raise TTSError("ffmpeg is required to encode Piper audio to mp3; install ffmpeg (see README).")
+        raise TTSError(
+            "ffmpeg is required to encode Piper audio to mp3; install ffmpeg (see README)."
+        )
     proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "wav", "-i", "pipe:0",
-         "-codec:a", "libmp3lame", "-b:a", "128k", "-f", "mp3", "pipe:1"],
-        input=wav_bytes, capture_output=True, check=False,
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "wav",
+            "-i",
+            "pipe:0",
+            "-codec:a",
+            "libmp3lame",
+            "-b:a",
+            "128k",
+            "-f",
+            "mp3",
+            "pipe:1",
+        ],
+        input=wav_bytes,
+        capture_output=True,
+        check=False,
     )
     if proc.returncode != 0 or not proc.stdout:
         raise TTSError(f"ffmpeg wav->mp3 failed: {proc.stderr.decode('utf-8', 'ignore')[:200]}")

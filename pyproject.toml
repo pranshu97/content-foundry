@@ -46,6 +46,9 @@ dependencies = [
     "python-dateutil>=2.9",
     "python-ulid>=2.7",
     "Pillow>=10.4",
+    # Renders diagrammatic shots for real. Held below 3.10 so it resolves against numpy 1.x, which
+    # the Chatterbox voice-clone stack pins (see requirements.txt).
+    "matplotlib>=3.8,<3.10",
     "ffmpeg-python>=0.2",
     "pydub>=0.25",
     "edge-tts>=6.1",

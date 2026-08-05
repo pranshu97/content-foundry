@@ -88,17 +88,56 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
         parts.append(
             "- NARRATION: DO lean on the presenter's real background once or twice for authority — it is "
             "a genuine credibility signal that makes the advice land (this channel's edge is that the "
-            f"advice comes from someone with this background). Background: {bio}. Speak it at the "
-            "GENERAL level it is written ('as someone who's worked as an AI scientist in big tech', "
-            "'from years inside FAANG AI teams', 'having been on the hiring side'), naturally and "
-            "humbly, never a resume brag or title-drop. Illustrative, hypothetical, and anonymized "
-            "stories ARE welcome ('I've watched candidates freeze on exactly this'). HARD LINE: do NOT "
-            "fabricate a SPECIFIC, checkable ACHIEVEMENT the background does not give, no claim you "
-            "personally built, led, or shipped a NAMED project, product, or system, and no moving a "
-            "NAMED company's metric by a figure (from 'AI Scientist at Amazon' you MAY say 'from my "
-            "time in big-tech AI' but NOT 'when I rebuilt Amazon's SageMaker pipeline' or 'I improved "
-            "Rekognition accuracy by 20%'). A fake named-and-numbered personal achievement is an "
-            "obvious fake and a hard REJECT; a general credential plus anonymized stories is the goal."
+            f"advice comes from someone with this background). Background: {bio}."
+        )
+        parts.append(
+            "- NAME IT, DO NOT HINT AT IT: say the actual ROLE AND EMPLOYER from that background out "
+            "loud, in plain words ('as a Senior Applied AI Scientist at Microsoft', 'back when I was "
+            "an Applied Scientist at Amazon'). Vague gestures ('someone who has worked in big tech', "
+            "'years inside FAANG teams') WASTE the credential, because the viewer cannot tell whether "
+            "they are hearing an insider or a commentator — and that difference is the entire reason "
+            "this channel's advice is worth more than the same advice from anyone else. The employer "
+            "is written in the background above, so naming it is simply TRUE. Say it plainly once and "
+            "move straight on: never a brag, never a recital of the whole CV."
+        )
+        parts.append(
+            "- PICK THE ROLE THAT FITS THIS VIDEO: the background may hold more than one. Choose by "
+            "CONTEXT and use judgement, not a mechanical rule. When the video is about a company, "
+            "product, process or culture the presenter actually worked inside, lead with THAT role "
+            "even when it is the older one — on that topic it is the role that makes them an insider "
+            "rather than an observer. Otherwise lead with the most senior current role. Name ONE; add "
+            "a second only in passing and only when it genuinely strengthens the point."
+        )
+        parts.append(
+            "- HARD LINE — the EMPLOYER is licensed, an ACHIEVEMENT is not. Do NOT fabricate a "
+            "SPECIFIC, checkable achievement the background does not give: no claim you personally "
+            "built, led, or shipped a NAMED project, product or system, and no moving a NAMED "
+            "company's metric by a figure. From 'Applied Scientist at Amazon' you MAY say 'when I was "
+            "an Applied Scientist at Amazon' — that is the credential itself — but NOT 'when I "
+            "rebuilt Amazon's SageMaker pipeline' or 'I improved Rekognition accuracy by 20%'. "
+            "Illustrative, hypothetical and anonymized stories ARE welcome ('I have watched candidates "
+            "freeze on exactly this'). A fake named-and-numbered personal achievement is an obvious "
+            "fake and a hard REJECT; the real credential plus anonymized stories is the goal."
+        )
+        parts.append(
+            "- WHERE THE AUTHORITY LINE GOES (the ONE licensed exception to the no-runway rule): put "
+            "it in scene 0, in the sentence IMMEDIATELY AFTER the hook lands its payoff. Never before "
+            "the hook, never displacing it, ONE sentence at most. It must read as HOW YOU KNOW THIS, "
+            "not WHO YOU ARE: weld it onto the exact claim the video just made so it EARNS that claim "
+            "instead of pausing the video for a biography. "
+            "GOOD (authority that advances the argument, from an UNRELATED video so you can see the "
+            "SHAPE without copying the words): 'And I know that number is wrong, because I spent "
+            "years as an Applied Scientist at Amazon watching those dashboards during peak.' "
+            "BAD (runway that kills the open): 'Hi, I am a Senior Applied AI Scientist at Microsoft, "
+            "and in today's video we are going to talk about resumes.' "
+            "Do NOT reuse the good example's wording — it is a different video. Write the one "
+            "sentence THIS video's opening claim needs. "
+            "The good version RAISES the stakes and hands the viewer a fresh reason to keep "
+            "listening; the bad version releases the tension the hook just built and delays the first "
+            "real insight. TEST IT: strip the credential out — if the sentence is still worth saying, "
+            "it is doing real work; if nothing is left, it was runway. When it cannot be said in ONE "
+            "sentence that also moves the argument forward, leave it out of the opening and let the "
+            "background surface later where it fits."
         )
     tag = (
         f'"{title_tag}"'
@@ -108,8 +147,12 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
     parts.append(
         "- TITLE / THUMBNAIL: on SOME (not all) of the title options, you MAY append a short "
         "credibility tag when it strengthens the hook and stays truthful — e.g. 'Resume Optimization "
-        f"Tips from a FAANG AI Scientist'. Use {tag} as that tag. Keep the title under ~70 characters "
-        "and never clunky; skip the tag when it doesn't fit. Never fabricate a credential."
+        f"Tips from a FAANG AI Scientist'. Use {tag} as that tag by default. When the video is about "
+        "a company the presenter actually worked inside, you MAY swap in the tag for THAT role "
+        "instead when it is both shorter and stronger there (e.g. 'from an ex-Amazon Applied "
+        "Scientist' on an Amazon video), as long as it stays truthful to the background above. Keep "
+        "the title under ~70 characters and never clunky; skip the tag when it doesn't fit. Never "
+        "fabricate a credential."
     )
     return "\n".join(parts)
 

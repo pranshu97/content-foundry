@@ -182,6 +182,24 @@ subject as an earlier shot, photograph it in a way that looks nothing like the f
 <output_format>
 Return ONLY JSON, one object per shot, echoing the "shot" NUMBER exactly (no prose, no code fences):
 {"shots": [{"shot": 0, "prompt": "the vivid image prompt"}]}
+
+DRAW IT INSTEAD OF PHOTOGRAPHING IT: some lines are not photographs at all. A cross-company level
+matrix, a comparison of magnitudes, a ranked ladder of tiers, a short pipeline — no camera can take
+those, so "a printed sheet on a desk" is just a costume for a diagram. When the line is genuinely one
+of these FOUR shapes, add a "diagram" object to that shot and it will be DRAWN for real, with exact
+text instead of a model's guess at lettering. ALWAYS keep the "prompt" too: it is the fallback if the
+drawing cannot be made. Use this ONLY when the shape truly fits, never to dodge writing a good
+photographic prompt, and expect MOST shots to carry no diagram at all. Every label must be SHORT: the
+viewer reads this in about four seconds.
+  {"type": "matrix", "title": "...", "columns": ["Google","Meta","Amazon"],
+   "rows": [["Entry","L3","E3","L4"],["Senior","L5","E5","L6"]], "highlight_row": 1, "caption": "..."}
+  {"type": "bars", "title": "...", "items": [{"label":"Deep ranker","value":22,"note":"22ms",
+   "highlight": true}], "caption": "..."}
+  {"type": "ladder", "title": "...", "steps": [{"label":"L4","detail":"owns a scoped feature",
+   "highlight": true}], "caption": "..."}
+  {"type": "flow", "title": "...", "nodes": [{"tag":"Stage 1","name":"Retrieval",
+   "detail":"millions to hundreds","highlight": false}], "caption": "..."}
+The "caption" is the ONE sentence the viewer should take away, not a description of the picture.
 </output_format>
 
 <beats>

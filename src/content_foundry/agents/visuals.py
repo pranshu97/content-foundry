@@ -11,6 +11,7 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, SceneVisual, Script, VisualPackage, VisualShot, VoiceoverAsset
 from ..production.captions import write_srt
+from ..production.diagram import render_diagram
 from ..providers.broll import _STOCK_FILLER
 
 _THUMB_REL = "assets/thumbnail.png"
@@ -456,6 +457,9 @@ class Visuals:
         self._video_title = ""  # per-run context for the Scene Image Director
         self._video_description = ""
         self._used_compositions: list[str] = []  # cross-scene variety for generated images
+        # shot index -> diagram spec for the CURRENT scene, refreshed on every _shot_image_prompts
+        # call. Initialised here so _build_shots is safe even when the director never runs.
+        self._shot_diagrams: dict[int, dict] = {}
         self._existing_prompts: dict[str, str] = {}  # prior shot_prompts.json, for reused images
         self._log = get_logger(component="visuals")
 
@@ -698,9 +702,30 @@ class Visuals:
                 prompt = gap_prompts.get(j) or build_image_prompt(
                     [beat], scene.on_screen_text, self._settings.visual_style
                 )
-                source = self._render_shot_image(
-                    prompt, run_root / rel, caption=scene.on_screen_text or beat
-                )
+                # A levelling matrix or a two-stage pipeline is not a photograph. When the director
+                # supplied a spec, DRAW it: free, exact, and the text is real instead of a model's
+                # guess at lettering. Falls through to generation on any failure, which is why the
+                # prompt above is still required.
+                source = ""
+                spec = self._shot_diagrams.get(j)
+                if spec and self._settings.diagrams_enabled:
+                    width, height = self._settings.resolution_wh
+                    if render_diagram(spec, run_root / rel, width=width, height=height):
+                        source = "diagram"
+                        self._log.info(
+                            "diagram_rendered", scene=scene.index, shot=j, kind=spec.get("type")
+                        )
+                    else:
+                        self._log.warning(
+                            "diagram_render_failed",
+                            scene=scene.index,
+                            shot=j,
+                            kind=spec.get("type"),
+                        )
+                if not source:
+                    source = self._render_shot_image(
+                        prompt, run_root / rel, caption=scene.on_screen_text or beat
+                    )
                 found.append((rel, source, beat, prompt))
         if not found:
             return []
@@ -720,7 +745,8 @@ class Visuals:
         try:
             from .scene_image_director import SceneImageDirector, composition_signature
 
-            prompts = SceneImageDirector(self._settings, self._llm).compose(
+            director = SceneImageDirector(self._settings, self._llm)
+            prompts = director.compose(
                 shots=shots,
                 narration=getattr(scene, "narration", "") or "",
                 on_screen_text=scene.on_screen_text or "",
@@ -733,9 +759,13 @@ class Visuals:
             # the others, so without this every scene independently reaches for the same safe
             # composition (one run opened 8 of 12 shots with "over-the-shoulder...").
             self._used_compositions.extend(composition_signature(p) for p in prompts.values())
+            # Shots the director judged better DRAWN than photographed. Read off the instance before
+            # it goes out of scope; consumed by _build_shots, which still has the prompt as a fallback.
+            self._shot_diagrams = dict(director.diagrams)
             return prompts
         except Exception as exc:  # a prompt-writing failure must never break the visuals stage
             self._log.warning("scene_image_director_skipped", error=str(exc))
+            self._shot_diagrams = {}
             return {}
 
     def _render_shot_image(self, prompt: str, target: Path, *, caption: str) -> str:

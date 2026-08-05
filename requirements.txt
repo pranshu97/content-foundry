@@ -25,6 +25,11 @@ Pillow>=10.4
 ffmpeg-python>=0.2
 moviepy>=1.0.3
 num2words>=0.5         # expand numbers to words for TTS ("202,000" -> "two hundred two thousand")
+# Draws the shots a camera cannot take (levelling matrix, comp bands, pipeline) instead of asking an
+# image model to fake one. Capped BELOW 3.10 deliberately: 3.8/3.9 are built against numpy 1.x, which
+# the Chatterbox pin below requires. graphviz was evaluated and rejected — the conda-forge Windows
+# build has no working textlayout plugin, so every label overflowed its node.
+matplotlib>=3.8,<3.10
 
 # ---------- local ML: free voice clone (Chatterbox) ----------
 # GPU strongly recommended. INSTALL CUDA TORCH FIRST — a plain `pip install` pulls the CPU-only wheel,

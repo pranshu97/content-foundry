@@ -215,6 +215,18 @@ class Settings(BaseSettings):
     # match the consistent pauses. Set comfortably ABOVE a natural pause (default 1000 ms) so ONLY the
     # outliers move and every normal pause is left byte-identical; 0 disables the internal cap.
     tts_max_pause_ms: int = Field(1000, ge=0, le=5000)
+    # Chunks are synthesized SEPARATELY and stitched, so the gap at each join is ours to set. Trim the
+    # chunk edges close (tts_edge_pad_ms) and then insert a pause sized by the punctuation the chunk
+    # ended on: a full sentence pause after ".", more after "?", far less after a comma, and almost
+    # none where a long sentence had to be force-split mid-clause. Without this every join gets the
+    # same gap and the narration pauses on a metronome rather than on the meaning.
+    tts_edge_pad_ms: int = Field(40, ge=0, le=500)
+    tts_sentence_pause_ms: int = Field(300, ge=0, le=2000)
+    # Chatterbox conditions on only the FIRST ~6 s (prosody) and ~10 s (timbre) of the reference clip
+    # and discards the rest, so a long recording is judged purely on its opening seconds -- leading
+    # silence there costs expressiveness. Condense the reference to its densest window of speech
+    # before cloning. 0 disables and hands the clip over exactly as recorded.
+    tts_reference_window_sec: float = Field(12.0, ge=0.0, le=60.0)
     # Silence held at the very START of the narration, before the first word. Opening on speech at
     # sample zero sounds abrupt and clips the first syllable on players that fade in. The first
     # scene's visual is held over this beat, so nothing desyncs. 0 disables it.
@@ -419,6 +431,15 @@ class Settings(BaseSettings):
     # Optional SHORT credibility tag some titles/thumbnails may carry (e.g. "FAANG AI Scientist").
     # Blank = the writer may infer a short one from creator_bio, or omit it. Used only sometimes.
     creator_title_tag: str = ""
+    # Optional ONE-LINE credential that LEADS every description (blank = nothing added, so the shipped
+    # repo stays generic). YouTube collapses the description after ~2 lines behind "...more", so this
+    # is the only part a non-expanding viewer ever reads. It also spends the description's most
+    # SEO-valuable real estate, so keep it to a single short line and let the body carry the keywords.
+    creator_credential_line: str = ""
+    # Draw genuinely diagrammatic shots (a levelling matrix, a comp band, a pipeline) with a real
+    # renderer instead of asking an image model to fake one photographically. Free, exact text, and
+    # it skips a paid image call. The director opts in per shot, so this only gates the rendering.
+    diagrams_enabled: bool = True
     # Let the writer plant ONE optional "open loop" (a genuine 'stick around, I'll reveal X by the end'
     # promise) in LONG-FORM videos to lift average view duration — conditional (the model only uses it
     # when it fits naturally) and enforced (a Judge gate rejects a teased payoff that isn't delivered,

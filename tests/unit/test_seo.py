@@ -23,7 +23,11 @@ def test_optimize_tags_normalizes_dedups_and_seeds_niche():
         channel_keywords=["Career Advice"],
         max_tags=5,
     )
-    assert tags == ["tech careers", "career advice", "junior dev"]  # niche first, dup + long dropped
+    assert tags == [
+        "tech careers",
+        "career advice",
+        "junior dev",
+    ]  # niche first, dup + long dropped
 
 
 def test_optimize_tags_caps_count():
@@ -33,7 +37,9 @@ def test_optimize_tags_caps_count():
 
 # ----------------------------------------------------------------- title
 def test_pick_title_prefers_within_length_and_numeric():
-    title = pick_title(["A title that is definitely longer than twenty chars", "Top 5 Moves"], max_chars=20)
+    title = pick_title(
+        ["A title that is definitely longer than twenty chars", "Top 5 Moves"], max_chars=20
+    )
     assert title == "Top 5 Moves"
 
 
@@ -95,6 +101,29 @@ def test_optimize_description_does_not_duplicate_cta():
     assert desc.lower().count("subscribe now") == 1
 
 
+def test_credential_leads_the_description_so_it_survives_the_more_fold():
+    """YouTube collapses everything after the first couple of lines behind '...more', so a credential
+    anywhere below that is invisible to a viewer who never expands it."""
+    desc = optimize_description(
+        "Base body.", cta="Subscribe now.", tags=[], chapters=[], credential="Ex-Amazon scientist."
+    )
+    assert desc.startswith("Ex-Amazon scientist.")
+    assert "Base body." in desc
+    # The CTA dedupe must still compare against the BODY, not the credential now sitting in front.
+    assert desc.lower().count("subscribe now") == 1
+
+
+def test_credential_is_never_said_twice_and_is_optional():
+    already = optimize_description(
+        "Ex-Amazon scientist. Base body.", tags=[], chapters=[], credential="Ex-Amazon scientist."
+    )
+    assert already.lower().count("ex-amazon scientist") == 1
+    # Unset (the shipped default) leaves the description byte-identical to before the feature.
+    assert optimize_description("Base body.", tags=[], chapters=[]) == optimize_description(
+        "Base body.", tags=[], chapters=[], credential=""
+    )
+
+
 def test_youtube_safe_text_replaces_forbidden_angle_brackets():
     # YouTube's API 400s (invalidDescription) on a title/description containing '<' or '>' — a chapter
     # built from an on_screen_text like "PROCESS > RESULT" is the usual culprit.
@@ -108,11 +137,20 @@ def test_youtube_safe_text_replaces_forbidden_angle_brackets():
 # -------------------------------------------------------------- compose
 def _visuals(duration: float) -> VisualPackage:
     return VisualPackage(
-        run_id="R", thumbnail_path="assets/thumbnail.png", thumbnail_text="t",
-        captions_path="assets/captions.srt", visual_style="clean",
+        run_id="R",
+        thumbnail_path="assets/thumbnail.png",
+        thumbnail_text="t",
+        captions_path="assets/captions.srt",
+        visual_style="clean",
         scenes=[
-            SceneVisual(scene_index=i, kind="image", path=f"assets/scenes/scene_{i}.png",
-                        source="card", prompt_or_query="p", duration_sec=duration)
+            SceneVisual(
+                scene_index=i,
+                kind="image",
+                path=f"assets/scenes/scene_{i}.png",
+                source="card",
+                prompt_or_query="p",
+                duration_sec=duration,
+            )
             for i in range(3)
         ],
         provenance=Provenance(produced_by="visuals"),
@@ -121,7 +159,9 @@ def _visuals(duration: float) -> VisualPackage:
 
 def test_optimize_metadata_end_to_end(settings, good_script):
     good_script.title_options = ["Best Career Advice"]  # never mechanically year-stamped
-    good_script.time_sensitive = True  # even so, the title stays yearless (writer weaves years, not us)
+    good_script.time_sensitive = (
+        True  # even so, the title stays yearless (writer weaves years, not us)
+    )
     meta = optimize_metadata(good_script, _visuals(12.0), settings)
     assert meta.title == "Best Career Advice"
     assert "tech careers" in meta.tags
@@ -145,8 +185,13 @@ def test_channel_cta_block_reflects_config(monkeypatch):
 
 def test_optimize_description_adds_channel_cta_and_leads_with_shorts_hashtag():
     desc = optimize_description(
-        "Body.", cta="", tags=["ml career"], chapters=[], add_chapters=False,
-        channel_cta="Subscribe for more.\n▶ https://youtube.com/@x", shorts_hashtag="#Shorts",
+        "Body.",
+        cta="",
+        tags=["ml career"],
+        chapters=[],
+        add_chapters=False,
+        channel_cta="Subscribe for more.\n▶ https://youtube.com/@x",
+        shorts_hashtag="#Shorts",
     )
     assert "Subscribe for more." in desc and "https://youtube.com/@x" in desc
     assert desc.split("\n\n")[-1].startswith("#Shorts ")  # #Shorts leads the hashtag line

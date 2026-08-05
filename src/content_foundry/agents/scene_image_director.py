@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 
 from ..logging import get_logger
+from ..production.diagram import diagram_type
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
 from ..providers.tiering import TaskTier, select_model
@@ -32,6 +33,9 @@ class SceneImageDirector:
         self._settings = settings
         self._llm = llm_provider
         self._log = get_logger(component="scene_image_director")
+        # shot index -> diagram spec, for shots the director judged better DRAWN than photographed.
+        # Populated by compose(); read by the caller straight after, so the instance must be kept.
+        self.diagrams: dict[int, dict] = {}
 
     def compose(
         self,
@@ -110,4 +114,10 @@ class SceneImageDirector:
             prompt = (item.get("prompt") or "").strip()
             if key in valid and prompt:
                 out[key] = prompt
+                # A shot may ALSO carry a diagram spec. It rides a side channel rather than changing
+                # compose()'s return type, so every existing caller is untouched — and the prompt is
+                # still required, which guarantees a fallback when the render fails.
+                spec = item.get("diagram")
+                if diagram_type(spec) and isinstance(spec, dict):
+                    self.diagrams[key] = spec
         return out

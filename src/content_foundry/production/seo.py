@@ -171,13 +171,26 @@ def optimize_description(
     add_chapters: bool = True,
     channel_cta: str = "",
     shorts_hashtag: str = "",
+    credential: str = "",
 ) -> str:
     """Compose a discoverable description (CTA + resources + chapters + channel CTA + hashtags).
     Disclosure added downstream. ``affiliate`` (resources + disclosure) sits ABOVE the chapters so it
     isn't buried. ``shorts_hashtag`` (e.g. #Shorts) leads the hashtag line so YouTube classifies the
-    upload as a Short."""
-    blocks = [(description or "").strip()]
-    if cta and cta.strip() and cta.strip().lower() not in blocks[0].lower():
+    upload as a Short.
+
+    ``credential`` leads the whole description when set, because YouTube collapses everything after
+    the first couple of lines behind "…more": anything below that is invisible to a viewer who never
+    expands it. Keep it to ONE short line — it is spending the most valuable real estate in the
+    description, which is otherwise carrying the search keywords. Skipped when it already appears in
+    the body, so it can never be said twice.
+    """
+    blocks: list[str] = []
+    body = (description or "").strip()
+    cred = (credential or "").strip()
+    if cred and cred.lower() not in body.lower():
+        blocks.append(cred)
+    blocks.append(body)
+    if cta and cta.strip() and cta.strip().lower() not in body.lower():
         blocks.append(cta.strip())
     if affiliate and affiliate.strip():
         blocks.append(affiliate.strip())  # resources + disclosure, ABOVE the chapters
@@ -229,5 +242,6 @@ def optimize_metadata(
         add_chapters=add_chapters,
         channel_cta=channel_cta_block(settings),
         shorts_hashtag=settings.shorts_hashtag if settings.is_short else "",
+        credential=getattr(settings, "creator_credential_line", ""),
     )
     return OptimizedMetadata(title=title, description=description, tags=tags)

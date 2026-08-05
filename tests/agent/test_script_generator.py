@@ -54,8 +54,11 @@ def test_revision_embeds_previous_draft_for_surgical_edit(settings, data_brief, 
     llm = fakes.LLM()
     prev = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
     ScriptGenerator(settings, llm).run(
-        "R", data_brief, get_template("contrarian"),
-        judge_feedback="- WITTINESS 2.5/10: too dry.", previous_script=prev,
+        "R",
+        data_brief,
+        get_template("contrarian"),
+        judge_feedback="- WITTINESS 2.5/10: too dry.",
+        previous_script=prev,
     )
     system = llm.calls[-1]["system"]
     assert "PREVIOUS DRAFT" in system and "improve THAT draft" in system
@@ -66,7 +69,9 @@ def test_revision_embeds_previous_draft_for_surgical_edit(settings, data_brief, 
 def test_revision_without_previous_draft_falls_back(settings, data_brief, fakes):
     llm = fakes.LLM()
     ScriptGenerator(settings, llm).run(
-        "R", data_brief, get_template("contrarian"),
+        "R",
+        data_brief,
+        get_template("contrarian"),
         judge_feedback="- ENDING 0.0/10: add a close.",
     )
     system = llm.calls[-1]["system"]
@@ -77,18 +82,35 @@ def test_revision_without_previous_draft_falls_back(settings, data_brief, fakes)
 def test_duplicate_scenes_are_dropped_deterministically(settings, data_brief, fakes):
     # A padded draft that recycles a scene must have the copy REMOVED in code (a hard guarantee),
     # not merely flagged for the model to fix — that detection alone let dupes recur (run 0010).
-    dup = "Everyone says just grind leetcode, but entry postings actually thinned out this past year."
+    dup = (
+        "Everyone says just grind leetcode, but entry postings actually thinned out this past year."
+    )
     payload = {
         "title_options": ["t"],
         "hook": dup,
         "scenes": [
             {"index": 0, "narration": dup, "fact_ref": 0},
-            {"index": 1, "narration": "Median pay for these roles still sits high, which surprises most applicants today.", "fact_ref": 1},
-            {"index": 2, "narration": "Target adjacent teams first and ship one small portfolio project this week to stand out.", "fact_ref": None},
-            {"index": 3, "narration": "Recruiters skim fast, so lead with measurable outcomes and the exact tools you used.", "fact_ref": None},
+            {
+                "index": 1,
+                "narration": "Median pay for these roles still sits high, which surprises most applicants today.",
+                "fact_ref": 1,
+            },
+            {
+                "index": 2,
+                "narration": "Target adjacent teams first and ship one small portfolio project this week to stand out.",
+                "fact_ref": None,
+            },
+            {
+                "index": 3,
+                "narration": "Recruiters skim fast, so lead with measurable outcomes and the exact tools you used.",
+                "fact_ref": None,
+            },
             {"index": 4, "narration": dup, "fact_ref": 0},  # near-identical to scene 0 -> dropped
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0, 1],
     }
     llm = fakes.LLM(script_json=payload)
@@ -102,12 +124,21 @@ def test_research_context_appears_in_prompt_when_provided(settings, data_brief, 
     from content_foundry.models import ResearchBrief, ResearchPoint
 
     llm = fakes.LLM()
-    research = ResearchBrief(run_id="R", idea="x", points=[
-        ResearchPoint(point="ATS scans keywords", explanation="the first reader cannot gauge skill",
-                      evidence="most resumes are filtered", source_url="https://x/1"),
-    ])
+    research = ResearchBrief(
+        run_id="R",
+        idea="x",
+        points=[
+            ResearchPoint(
+                point="ATS scans keywords",
+                explanation="the first reader cannot gauge skill",
+                evidence="most resumes are filtered",
+                source_url="https://x/1",
+            ),
+        ],
+    )
     ScriptGenerator(settings, llm).run(
-        "R", data_brief, get_template("contrarian"), research=research)
+        "R", data_brief, get_template("contrarian"), research=research
+    )
     system = llm.calls[-1]["system"]
     assert "RESEARCH (source-backed depth" in system  # the depth block header is rendered
     assert "ATS scans keywords" in system and "cannot gauge skill" in system
@@ -116,13 +147,17 @@ def test_research_context_appears_in_prompt_when_provided(settings, data_brief, 
 def test_research_context_absent_when_none(settings, data_brief, fakes):
     llm = fakes.LLM()
     ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
-    assert "RESEARCH (source-backed depth" not in llm.calls[-1]["system"]  # no block without research
+    assert (
+        "RESEARCH (source-backed depth" not in llm.calls[-1]["system"]
+    )  # no block without research
 
 
 def test_instructions_steer_the_script_prompt_when_provided(settings, data_brief, fakes):
     llm = fakes.LLM()
     ScriptGenerator(settings, llm).run(
-        "R", data_brief, get_template("contrarian"),
+        "R",
+        data_brief,
+        get_template("contrarian"),
         idea="How to pass the ML system design interview",
         instructions="Focus on remote roles; keep it beginner-friendly",
     )
@@ -134,7 +169,9 @@ def test_instructions_steer_the_script_prompt_when_provided(settings, data_brief
 def test_instructions_absent_from_script_prompt_by_default(settings, data_brief, fakes):
     llm = fakes.LLM()
     ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
-    assert "CREATOR'S EXTRA INSTRUCTIONS" not in llm.calls[-1]["system"]  # no steer without instructions
+    assert (
+        "CREATOR'S EXTRA INSTRUCTIONS" not in llm.calls[-1]["system"]
+    )  # no steer without instructions
 
 
 def test_ending_is_guaranteed_when_model_omits_it(settings, data_brief, fakes):
@@ -145,14 +182,26 @@ def test_ending_is_guaranteed_when_model_omits_it(settings, data_brief, fakes):
         "title_options": ["t"],
         "hook": "A specific hook about breaking into big tech right now.",
         "scenes": [
-            {"index": 0, "narration": "First, target adjacent teams and build a small portfolio project.",
-             "fact_ref": 0},
-            {"index": 1, "narration": "Second, referrals matter far more than cold applications do.",
-             "fact_ref": 1},
-            {"index": 2, "narration": "Finally, drill the interview format until it feels routine and calm.",
-             "fact_ref": None},
+            {
+                "index": 0,
+                "narration": "First, target adjacent teams and build a small portfolio project.",
+                "fact_ref": 0,
+            },
+            {
+                "index": 1,
+                "narration": "Second, referrals matter far more than cold applications do.",
+                "fact_ref": 1,
+            },
+            {
+                "index": 2,
+                "narration": "Finally, drill the interview format until it feels routine and calm.",
+                "fact_ref": None,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0, 1],
     }
     llm = fakes.LLM(script_json=payload)
@@ -190,15 +239,31 @@ def test_intro_tagline_not_doubled_when_already_present(monkeypatch, data_brief,
         "title_options": ["t"],
         "hook": "Everyone says grind leetcode, but entry roles thinned this year.",
         "scenes": [
-            {"index": 0, "narration": f"{tag} Everyone says grind leetcode, but entry roles thinned this year.", "fact_ref": 0},
-            {"index": 1, "narration": "Referrals beat cold applications because a human vouches before the resume is even read.", "fact_ref": 1},
-            {"index": 2, "narration": "So target adjacent teams first, then ship one portfolio project. If this helped, subscribe, and I'll see you in the next one.", "fact_ref": None},
+            {
+                "index": 0,
+                "narration": f"{tag} Everyone says grind leetcode, but entry roles thinned this year.",
+                "fact_ref": 0,
+            },
+            {
+                "index": 1,
+                "narration": "Referrals beat cold applications because a human vouches before the resume is even read.",
+                "fact_ref": 1,
+            },
+            {
+                "index": 2,
+                "narration": "So target adjacent teams first, then ship one portfolio project. If this helped, subscribe, and I'll see you in the next one.",
+                "fact_ref": None,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0, 1],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
-        "R", data_brief, get_template("contrarian"))
+        "R", data_brief, get_template("contrarian")
+    )
     assert script.scenes[0].narration.lower().count("no fluff, let's dive in.") == 1  # not doubled
     assert script.scenes[0].narration.startswith(tag)
 
@@ -216,15 +281,31 @@ def test_intro_not_doubled_when_reworded(monkeypatch, data_brief, fakes):
         "title_options": ["t"],
         "hook": "Entry roles thinned this year, so the old playbook is dead.",
         "scenes": [
-            {"index": 0, "narration": "Alright, let us make this worth your time. Entry roles thinned this year, so the old playbook is dead.", "fact_ref": 0},
-            {"index": 1, "narration": "Referrals beat cold applications because a human vouches before the resume is even read.", "fact_ref": 1},
-            {"index": 2, "narration": "So target adjacent teams first, then ship one portfolio project. If this helped, subscribe, and I'll see you in the next one.", "fact_ref": None},
+            {
+                "index": 0,
+                "narration": "Alright, let us make this worth your time. Entry roles thinned this year, so the old playbook is dead.",
+                "fact_ref": 0,
+            },
+            {
+                "index": 1,
+                "narration": "Referrals beat cold applications because a human vouches before the resume is even read.",
+                "fact_ref": 1,
+            },
+            {
+                "index": 2,
+                "narration": "So target adjacent teams first, then ship one portfolio project. If this helped, subscribe, and I'll see you in the next one.",
+                "fact_ref": None,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0, 1],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
-        "R", data_brief, get_template("contrarian"))
+        "R", data_brief, get_template("contrarian")
+    )
     first = script.scenes[0].narration.lower()
     assert first.count("make this worth your time") == 1  # the reworded opener is NOT re-prefixed
     assert not script.scenes[0].narration.startswith("Alright, let's make this worth your time!")
@@ -248,6 +329,53 @@ def test_creator_bio_stays_generic_when_unset():
     assert "AI Scientist at Microsoft" in clause  # narration authority
     assert "FAANG AI Scientist" in clause  # title/thumbnail credibility tag
     assert "SPARINGLY" in clause  # woven in subtly, never a brag
+
+
+def test_authority_names_the_employer_but_still_bans_invented_achievements():
+    """The credential is worthless if it is generalised away — a viewer cannot tell an insider from a
+    commentator, which is the channel's whole edge. So naming the EMPLOYER is licensed (it is simply
+    what the bio says) while naming an ACHIEVEMENT at that employer stays a hard reject. Those two
+    were previously tangled together, which is why the model kept retreating to 'someone in big tech'."""
+    from content_foundry.agents.script_generator import _creator_context
+
+    clause = _creator_context("Senior Applied AI Scientist at Microsoft, previously at Amazon")
+    assert "NAME IT, DO NOT HINT AT IT" in clause
+    assert "EMPLOYER is licensed, an ACHIEVEMENT is not" in clause
+    assert "SageMaker" in clause  # the fabricated-achievement example survives
+    # And the old generalise-it instruction must be GONE, or the two rules contradict each other.
+    assert "GENERAL level it is written" not in clause
+
+
+def test_authority_line_is_placed_after_the_hook_and_picks_the_fitting_role():
+    """A credential before the hook is runway, which the prompt bans outright; it only survives as a
+    'how I know this' clause welded to the claim the hook just made. And when the video is about a
+    company the presenter actually worked inside, the OLDER role is the one that makes them an
+    insider on that topic."""
+    from content_foundry.agents.script_generator import _creator_context
+
+    clause = _creator_context("Senior Applied AI Scientist at Microsoft, previously at Amazon")
+    assert "IMMEDIATELY AFTER the hook" in clause
+    assert "HOW YOU KNOW THIS" in clause and "not WHO YOU ARE" in clause
+    assert "ONE sentence at most" in clause
+    assert (
+        "Hi, I am a Senior Applied AI Scientist" in clause
+    )  # the BAD exemplar is shown, not described
+    assert "PICK THE ROLE THAT FITS THIS VIDEO" in clause
+    assert "even when it is the older one" in clause
+
+
+def test_good_exemplar_is_off_topic_so_it_cannot_be_copied_verbatim():
+    """LIVE-CAUGHT: the first version's good example was about resume screening, and on a resume
+    video the model reproduced it WORD FOR WORD instead of writing its own line — every such video
+    would have opened with the same canned sentence. An exemplar has to show the SHAPE from a
+    different subject, and say so."""
+    from content_foundry.agents.script_generator import _creator_context
+
+    clause = _creator_context("Senior Applied AI Scientist at Microsoft, previously at Amazon")
+    assert "from an UNRELATED video" in clause
+    assert "Do NOT reuse the good example's wording" in clause
+    # The example must not be about the hiring/resume subject these videos are actually about.
+    assert "reading them from the other side" not in clause
 
 
 def test_retention_context_is_long_form_only_and_gated(monkeypatch):
@@ -279,11 +407,13 @@ def test_hook_already_spoken_detects_verbatim_reworded_and_different():
     assert _hook_already_spoken(hook, hook + " Here is why that is a death sentence.")
     # A lightly REWORDED restatement (same content words) -> already spoken -> don't duplicate.
     assert _hook_already_spoken(
-        hook, "Most candidates fail this interview because they pick their model first, and it shows."
+        hook,
+        "Most candidates fail this interview because they pick their model first, and it shows.",
     )
     # A genuinely DIFFERENT opening (little overlap) -> NOT yet spoken -> safe to prepend.
     assert not _hook_already_spoken(
-        hook, "Let us talk about the detective phase and grilling the interviewer on business goals."
+        hook,
+        "Let us talk about the detective phase and grilling the interviewer on business goals.",
     )
     assert _hook_already_spoken("", "anything at all")  # blank hook -> nothing to add
 
@@ -295,14 +425,26 @@ def test_generator_makes_the_hook_the_spoken_opening(settings, data_brief, fakes
         "title_options": ["t"],
         "hook": "Your resume dies in a silent robot scan you never even get to see.",
         "scenes": [
-            {"index": 0,
-             "narration": "Let me explain the black hole your application vanishes into after submit.",
-             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0},
-            {"index": 1,
-             "narration": "Postings fell 31% this year. Drop a like and subscribe, see you next one.",
-             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0},
+            {
+                "index": 0,
+                "narration": "Let me explain the black hole your application vanishes into after submit.",
+                "on_screen_text": None,
+                "b_roll_keywords": [],
+                "fact_ref": 0,
+            },
+            {
+                "index": 1,
+                "narration": "Postings fell 31% this year. Drop a like and subscribe, see you next one.",
+                "on_screen_text": None,
+                "b_roll_keywords": [],
+                "fact_ref": 0,
+            },
         ],
-        "cta": "x", "description": "d", "tags": [], "thumbnail_concept": "x", "grounded_fact_refs": [0],
+        "cta": "x",
+        "description": "d",
+        "tags": [],
+        "thumbnail_concept": "x",
+        "grounded_fact_refs": [0],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
         "R", data_brief, get_template("contrarian")
@@ -316,13 +458,26 @@ def test_ungrounded_stat_is_stripped(settings, data_brief, fakes):
         "title_options": ["t"],
         "hook": "A grounded hook with 31% drop.",
         "scenes": [
-            {"index": 0, "narration": "Postings fell 31% this year.",
-             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": 0},
-            {"index": 1, "narration": "Salaries surged 999% overnight per nobody.",
-             "on_screen_text": None, "b_roll_keywords": [], "fact_ref": None},
+            {
+                "index": 0,
+                "narration": "Postings fell 31% this year.",
+                "on_screen_text": None,
+                "b_roll_keywords": [],
+                "fact_ref": 0,
+            },
+            {
+                "index": 1,
+                "narration": "Salaries surged 999% overnight per nobody.",
+                "on_screen_text": None,
+                "b_roll_keywords": [],
+                "fact_ref": None,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [],
-        "thumbnail_concept": "x", "grounded_fact_refs": [0],
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
+        "grounded_fact_refs": [0],
     }
     llm = fakes.LLM(script_json=payload)
     script = ScriptGenerator(settings, llm).run("R", data_brief, get_template("contrarian"))
@@ -335,10 +490,21 @@ def test_no_ai_disclaimer_injected_into_description(settings, data_brief, fakes)
     # The generator must NOT inject an AI/synthetic-content note into the description; the LLM's own
     # description is preserved as-is (disclosure is a metadata flag only, not description text).
     payload = {
-        "title_options": ["t"], "hook": "Specific 31% hook.",
-        "scenes": [{"index": 0, "narration": "Postings fell 31%.", "on_screen_text": None,
-                    "b_roll_keywords": [], "fact_ref": 0}],
-        "cta": "x", "description": "No disclosure here.", "tags": [], "thumbnail_concept": "x",
+        "title_options": ["t"],
+        "hook": "Specific 31% hook.",
+        "scenes": [
+            {
+                "index": 0,
+                "narration": "Postings fell 31%.",
+                "on_screen_text": None,
+                "b_roll_keywords": [],
+                "fact_ref": 0,
+            }
+        ],
+        "cta": "x",
+        "description": "No disclosure here.",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0],
     }
     llm = fakes.LLM(script_json=payload)
@@ -351,14 +517,28 @@ def test_every_stat_scene_cites_its_source(settings, data_brief, fakes):
     # HARD RULE: a scene stating a statistic must never appear without its source on screen —
     # enforced deterministically, so it holds even when the model omits it (on_screen_text=None).
     payload = {
-        "title_options": ["t"], "hook": "A grounded 31% hook.",
+        "title_options": ["t"],
+        "hook": "A grounded 31% hook.",
         "scenes": [
-            {"index": 0, "narration": "Postings fell 31% this year.", "on_screen_text": None,
-             "b_roll_keywords": [], "fact_ref": 0},
-            {"index": 1, "narration": "Adjacent roles are the smarter move; build a portfolio.",
-             "on_screen_text": "No numbers here", "b_roll_keywords": [], "fact_ref": None},
+            {
+                "index": 0,
+                "narration": "Postings fell 31% this year.",
+                "on_screen_text": None,
+                "b_roll_keywords": [],
+                "fact_ref": 0,
+            },
+            {
+                "index": 1,
+                "narration": "Adjacent roles are the smarter move; build a portfolio.",
+                "on_screen_text": "No numbers here",
+                "b_roll_keywords": [],
+                "fact_ref": None,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
@@ -379,21 +559,42 @@ def test_search_source_citation_shows_website_domain():
     from content_foundry.models.data_brief import Citation
 
     now = datetime.now(UTC)
-    web = Citation(source="search", url="https://online.msoe.edu/engineering/blog/ml-careers",
-                   observed_at=now, snippet="x")
+    web = Citation(
+        source="search",
+        url="https://online.msoe.edu/engineering/blog/ml-careers",
+        observed_at=now,
+        snippet="x",
+    )
     assert _source_label(web) == "online.msoe.edu"
-    assert _source_label(Citation(source="search", url="https://www.techcrunch.com/ai",
-                                  observed_at=now, snippet="x")) == "techcrunch.com"  # www. stripped
+    assert (
+        _source_label(
+            Citation(
+                source="search", url="https://www.techcrunch.com/ai", observed_at=now, snippet="x"
+            )
+        )
+        == "techcrunch.com"
+    )  # www. stripped
     assert _source_label(Citation(source="adzuna", observed_at=now, snippet="x")) == "Adzuna"
 
 
 def test_fact_ref_list_is_coerced(settings, data_brief, fakes):
     # Local models sometimes cite several facts as a list ([0, 2]); SceneCue needs a single int.
     payload = {
-        "title_options": ["t"], "hook": "A grounded 31% hook.",
-        "scenes": [{"index": 0, "narration": "Postings fell 31% this year.",
-                    "on_screen_text": None, "b_roll_keywords": [], "fact_ref": [0, 2]}],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "title_options": ["t"],
+        "hook": "A grounded 31% hook.",
+        "scenes": [
+            {
+                "index": 0,
+                "narration": "Postings fell 31% this year.",
+                "on_screen_text": None,
+                "b_roll_keywords": [],
+                "fact_ref": [0, 2],
+            }
+        ],
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
@@ -407,14 +608,28 @@ def test_leaked_fact_ref_is_never_voiced_or_captioned(settings, data_brief, fake
     # A model that writes the structured field inline (the reported bug) must never have it reach
     # the narration that feeds TTS + the subtitles. The real spoken words survive intact.
     payload = {
-        "title_options": ["t"], "hook": "A grounded 31% hook.",
+        "title_options": ["t"],
+        "hook": "A grounded 31% hook.",
         "scenes": [
-            {"index": 0, "narration": "Postings fell 31% this year (fact_ref: 0), a real shift.",
-             "on_screen_text": None, "b_roll_keywords": ["office"], "fact_ref": 0},
-            {"index": 1, "narration": "Recruiters skim resumes fast. fact_ref: 1 Lead with impact.",
-             "on_screen_text": None, "b_roll_keywords": ["resume laptop"], "fact_ref": 1},
+            {
+                "index": 0,
+                "narration": "Postings fell 31% this year (fact_ref: 0), a real shift.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["office"],
+                "fact_ref": 0,
+            },
+            {
+                "index": 1,
+                "narration": "Recruiters skim resumes fast. fact_ref: 1 Lead with impact.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["resume laptop"],
+                "fact_ref": 1,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [0, 1],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
@@ -493,9 +708,7 @@ def test_clean_narration_repairs_orphaned_dropped_year():
         == "They plugged in, and the screen lit up."
     )
     # A real year in the hook is kept exactly (no orphan to repair).
-    assert (
-        _clean_narration("In 2026, the market changed.") == "In 2026, the market changed."
-    )
+    assert _clean_narration("In 2026, the market changed.") == "In 2026, the market changed."
 
 
 def test_company_voice_is_neutralized_to_third_person():
@@ -513,12 +726,22 @@ def test_company_voice_is_neutralized_to_third_person():
 
 def test_company_voice_neutralized_through_full_run(settings, data_brief, fakes):
     payload = {
-        "title_options": ["t"], "hook": "At Expedia group we changed hiring forever.",
+        "title_options": ["t"],
+        "hook": "At Expedia group we changed hiring forever.",
         "scenes": [
-            {"index": 0, "narration": "At Expedia group we rebuilt the resume screen entirely.",
-             "on_screen_text": None, "b_roll_keywords": ["office"], "fact_ref": None, "sfx": None},
+            {
+                "index": 0,
+                "narration": "At Expedia group we rebuilt the resume screen entirely.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["office"],
+                "fact_ref": None,
+                "sfx": None,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
@@ -552,27 +775,45 @@ def test_em_dashes_never_survive_a_run(settings, data_brief, fakes):
         "title_options": [f"The Truth {d} Revealed"],
         "hook": f"Here is the shocking truth {d} recruiters skim resumes incredibly fast.",
         "scenes": [
-            {"index": 0,
-             "narration": f"Tailor your resume {d} every single bullet point {d} to the job you want.",
-             "on_screen_text": f"Do this {d} now", "b_roll_keywords": ["resume"],
-             "fact_ref": None, "sfx": None},
-            {"index": 1,
-             "narration": f"Recruiters are busy {d} so lead with your strongest, most relevant wins.",
-             "on_screen_text": None, "b_roll_keywords": ["office"], "fact_ref": None, "sfx": None},
-            {"index": 2,
-             "narration": f"Keep it clean {d} one page, clear sections, and real measurable impact.",
-             "on_screen_text": None, "b_roll_keywords": ["laptop"], "fact_ref": None, "sfx": None},
+            {
+                "index": 0,
+                "narration": f"Tailor your resume {d} every single bullet point {d} to the job you want.",
+                "on_screen_text": f"Do this {d} now",
+                "b_roll_keywords": ["resume"],
+                "fact_ref": None,
+                "sfx": None,
+            },
+            {
+                "index": 1,
+                "narration": f"Recruiters are busy {d} so lead with your strongest, most relevant wins.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["office"],
+                "fact_ref": None,
+                "sfx": None,
+            },
+            {
+                "index": 2,
+                "narration": f"Keep it clean {d} one page, clear sections, and real measurable impact.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["laptop"],
+                "fact_ref": None,
+                "sfx": None,
+            },
         ],
         "cta": f"Subscribe {d} you won't regret it.",
         "description": f"A guide {d} with real data {d} for you. Uses synthetic content.",
-        "tags": [], "thumbnail_concept": f"Bold text {d} high contrast",
+        "tags": [],
+        "thumbnail_concept": f"Bold text {d} high contrast",
         "grounded_fact_refs": [],
     }
     script = ScriptGenerator(settings, fakes.LLM(script_json=payload)).run(
         "R", data_brief, get_template("contrarian")
     )
     parts = [
-        script.hook, script.cta, script.description, script.thumbnail_concept,
+        script.hook,
+        script.cta,
+        script.description,
+        script.thumbnail_concept,
         *script.title_options,
         *(s.narration for s in script.scenes),
         *(s.on_screen_text or "" for s in script.scenes),
@@ -585,24 +826,56 @@ def test_em_dashes_never_survive_a_run(settings, data_brief, fakes):
     )
 
 
-
-
 def _all_null_sfx_payload():
     return {
-        "title_options": ["t"], "hook": "A grounded 31% hook.",
+        "title_options": ["t"],
+        "hook": "A grounded 31% hook.",
         "scenes": [
-            {"index": 0, "narration": "Here is the surprising truth about your resume today.",
-             "on_screen_text": None, "b_roll_keywords": ["office"], "fact_ref": None, "sfx": None},
-            {"index": 1, "narration": "Recruiters skim each resume for only a handful of seconds.",
-             "on_screen_text": None, "b_roll_keywords": ["resume"], "fact_ref": None, "sfx": None},
-            {"index": 2, "narration": "The average salary jumped to six figures for many roles.",
-             "on_screen_text": None, "b_roll_keywords": ["money"], "fact_ref": None, "sfx": None},
-            {"index": 3, "narration": "The biggest mistake is a vague, generic objective line.",
-             "on_screen_text": None, "b_roll_keywords": ["error"], "fact_ref": None, "sfx": None},
-            {"index": 4, "narration": "So tailor every bullet point to the job description you want.",
-             "on_screen_text": None, "b_roll_keywords": ["laptop"], "fact_ref": None, "sfx": None},
+            {
+                "index": 0,
+                "narration": "Here is the surprising truth about your resume today.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["office"],
+                "fact_ref": None,
+                "sfx": None,
+            },
+            {
+                "index": 1,
+                "narration": "Recruiters skim each resume for only a handful of seconds.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["resume"],
+                "fact_ref": None,
+                "sfx": None,
+            },
+            {
+                "index": 2,
+                "narration": "The average salary jumped to six figures for many roles.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["money"],
+                "fact_ref": None,
+                "sfx": None,
+            },
+            {
+                "index": 3,
+                "narration": "The biggest mistake is a vague, generic objective line.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["error"],
+                "fact_ref": None,
+                "sfx": None,
+            },
+            {
+                "index": 4,
+                "narration": "So tailor every bullet point to the job description you want.",
+                "on_screen_text": None,
+                "b_roll_keywords": ["laptop"],
+                "fact_ref": None,
+                "sfx": None,
+            },
         ],
-        "cta": "x", "description": "uses synthetic content", "tags": [], "thumbnail_concept": "x",
+        "cta": "x",
+        "description": "uses synthetic content",
+        "tags": [],
+        "thumbnail_concept": "x",
         "grounded_fact_refs": [],
     }
 
@@ -650,6 +923,3 @@ def test_sound_design_respects_model_authored_cues(monkeypatch, data_brief, fake
         "R", data_brief, get_template("contrarian")
     )
     assert [s.sfx for s in script.scenes] == ["pop"] * 5  # left untouched
-
-
-

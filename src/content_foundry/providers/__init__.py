@@ -114,6 +114,9 @@ def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSP
             cfg_weight=settings.tts_clone_cfg,
             silence_pad_ms=settings.tts_silence_pad_ms,
             max_pause_ms=settings.tts_max_pause_ms,
+            edge_pad_ms=settings.tts_edge_pad_ms,
+            sentence_pause_ms=settings.tts_sentence_pause_ms,
+            reference_window_sec=settings.tts_reference_window_sec,
         )
     from .tts import OpenAITTS
 

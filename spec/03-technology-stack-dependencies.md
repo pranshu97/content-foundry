@@ -24,6 +24,8 @@
 | IDs | `python-ulid` | Sortable `attempt_id`/`artifact_id` (the `run_id` is a sequential 4-digit number) |
 | TTS narration | `elevenlabs`, `openai`, `edge-tts` (free), `piper-tts` (free offline) | Voiceover with word-level timings |
 | Voice cloning (TTS) | `chatterbox-tts` + `torch`/`torchaudio` | Free zero-shot cloning of your own voice (MIT); GPU via the CUDA `cu124` torch build |
+| Voice cloning (TTS, alt) | `indextts` (IndexTTS-2, Apache-2.0) | Free cloning with emotion disentangled from timbre. Installed in a **separate venv** and driven through a subprocess worker: it needs numpy>=2 while this package pins numpy<2 for Chatterbox/diffusers |
+| Drawn diagrams | `matplotlib` | Renders a matrix / bar comparison / ladder / pipeline shot for real instead of asking an image model to fake one. Chosen over graphviz because it exposes real text metrics, so a label can be measured and fitted rather than silently overflowing its box |
 | Thumbnail face cutout | `rembg` | Background-remove your avatar PNG for the thumbnail composite |
 | Image generation | `openai` Images / `stability-sdk` | Thumbnail + per-scene visuals |
 | Stock B-roll | Pexels + Pixabay APIs via `httpx` | Free background footage (multi-source, aggregated for variety) |

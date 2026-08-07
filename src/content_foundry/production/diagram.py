@@ -32,10 +32,37 @@ PANEL_HOT = "#2a2018"
 _TYPES = ("matrix", "bars", "ladder", "flow")
 _DPI = 160
 
+# The vertical band the CONTENT lives in, between the title and the caption. Every renderer centres
+# its block inside this band AND scales the block to fill it. Before this, each renderer anchored to
+# its own fixed top and grew downward, so a two-row matrix and a five-row matrix both began at the
+# same y and the short one left a void beneath -- MEASURED on run 0024, all seven diagrams started
+# their ink on the identical pixel row and every one of them had a completely empty stripe at
+# y 0.7-0.8. That constant silhouette is what made different diagrams read as one picture.
+CONTENT_TOP = 0.82
+CONTENT_BOTTOM = 0.18
+CONTENT_BAND = CONTENT_TOP - CONTENT_BOTTOM
+
+# A ladder rung carries a LEFT-aligned label and a RIGHT-aligned detail inside one box. Their width
+# budgets must leave room for the padding at BOTH ends plus a gap between them, or the two strings
+# meet in the middle -- which is exactly what "ML Infra Work" and "Search pipelines & feature
+# layers" did on run 0024, because the old budgets summed to 0.97 of the box. Each string is fitted
+# independently, so nothing else stops them colliding: keep this sum comfortably under 1.0.
+_RUNG_PAD = 0.022
+_RUNG_LABEL_W = 0.46
+_RUNG_DETAIL_W = 0.34
+
 
 def _clean(value: Any) -> str:
     """Spec text comes from an LLM, so coerce and strip rather than trusting the type."""
     return " ".join(str(value or "").split())
+
+
+def _measure(ax, renderer, text: str, size: float) -> float:
+    """Width of ``text`` at ``size`` as a fraction of the figure width."""
+    probe = ax.text(0.5, 0.5, text, fontsize=size, ha="center", va="center")
+    width = probe.get_window_extent(renderer).width / ax.figure.bbox.width
+    probe.remove()
+    return width
 
 
 def _fit_fontsize(ax, text: str, max_frac: float, start: float, floor: float = 9.0) -> float:
@@ -44,6 +71,9 @@ def _fit_fontsize(ax, text: str, max_frac: float, start: float, floor: float = 9
     This is the whole reason matplotlib won over graphviz: real metrics mean a label can be measured
     and shrunk instead of silently overflowing its box. Shrinks rather than truncates, because a
     clipped word reads as a rendering bug while slightly smaller type just reads as design.
+
+    NOTE it returns ``floor`` when even that does not fit, and the caller draws at that size anyway.
+    For text sitting INSIDE a panel use ``_fit_wrapped``, which wraps before that can happen.
     """
     if not text:
         return start
@@ -52,13 +82,55 @@ def _fit_fontsize(ax, text: str, max_frac: float, start: float, floor: float = 9
     renderer = fig.canvas.get_renderer()
     size = start
     while size > floor:
-        probe = ax.text(0.5, 0.5, text, fontsize=size, ha="center", va="center")
-        width = probe.get_window_extent(renderer).width / fig.bbox.width
-        probe.remove()
-        if width <= max_frac:
+        if _measure(ax, renderer, text, size) <= max_frac:
             return size
         size -= 1.0
     return floor
+
+
+def _split_two(text: str) -> str:
+    """Break ``text`` at the word boundary that leaves the two lines most even."""
+    words = text.split()
+    if len(words) < 2:
+        return text
+    best, best_cost = text, None
+    for i in range(1, len(words)):
+        head, tail = " ".join(words[:i]), " ".join(words[i:])
+        cost = abs(len(head) - len(tail))
+        if best_cost is None or cost < best_cost:
+            best, best_cost = f"{head}\n{tail}", cost
+    return best
+
+
+def _fit_wrapped(ax, text: Any, max_frac: float, start: float, floor: float = 9.0):
+    """Fit text inside a panel, WRAPPING to a second line rather than letting it overflow.
+
+    ``_fit_fontsize`` returns its floor when nothing fits and the caller then draws at that size
+    regardless, so an over-long label silently ran outside its box -- on run 0024 one matrix cell
+    ran clean off the right edge of the frame (ink at x=0.999). Wrapping is what a designer would
+    do, and it keeps the type large enough to read instead of shrinking it into nothing.
+
+    Returns ``(text, size)``; the text may contain a newline.
+    """
+    text = _clean(text)
+    if not text:
+        return text, start
+    size = _fit_fontsize(ax, text, max_frac, start, floor)
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    if _measure(ax, renderer, text, size) <= max_frac:
+        return text, size
+    wrapped = _split_two(text)
+    if wrapped == text:  # a single unbreakable word: nothing to wrap, keep the smallest type
+        return text, size
+    lines = wrapped.split("\n")
+    probe = start
+    while probe > floor:
+        if max(_measure(ax, renderer, line, probe) for line in lines) <= max_frac:
+            return wrapped, probe
+        probe -= 1.0
+    return wrapped, floor
 
 
 def _new_axes(width: int, height: int):
@@ -118,13 +190,18 @@ def _matrix(ax, spec: dict) -> None:
     hot = spec.get("highlight_row")
     left, span = 0.20, 0.74
     colw = span / len(cols)
-    top, rowh = 0.68, min(0.15, 0.56 / max(len(rows), 1))
+    # Centre the grid in the content band and let the rows GROW to fill it, so a two-row matrix is a
+    # visibly different picture from a five-row one instead of both hugging the same fixed top.
+    header = 0.055
+    rowh = min(0.24, (CONTENT_BAND - header) / max(len(rows), 1))
+    block = len(rows) * rowh + header
+    top = CONTENT_BOTTOM + (CONTENT_BAND - block) / 2 + block - header - rowh / 2
 
     for j, col in enumerate(cols):
         size = _fit_fontsize(ax, col, colw * 0.9, 19.0, 11.0)
         ax.text(
             left + colw * (j + 0.5),
-            top + 0.07,
+            top + rowh * 0.5 + 0.028,
             col.upper(),
             ha="center",
             color=MUTED,
@@ -147,7 +224,7 @@ def _matrix(ax, spec: dict) -> None:
             _panel(
                 ax, left + colw * j + 0.010, y - rowh * 0.36, colw - 0.020, rowh * 0.72, hot=is_hot
             )
-            size = _fit_fontsize(ax, value, colw * 0.78, 30.0, 12.0)
+            value, size = _fit_wrapped(ax, value, colw * 0.78, 30.0, 12.0)
             ax.text(
                 left + colw * (j + 0.5),
                 y,
@@ -172,7 +249,8 @@ def _bars(ax, spec: dict) -> None:
         except (TypeError, ValueError):
             values.append(0.0)
     peak = max(values) or 1.0
-    top, rowh = 0.74, min(0.13, 0.62 / len(items))
+    rowh = min(0.20, CONTENT_BAND / len(items))
+    top = CONTENT_BOTTOM + (CONTENT_BAND - rowh * len(items)) / 2 + rowh * len(items) - rowh / 2
     left, maxw = 0.30, 0.56
 
     for i, (item, value) in enumerate(zip(items, values, strict=True)):
@@ -204,11 +282,12 @@ def _ladder(ax, spec: dict) -> None:
     if not steps:
         raise ValueError("ladder needs steps")
     n = len(steps)
-    boxw, boxh = 0.46, min(0.13, 0.60 / n)
-    rise = min(0.155, 0.62 / n)
-    # Centre the climb between the title and the caption: a fixed base leaves the ladder hugging the
-    # bottom of the frame on short lists and crowding the caption line.
-    base = 0.48 - ((n - 1) * rise + boxh) / 2
+    boxw = 0.46
+    # Centre the climb in the content band and let it use the whole height: a short ladder should
+    # read as big confident rungs, not as a small one stranded in the middle of an empty frame.
+    boxh = min(0.16, CONTENT_BAND / (n + 0.6))
+    rise = min(0.19, (CONTENT_BAND - boxh) / max(n - 1, 1))
+    base = CONTENT_BOTTOM + (CONTENT_BAND - ((n - 1) * rise + boxh)) / 2
 
     for i, step in enumerate(steps):
         y = base + i * rise
@@ -216,9 +295,9 @@ def _ladder(ax, spec: dict) -> None:
         hot = bool(step.get("highlight"))
         _panel(ax, x, y, boxw, boxh, hot=hot)
         label = _clean(step.get("label"))
-        size = _fit_fontsize(ax, label, boxw * 0.55, 25.0, 12.0)
+        size = _fit_fontsize(ax, label, boxw * _RUNG_LABEL_W, 25.0, 12.0)
         ax.text(
-            x + 0.022,
+            x + _RUNG_PAD,
             y + boxh * 0.5,
             label,
             ha="left",
@@ -229,9 +308,9 @@ def _ladder(ax, spec: dict) -> None:
         )
         detail = _clean(step.get("detail"))
         if detail:
-            size = _fit_fontsize(ax, detail, boxw * 0.42, 16.0, 9.0)
+            size = _fit_fontsize(ax, detail, boxw * _RUNG_DETAIL_W, 16.0, 9.0)
             ax.text(
-                x + boxw - 0.022,
+                x + boxw - _RUNG_PAD,
                 y + boxh * 0.5,
                 detail,
                 ha="right",
@@ -252,14 +331,18 @@ def _flow(ax, spec: dict) -> None:
     n = len(nodes)
     gap = 0.04
     boxw = min(0.30, (0.88 - gap * (n - 1)) / n)
-    boxh = 0.24
+    # Taller boxes, centred in the band: the old fixed 0.24-high strip at y=0.40 left a third of the
+    # frame empty above and below, which is most of why every flow looked like every other one.
+    boxh = 0.34
+    boxy = CONTENT_BOTTOM + (CONTENT_BAND - boxh) / 2
+    mid = boxy + boxh / 2
     total = boxw * n + gap * (n - 1)
     x = (1.0 - total) / 2
     centers = []
 
     for node in nodes:
         hot = bool(node.get("highlight"))
-        _panel(ax, x, 0.40, boxw, boxh, hot=hot)
+        _panel(ax, x, boxy, boxw, boxh, hot=hot)
         cx = x + boxw / 2
         centers.append(cx)
         tag = _clean(node.get("tag"))
@@ -267,27 +350,37 @@ def _flow(ax, spec: dict) -> None:
             size = _fit_fontsize(ax, tag, boxw * 0.86, 17.0, 9.0)
             ax.text(
                 cx,
-                0.575,
+                boxy + boxh * 0.76,
                 tag.upper(),
                 ha="center",
+                va="center",
                 color=WARM if hot else ACCENT,
                 fontsize=size,
                 fontweight="bold",
             )
-        name = _clean(node.get("name"))
-        size = _fit_fontsize(ax, name, boxw * 0.88, 25.0, 11.0)
-        ax.text(cx, 0.505, name, ha="center", color=FG, fontsize=size, fontweight="bold")
-        detail = _clean(node.get("detail"))
+        name, size = _fit_wrapped(ax, node.get("name"), boxw * 0.88, 25.0, 11.0)
+        ax.text(
+            cx,
+            boxy + boxh * 0.50,
+            name,
+            ha="center",
+            va="center",
+            color=FG,
+            fontsize=size,
+            fontweight="bold",
+        )
+        detail, size = _fit_wrapped(ax, node.get("detail"), boxw * 0.88, 17.0, 9.0)
         if detail:
-            size = _fit_fontsize(ax, detail, boxw * 0.88, 17.0, 9.0)
-            ax.text(cx, 0.443, detail, ha="center", color=MUTED, fontsize=size)
+            ax.text(
+                cx, boxy + boxh * 0.22, detail, ha="center", va="center", color=MUTED, fontsize=size
+            )
         x += boxw + gap
 
     for a, b in zip(centers, centers[1:], strict=False):
         ax.add_patch(
             FancyArrowPatch(
-                (a + boxw / 2 + 0.006, 0.52),
-                (b - boxw / 2 - 0.006, 0.52),
+                (a + boxw / 2 + 0.006, mid),
+                (b - boxw / 2 - 0.006, mid),
                 arrowstyle="-|>",
                 mutation_scale=24,
                 color=WARM,

@@ -39,9 +39,13 @@ spoken opening**, an optional, non-bait **"open loop"** teases a payoff that a d
 scene, allow anonymized stories, curiosity captions). On monetization/growth: optional **affiliate
 resource links** (a real, searched Amazon product plus topic-matched platforms) and a **"watch next"
 comment** linking related prior uploads are posted at publish time. Plus: **free zero-shot voice
-cloning** (Chatterbox, MIT) with silence/pause normalization, **sound effects** mixed under the voice
-at a predictable level, scene **crossfades**, a **warm colour grade**, a midpoint **Subscribe nudge**,
-**run-alternating voices**, and a **per-run structured log file** for debugging silent fallbacks.
+cloning** (Chatterbox MIT, or IndexTTS-2 Apache-2.0 in its own venv) with punctuation-aware pauses and
+a tone-matched reference window, **diagrams drawn with matplotlib** where a shot is really a matrix /
+bar comparison / ladder / pipeline rather than a photograph, **sound effects** mixed under the voice
+at a predictable level, a **-14 LUFS master** so the upload isn't quiet, **camera motion** on generated
+stills so they don't sit frozen between clips, scene **crossfades**, a **warm colour grade**, a midpoint
+**Subscribe nudge**, **run-alternating voices**, and a **per-run structured log file** for debugging
+silent fallbacks.
 Narration is hardened in code (no leaked meta tokens, no spoken sources, no company first-person
 "we", no em dashes), and runs are identified by short sequential ids (`0001`, `0002`, …).
 
@@ -364,8 +368,8 @@ flowchart LR
 | Capability | Providers |
 |------------|-----------|
 | **LLM** | Anthropic · OpenAI · Local (OpenAI-compatible) |
-| **TTS** | ElevenLabs · OpenAI · **Edge** (free, online) · **Piper** (free, offline) · **Chatterbox** (free voice cloning, local/GPU) |
-| **Image** | OpenAI · Stability · **none** (procedural cards) + Pexels B-roll |
+| **TTS** | ElevenLabs · OpenAI · **Edge** (free, online) · **Piper** (free, offline) · **Chatterbox** (free voice cloning, local/GPU) · **IndexTTS-2** (free voice cloning + emotion control, local/GPU, runs in its own venv) |
+| **Image** | OpenAI · Stability · Google (best-first model chain) · Pollinations (free) · **none** (procedural cards) + Pexels/Pixabay/Coverr B-roll + matplotlib-drawn diagrams |
 | **Render** | ffmpeg (with PATH auto-discovery) · MoviePy · Avatar (HeyGen/D-ID) |
 | **Publish** | YouTube Data API v3 (OAuth) |
 
@@ -430,7 +434,7 @@ stage *k* is fixed and the run resumes at *k*, never from the top.
 Cost is a first-class configuration axis, tunable per stage:
 
 1. **Local LLM** — `PRIMARY_PROVIDER=local` (Ollama); generation & judging free.
-2. **Free voice** — `TTS_PROVIDER=edge` (online) or `piper` (offline), or `chatterbox` to clone your own voice (local, GPU-accelerated). *(TTS is the single largest paid cost otherwise.)*
+2. **Free voice** — `TTS_PROVIDER=edge` (online) or `piper` (offline), or `chatterbox` / `indextts` to clone your own voice (local, GPU-accelerated). *(TTS is the single largest paid cost otherwise.)*
 3. **Free visuals** — procedural cards (`IMAGE_PROVIDER=none`) + a free Pexels key for real B-roll.
 4. **Deterministic judge** — `JUDGE_MODE=deterministic` spends zero tokens.
 5. **Budget cap** — `ENFORCE_BUDGET_CAP` hard-stops a run at the monthly budget.
@@ -532,7 +536,7 @@ A selection of decisions and hardening that shaped the current system:
 | **Data** | `httpx`, `beautifulsoup4`, `lxml`, `python-dateutil` |
 | **Persistence** | `SQLAlchemy` + SQLite |
 | **CLI & scheduling** | `typer`, `rich`, `APScheduler` |
-| **TTS** | `elevenlabs`, `edge-tts`, `piper-tts`, `chatterbox-tts` (voice cloning) |
+| **TTS** | `elevenlabs`, `edge-tts`, `piper-tts`, `chatterbox-tts` (voice cloning), `indextts` (IndexTTS-2, installed in a SEPARATE venv — it needs numpy>=2 while this package pins numpy<2) |
 | **Visuals & render** | `Pillow`, `ffmpeg-python`, `moviepy`, `stability-sdk` |
 | **Publishing** | `google-api-python-client`, `google-auth-oauthlib` |
 | **Reliability & logging** | `tenacity`, `structlog` |

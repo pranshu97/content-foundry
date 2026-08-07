@@ -191,14 +191,33 @@ text instead of a model's guess at lettering. ALWAYS keep the "prompt" too: it i
 drawing cannot be made. Use this ONLY when the shape truly fits, never to dodge writing a good
 photographic prompt, and expect MOST shots to carry no diagram at all. Every label must be SHORT: the
 viewer reads this in about four seconds.
+
+PICK THE SHAPE FROM THE SENTENCE, NOT BY HABIT. These four are NOT interchangeable, and reaching for
+the same one every time is the fastest way to make a whole video's graphics look like one recycled
+slide. Match the shape to what the line is actually doing:
+  • the line COMPARES THE SAME THING ACROSS SEVERAL PARTIES  -> matrix   ("an Amazon L4 is a Google L3")
+  • the line puts NUMBERS AGAINST EACH OTHER                 -> bars     ("41% fail here, 26% there")
+  • the line CLIMBS or PROGRESSES through named tiers        -> ladder   ("backend, then MLE")
+  • the line moves something THROUGH ORDERED STAGES          -> flow     ("retrieval, then ranking")
+If the line has numbers in it, bars is almost always the honest shape and a matrix of numbers is the
+lazy one. Do NOT force a matrix onto a list of magnitudes or onto a sequence.
+
+NEVER USE THE SAME SHAPE TWICE IN A ROW. The <already_used> list above names the diagram shapes this
+video has already spent; pick a different one, or write a photographic prompt instead and let the
+next line have the diagram. Two matrices in one video already look like the same picture to a viewer,
+because the frame, the palette and the box style are deliberately identical every time — the SHAPE is
+the only thing that makes one diagram look different from another.
   {"type": "matrix", "title": "...", "columns": ["Google","Meta","Amazon"],
    "rows": [["Entry","L3","E3","L4"],["Senior","L5","E5","L6"]], "highlight_row": 1, "caption": "..."}
-  {"type": "bars", "title": "...", "items": [{"label":"Deep ranker","value":22,"note":"22ms",
-   "highlight": true}], "caption": "..."}
-  {"type": "ladder", "title": "...", "steps": [{"label":"L4","detail":"owns a scoped feature",
-   "highlight": true}], "caption": "..."}
+  {"type": "bars", "title": "...", "items": [{"label":"Deep ranker","value":22,"note":"22ms"},
+   {"label":"Feature fetch","value":8,"note":"8ms"},
+   {"label":"Retrieval","value":4,"note":"4ms","highlight":true}], "caption": "..."}
+  {"type": "ladder", "title": "...", "steps": [{"label":"L3","detail":"ships a reviewed task"},
+   {"label":"L4","detail":"owns a scoped feature"},
+   {"label":"L5","detail":"owns the system","highlight":true}], "caption": "..."}
   {"type": "flow", "title": "...", "nodes": [{"tag":"Stage 1","name":"Retrieval",
-   "detail":"millions to hundreds","highlight": false}], "caption": "..."}
+   "detail":"millions to hundreds"},{"tag":"Stage 2","name":"Ranking","detail":"hundreds to ten"},
+   {"tag":"Stage 3","name":"Serve","detail":"one result","highlight":true}], "caption": "..."}
 The "caption" is the ONE sentence the viewer should take away, not a description of the picture.
 </output_format>
 

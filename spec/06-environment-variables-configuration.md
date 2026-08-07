@@ -63,7 +63,7 @@ GATE_RELIEF_SCORE=4.5                      # drafts scoring >= this (0-5) get sl
 GATE_RELIEF_RATIO=0.20                     # slack amount (20%); never grounding/compliance/fatigue
 
 # ---------- Voiceover (TTS) ----------
-TTS_PROVIDER=elevenlabs                     # elevenlabs | openai | edge (free) | piper (free offline) | chatterbox (free voice clone)
+TTS_PROVIDER=elevenlabs                     # elevenlabs | openai | edge (free) | piper (free offline) | chatterbox (free voice clone) | indextts (free clone, own venv)
 ELEVENLABS_API_KEY=xxxx                     # required if TTS_PROVIDER=elevenlabs
 TTS_VOICE_ID=Rachel                         # provider voice id / name (fallback)
 TTS_VOICE_MALE=                             # odd run ids -> male voice (blank = use TTS_VOICE_ID)
@@ -78,6 +78,27 @@ TTS_CLONE_DEVICE=auto                       # auto | cuda | cpu (cuda hard-fails
 TTS_CLONE_EXAGGERATION=0.5                  # 0.5 neutral; higher = more expressive
 TTS_CLONE_CFG=0.5                           # lower (~0.3) = steadier pacing
 TTS_SILENCE_PAD_MS=150                       # silence kept each side of a chunk when trimming dead air; higher = softer, less abrupt sentence transitions
+TTS_MAX_PAUSE_MS=1000                        # collapse only VERY long internal pauses (> this); normal pauses untouched; 0 disables
+# Prosody at the joins. A scene is synthesised in chunks, so the gap between them IS the pause the
+# viewer hears. Trim each chunk's edges close (TTS_EDGE_PAD_MS) and then insert a gap sized by the
+# punctuation the chunk ends on, rather than a fixed pad at every join (which is a metronome).
+TTS_EDGE_PAD_MS=40
+TTS_SENTENCE_PAUSE_MS=300                    # pause after a "."; scaled per mark ("?" x1.25, "," x0.5, mid-sentence split x0.25)
+# TTS_REFERENCE_WINDOW_SEC: cloning models only listen to the first few seconds of the reference, so
+# the clip is condensed to its densest speech first. 0 = pass the clip exactly as recorded.
+TTS_REFERENCE_WINDOW_SEC=12
+TTS_TONE=auto                                # delivery to clone: auto (from the script's template) | neutral | authoritative | punchy | energetic
+# --- IndexTTS-2 (only if TTS_PROVIDER=indextts) ---
+# Runs in its OWN venv behind a subprocess worker: index-tts needs numpy>=2 while this package pins
+# numpy<2 for Chatterbox/diffusers, so the two can never share an interpreter. INDEXTTS_PYTHON points
+# at that venv's python; the pipeline itself still runs from the main environment.
+INDEXTTS_PYTHON=                             # <index-tts venv>/Scripts/python.exe
+INDEXTTS_MODEL_DIR=                          # <index-tts>/checkpoints
+INDEXTTS_CFG_PATH=                           # blank = <model_dir>/config.yaml
+INDEXTTS_FP16=true                           # half precision; on a 6 GB card the model will not load without it
+INDEXTTS_PRECISION=fp16                      # fp16 | bf16 | fp32 (fp16 is both fastest and most precise here)
+INDEXTTS_EMOTION=off                         # off = plain clone | auto = steer emotion from the script template
+INDEXTTS_EMO_ALPHA=0.6                       # emotion strength when auto; the model's docs suggest <=0.6
 
 # ---------- Visuals ----------
 IMAGE_PROVIDER=openai                        # openai | stability | none (none = B-roll/Pillow cards only)
@@ -172,8 +193,10 @@ DATABASE_URL=sqlite:///data/content_foundry.db
 OUTPUT_DIR=output/runs
 
 # ---------- Safeguards / Compliance ----------
-REQUIRE_DISCLOSURE=true                    # force synthetic-content disclosure block
-REQUIRE_GROUNDING=true                     # reject ungrounded statistical claims
+# There is deliberately no REQUIRE_GROUNDING / REQUIRE_DISCLOSURE switch. Both protections are
+# enforced, but by settings that actually do something: grounding by the Judge's hard GROUNDING_MIN
+# floor, disclosure by REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC + safeguards/disclosure.py. The old
+# booleans were read nowhere, so setting either to false silently changed nothing.
 
 # ---------- Ops ----------
 LOG_LEVEL=INFO                             # DEBUG|INFO|WARNING|ERROR

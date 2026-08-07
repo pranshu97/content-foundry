@@ -3,7 +3,22 @@
 ### 11.1 Purpose
 Produce every visual the renderer needs: a click-worthy **thumbnail**, one **visual per scene** (AI-generated image or stock B-roll), and a **time-synced captions** track. Visuals are chosen to reinforce the specific data points, not generic stock fluff.
 
-> **Relevance-first B-roll + generated fallback (current behavior).** Each narration beat gets the single most relevant stock clip (deterministic, no diversity sampling), held to a STRICT on-topic bar — a clip must name a specific (non-generic) word from the beat and, for a rich 3-4 word beat, match at least half of them. Any beat with **no confidently-relevant clip** falls back to a bespoke **generated image** whose prompt is written by an LLM art-director (`SceneImageDirector`, gated by `SCENE_IMAGE_DIRECTOR_ENABLED`) that is deliberately composed to AVOID the mangled AI faces/hands look — never an off-topic clip. With no image provider the fallback is a clean designed card.
+> **Relevance-first B-roll + generated fallback (current behavior).** Each narration beat gets the single most relevant stock clip (deterministic, no diversity sampling), held to a STRICT on-topic bar — a clip must name a specific (non-generic) word from the beat and, separately, share at least one discriminating word with the exact narration window it will sit under. Any beat with **no confidently-relevant clip** falls back to a bespoke **generated image** whose prompt is written by an LLM art-director (`SceneImageDirector`, gated by `SCENE_IMAGE_DIRECTOR_ENABLED`) that is deliberately composed to AVOID the mangled AI faces/hands look — never an off-topic clip. With no image provider the fallback is a clean designed card.
+
+> **Drawn diagrams instead of photographed ones (`DIAGRAMS_ENABLED`, default on).** Some lines are not
+> photographs at all: a cross-company levelling matrix, a comparison of magnitudes, a ranked ladder of
+> tiers, a short pipeline. Faking those photographically ("a printed comparison sheet on a desk") costs
+> a paid image call AND hands the text to a model that garbles lettering. When the image director marks
+> a shot as one of those four shapes it is **DRAWN with matplotlib** instead — free, instant, and the
+> labels are exact. The photographic prompt is still written and kept as the fallback if the drawing
+> fails, so a diagram shot carries a prompt exactly like a generated one; `shot_prompts.json` records
+> `source` per shot so a free chart can be told apart from paid image-model output.
+
+> **Camera motion on stills (`IMAGE_MOTION`, default `auto`).** A generated still sitting frozen between
+> moving clips reads as a broken video, so each one gets a slow move matched to its own composition —
+> the director's prompt already states the camera it composed for (macro, flat-lay, corridor), so the
+> move is chosen deterministically from that text with no vision model. Real stock footage is never
+> touched: it already moves, and doubling up looks wrong.
 
 ### 11.2 Inputs / outputs
 - **Input:** approved `Script` + `VoiceoverAsset` (for caption timing).

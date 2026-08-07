@@ -49,8 +49,15 @@ Build in dependency order, each module mirroring its spec chapter:
 > orchestration → interfaces → tests.
 
 **Definition of done for every step = the gate is green:** full suite passes + linter clean +
-coverage ≥ floor. TDD the pure/deterministic logic; **smoke-test** the parts you can't unit-test (real
-binaries/models) rather than faking them.
+coverage ≥ floor + **every commit hook passes**. TDD the pure/deterministic logic; **smoke-test** the
+parts you can't unit-test (real binaries/models) rather than faking them.
+
+> The hooks are part of the gate, not a formality, and two things about them bite. First, a formatter
+> hook *rewrites files* on its first pass and reports failure, so you must run it **twice** — the
+> second run is the one that proves it clean. Second, the hook pins its own tool version, so a locally
+> installed linter can disagree with it in both directions; the hook is authoritative, your shell is
+> not. A hook that is configured but never installed protects nothing, so verify it actually runs
+> before trusting it as a control.
 
 ## Phase 3 — Iterate & maintain (the living-doc cadence)
 

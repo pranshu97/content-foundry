@@ -101,6 +101,14 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
             "move straight on: never a brag, never a recital of the whole CV."
         )
         parts.append(
+            "- THE BACKGROUND ABOVE IS FACTS, NOT A PHRASE TO QUOTE. It may list several roles "
+            "comma-joined with words like 'previously'. Do NOT paste that string into a sentence. "
+            "Reciting it in its written order — full title, then 'previously', then the second "
+            "employer — is the single most obvious tell that a machine wrote the line, because no "
+            "person has ever introduced themselves that way out loud. Take ONE role out of it and "
+            "say it the way you would to a colleague."
+        )
+        parts.append(
             "- PICK THE ROLE THAT FITS THIS VIDEO: the background may hold more than one. Choose by "
             "CONTEXT and use judgement, not a mechanical rule. When the video is about a company, "
             "product, process or culture the presenter actually worked inside, lead with THAT role "
@@ -134,8 +142,20 @@ def _creator_context(bio: str, title_tag: str = "") -> str:
             "sentence THIS video's opening claim needs. "
             "The good version RAISES the stakes and hands the viewer a fresh reason to keep "
             "listening; the bad version releases the tension the hook just built and delays the first "
-            "real insight. TEST IT: strip the credential out — if the sentence is still worth saying, "
-            "it is doing real work; if nothing is left, it was runway. When it cannot be said in ONE "
+            "real insight. "
+            "NEVER START THE SENTENCE WITH THE CREDENTIAL. 'As a <role> at <employer>, I can tell "
+            "you that...', 'Speaking as a <role>...', 'With my background as...' are all the SAME "
+            "failure: they put who you are in front of what you know, which demotes the claim to "
+            "something you are merely asserting. Lead with the CLAIM and hang the credential off it "
+            "as the REASON it is true, joined by an actual reason word — 'because', 'that is how I "
+            "know', 'I watched', 'I sat in'. "
+            "TEST IT — delete the credential clause and read what is left. If the sentence MEANS THE "
+            "SAME THING without it, the credential was decoration: either attach it to a claim only "
+            "an insider could make, or cut it. 'As a Scientist at <employer>, I can tell you that "
+            "production is about engineering' FAILS the test, because anyone can tell you that and "
+            "the credential changed nothing. 'I watched that queue back up every peak season' PASSES, "
+            "because the credential is carrying the evidence for something the viewer could not "
+            "otherwise check. When it cannot be said in ONE "
             "sentence that also moves the argument forward, leave it out of the opening and let the "
             "background surface later where it fits."
         )

@@ -390,18 +390,32 @@ def _drop_stale_shot_files(stem: Path) -> None:
 
 
 def write_shot_prompts(scene_visuals: list[SceneVisual], run_root: Path) -> int:
-    """Write every GENERATED shot's image prompt to ``shot_prompts.json``, keyed ``scene_N_shot_M``.
+    """Write every GENERATED shot to ``shot_prompts.json`` as ``scene_N_shot_M -> {source, prompt}``.
 
     Exists so the operator can take a prompt straight to a better image model by hand and drop the
-    result back over ``assets/scenes/scene_N_shot_M.png`` — the free generator is the quality
-    ceiling, not the prompt. Stock B-roll shots carry no prompt and are skipped. Best-effort: a write
-    failure must never break the visuals stage.
+    result back over ``assets/scenes/scene_N_shot_M.png`` -- the free generator is the quality
+    ceiling, not the prompt. Stock B-roll shots carry no prompt and are skipped.
+
+    ``source`` is what makes the file usable: a shot drawn as a chart (``"diagram"``) cost nothing
+    and is already exact, while ``"google"``/``"pollinations"``/``"card"`` came from an image model
+    and are the ones worth redoing by hand. Both kinds carry a prompt -- a diagram keeps its
+    photographic prompt purely as the fallback that would have been used had the drawing failed --
+    so WITHOUT this field the two are indistinguishable and every chart looks like a candidate for
+    regeneration. Best-effort: a write failure must never break the visuals stage.
     """
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, str]] = {}
+    # A REUSED shot only knows it was reused, so recover what originally drew it from the previous
+    # file (read BEFORE this one overwrites it). Without that, one reuse pass would turn every
+    # chart into an indistinguishable "reused" and the field would stop being useful after a re-run.
+    prior = _read_shot_prompts(run_root)
     for scene in scene_visuals:
         for j, shot in enumerate(scene.shots or []):
             if shot.prompt:
-                out[f"scene_{scene.scene_index}_shot_{j}"] = shot.prompt
+                key = f"scene_{scene.scene_index}_shot_{j}"
+                source = shot.source or ""
+                if source == "reused":
+                    source = prior.get(key, {}).get("source") or "reused"
+                out[key] = {"source": source, "prompt": shot.prompt}
     if not out:
         return 0
     with contextlib.suppress(OSError):
@@ -411,17 +425,36 @@ def write_shot_prompts(scene_visuals: list[SceneVisual], run_root: Path) -> int:
     return len(out)
 
 
-def _read_shot_prompts(run_root: Path) -> dict[str, str]:
-    """Previous run's ``shot_prompts.json`` (``scene_N_shot_M`` -> prompt), or empty when absent.
+def _read_shot_prompts(run_root: Path) -> dict[str, dict[str, str]]:
+    """Previous run's ``shot_prompts.json`` as ``scene_N_shot_M -> {source, prompt}``.
 
     Used so an image that is REUSED rather than regenerated still reports the prompt it was actually
-    made from. Best-effort: a missing or corrupt file simply means no prompts are known.
+    made from AND the source that originally produced it -- without the latter a reused chart would
+    report only ``"reused"`` and the operator could no longer tell it apart from a reused AI image.
+
+    Accepts the ORIGINAL flat ``key -> prompt`` shape too, so a run whose file predates the source
+    field still restores its prompts instead of silently losing them. Best-effort: a missing or
+    corrupt file simply means nothing is known.
     """
     try:
         data = json.loads((run_root / _SHOT_PROMPTS_REL).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            continue
+        if isinstance(value, str):  # legacy flat shape
+            out[key] = {"source": "", "prompt": value}
+        elif isinstance(value, dict) and isinstance(value.get("prompt"), str):
+            source = value.get("source")
+            out[key] = {
+                "source": source if isinstance(source, str) else "",
+                "prompt": value["prompt"],
+            }
+    return out
 
 
 def narration_windows(narration: str, count: int) -> list[str]:
@@ -460,7 +493,7 @@ class Visuals:
         # shot index -> diagram spec for the CURRENT scene, refreshed on every _shot_image_prompts
         # call. Initialised here so _build_shots is safe even when the director never runs.
         self._shot_diagrams: dict[int, dict] = {}
-        self._existing_prompts: dict[str, str] = {}  # prior shot_prompts.json, for reused images
+        self._existing_prompts: dict[str, dict[str, str]] = {}  # prior shot_prompts.json, for reuse
         self._log = get_logger(component="visuals")
 
     def run(
@@ -666,7 +699,7 @@ class Visuals:
                 continue
             key = f"scene_{scene.index}_shot_{j}"
             if reuse and (run_root / f"assets/scenes/{key}.png").exists():
-                keep[j] = self._existing_prompts.get(key, "")
+                keep[j] = (self._existing_prompts.get(key) or {}).get("prompt", "")
             else:
                 gap_shots.append((j, window))
         gap_prompts = self._shot_image_prompts(scene, gap_shots)
@@ -685,6 +718,9 @@ class Visuals:
             stem = f"assets/scenes/scene_{scene.index}_shot_{j}"
             if not url and j in keep:
                 # Reused as-is: leave the file (and any hand-made replacement) completely untouched.
+                # The source stays "reused" DELIBERATELY -- the bytes on disk may be the operator's
+                # own replacement, so claiming they came from an image model would be false. What
+                # originally produced the shot is recovered in write_shot_prompts instead.
                 found.append((f"{stem}.png", "reused", beat, keep[j]))
                 continue
             # A beat that used to resolve to a stock clip may now resolve to a generated image (or the
@@ -712,6 +748,13 @@ class Visuals:
                     width, height = self._settings.resolution_wh
                     if render_diagram(spec, run_root / rel, width=width, height=height):
                         source = "diagram"
+                        # Feed the shape back into the cross-scene variety list the director already
+                        # reads. Diagram chrome (frame, palette, box style) is identical by design,
+                        # so the SHAPE is the only thing that stops two of them looking like one
+                        # picture -- run 0024 shipped 7 diagrams that made only 4 distinct layouts.
+                        kind = str(spec.get("type") or "").strip()
+                        if kind:
+                            self._used_compositions.append(f"a {kind} diagram")
                         self._log.info(
                             "diagram_rendered", scene=scene.index, shot=j, kind=spec.get("type")
                         )

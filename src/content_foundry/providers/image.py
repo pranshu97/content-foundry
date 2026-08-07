@@ -16,10 +16,63 @@ class _ImageClientError(Exception):
     retry, so we fail fast and let a fallback image provider take over."""
 
 
+_MAX_RAW_DETAIL = 600  # only for a body we cannot parse; the parsed summary below is far shorter
+_LOG_DETAIL_CHARS = 500
+
+
+def _error_detail(resp) -> str:
+    """A COMPACT but genuinely diagnostic summary of an image API error.
+
+    This used to be a blind ``resp.text[:200]``, which reliably cut the body off mid-sentence and
+    threw away the one field that matters. Google reports WHICH quota was exhausted, and a
+    ``-FreeTier`` quota id on a supposedly paid project is the difference between "rate limited,
+    wait for the reset" and "billing is not active, this will never recover on its own". That
+    distinction is invisible in the human-readable message (both say "check your plan and billing
+    details"), so the quota ids are lifted to the FRONT and the free-tier case is named outright.
+    """
+    try:
+        body = resp.json()
+    except ValueError:
+        return resp.text[:_MAX_RAW_DETAIL]
+    if not isinstance(body, dict):
+        return resp.text[:_MAX_RAW_DETAIL]
+    err = body.get("error") or {}
+
+    quotas: list[str] = []
+    retry_after = ""
+    for det in err.get("details") or []:
+        if not isinstance(det, dict):
+            continue
+        for violation in det.get("violations") or []:
+            quota_id = (violation or {}).get("quotaId")
+            if quota_id:
+                quotas.append(str(quota_id))
+        if det.get("retryDelay"):
+            retry_after = str(det["retryDelay"])
+
+    parts: list[str] = []
+    if err.get("status"):
+        parts.append(str(err["status"]))
+    if quotas:
+        unique = sorted(set(quotas))
+        parts.append(f"quotas={','.join(unique)}")
+        if all("FreeTier" in q for q in unique):
+            parts.append(
+                "SERVED ON THE FREE TIER (billing is NOT active for this project, so this will "
+                "not clear by waiting - fix the billing account)"
+            )
+    if retry_after:
+        parts.append(f"retry_after={retry_after}")
+    message = " ".join(str(err.get("message") or "").split())
+    if message:
+        parts.append(message[:300])
+    return " | ".join(parts) or resp.text[:_MAX_RAW_DETAIL]
+
+
 def _raise_for_image_status(resp) -> None:
     """Raise a non-retryable ``_ImageClientError`` on any 4xx (won't recover), else raise on 5xx."""
     if 400 <= resp.status_code < 500:
-        raise _ImageClientError(f"image API {resp.status_code}: {resp.text[:200]}")
+        raise _ImageClientError(f"image API {resp.status_code}: {_error_detail(resp)}")
     resp.raise_for_status()
 
 
@@ -115,7 +168,7 @@ class GoogleImage:
                     "google_image_model_failed",
                     model=model,
                     error=type(exc).__name__,
-                    detail=str(exc)[:200],
+                    detail=str(exc)[:_LOG_DETAIL_CHARS],
                 )
         assert last is not None  # the loop ran at least once, so a failure was recorded
         raise last

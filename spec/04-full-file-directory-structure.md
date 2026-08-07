@@ -35,8 +35,9 @@ career-advice-channel/
 │       │   ├── anthropic_provider.py
 │       │   ├── openai_provider.py
 │       │   ├── fallback.py        # FallbackProvider (primary→secondary)
-│       │   ├── tts.py             # TTSProvider + ElevenLabs/OpenAI/Edge/Piper + Chatterbox voice-clone (CUDA)
-│       │   ├── image.py           # ImageProvider + OpenAI/Stability impls
+│       │   ├── tts.py             # TTSProvider + ElevenLabs/OpenAI/Edge/Piper + Chatterbox & IndexTTS-2 voice-clone (CUDA)
+│       │   ├── indextts2_worker.py # persistent JSON line-protocol worker, run by the OTHER venv's python
+│       │   ├── image.py           # ImageProvider + OpenAI/Stability/Google/Pollinations impls
 │       │   ├── broll.py           # Pexels + Pixabay stock-footage clients + MultiBrollClient
 │       │   ├── sfx.py             # SfxLibrary (local data/sounds) + optional Freesound download
 │       │   ├── render_backend.py  # RenderBackend + Ffmpeg/MoviePy/Avatar impls
@@ -71,7 +72,12 @@ career-advice-channel/
 │       │   ├── captions.py        # build .srt/.ass from word timings
 │       │   ├── timeline.py        # map script scenes -> timed media segments (per-beat clips)
 │       │   ├── sound_design.py    # mix SFX cues onto the narration
+│       │   ├── diagram.py         # draw a matrix / bars / ladder / flow shot with matplotlib
+│       │   ├── motion.py          # pick + build a camera move for a generated still (zoompan)
 │       │   ├── subscribe.py       # Subscribe-nudge badge (Pillow) + overlay spec
+│       │   ├── like_nudge.py      # glowing Like badge (Pillow) + overlay spec
+│       │   ├── end_screen.py      # watch-next recommendations from local run history
+│       │   ├── affiliate.py       # resolve + render affiliate resource links
 │       │   ├── overlay.py         # avatar overlay spec
 │       │   ├── seo.py             # title/description/tag optimization
 │       │   └── timebox.py         # time-context for the writer (evergreen-by-default)

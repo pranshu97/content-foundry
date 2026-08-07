@@ -15,6 +15,7 @@ from ..safeguards.grounding import check_grounding
 from ..templates import select_template
 from .judge_checks import (
     compliance_check,
+    credential_recital_report,
     ending_report,
     freshness_and_fatigue,
     freshness_why,
@@ -84,6 +85,9 @@ class Judge:
         # Retention open loop: a declared/teased end-payoff MUST actually be delivered (never a bait-
         # and-switch). Long-form only — Shorts don't plant open loops.
         open_loop_ok, open_loop_note = (True, "") if s.is_short else open_loop_report(script)
+        # The presenter's background must be WOVEN IN, never READ OUT: a long verbatim run of the
+        # configured bio is a CV recital, the most obvious machine tell an opening can carry.
+        bio_ok, bio_note = credential_recital_report(script, s.creator_bio)
 
         # An egregiously short draft (a single scene) is rejected without spending an LLM call,
         # exactly like a grounding/compliance violation. Full completeness (scene/word floors) is
@@ -94,6 +98,7 @@ class Judge:
             or (len(script.scenes) < 2)
             or (not redundancy_ok)
             or (not open_loop_ok)
+            or (not bio_ok)
         )
 
         # ---- subjective dims: LLM (hybrid/llm) or heuristic (deterministic / fallback) ----
@@ -221,6 +226,7 @@ class Judge:
                 length_note,
                 None if redundancy_ok else redundancy_note,
                 None if open_loop_ok else open_loop_note,
+                None if bio_ok else bio_note,
             )
         )
 
@@ -395,6 +401,7 @@ class Judge:
         length_note=None,
         redundancy_note=None,
         open_loop_note=None,
+        bio_note=None,
     ) -> str:
         """A per-dimension critique the Generator can act on — reuses the judge's own reasoning
         (justification + the evidence it flagged) for every dimension that fell short, so the
@@ -406,6 +413,8 @@ class Judge:
                 "- KEEP INTACT (already strong — edit around these, do NOT let them regress): "
                 f"{', '.join(strengths)}."
             )
+        if bio_note:
+            lines.append(f"- {bio_note}")
         if open_loop_note:
             lines.append(f"- {open_loop_note}")
         if redundancy_note:

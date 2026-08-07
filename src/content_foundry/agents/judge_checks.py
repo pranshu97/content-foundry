@@ -66,7 +66,9 @@ def specificity_why(script: Script) -> str:
     else:
         parts.append(f"{stats} statistic(s) found")
     if hits > 0:
-        parts.append(f"{hits} generic-phrase hit(s) — avoid phrases like 'network more' or 'work hard'")
+        parts.append(
+            f"{hits} generic-phrase hit(s) — avoid phrases like 'network more' or 'work hard'"
+        )
     if proper < 3:
         parts.append("few named roles, tools, or companies cited")
     return "; ".join(parts) or "specificity looks adequate."
@@ -114,7 +116,9 @@ def hook_similarity(hook: str, recent_hooks: Sequence[str]) -> float:
     return max((_jaccard(target, _shingles(h)) for h in recent_hooks), default=0.0)
 
 
-def duplicate_scene_pairs(script: Script, *, threshold: float = 0.5) -> list[tuple[int, int, float]]:
+def duplicate_scene_pairs(
+    script: Script, *, threshold: float = 0.5
+) -> list[tuple[int, int, float]]:
     """Pairs of scenes whose narration is near-duplicate (3-gram Jaccard >= threshold). Recycling the
     same sentences/facts across scenes reads as lazy padding and drives viewer churn, so it is caught
     deterministically. Returns (scene_a, scene_b, similarity), 1-based for human-readable feedback."""
@@ -142,12 +146,54 @@ _END_TEASE_RE = re.compile(
     re.I,
 )
 # Words too generic to prove a promised payoff was actually delivered.
-_LOOP_STOP = frozenset({
-    "video", "this", "that", "your", "you", "the", "and", "with", "from", "what", "when", "will",
-    "would", "could", "should", "about", "there", "here", "them", "they", "then", "than", "into",
-    "just", "going", "really", "thing", "things", "most", "more", "some", "show", "reveal", "tell",
-    "give", "share", "later", "stay", "around", "watch", "watching", "keep", "till", "until",
-})
+_LOOP_STOP = frozenset(
+    {
+        "video",
+        "this",
+        "that",
+        "your",
+        "you",
+        "the",
+        "and",
+        "with",
+        "from",
+        "what",
+        "when",
+        "will",
+        "would",
+        "could",
+        "should",
+        "about",
+        "there",
+        "here",
+        "them",
+        "they",
+        "then",
+        "than",
+        "into",
+        "just",
+        "going",
+        "really",
+        "thing",
+        "things",
+        "most",
+        "more",
+        "some",
+        "show",
+        "reveal",
+        "tell",
+        "give",
+        "share",
+        "later",
+        "stay",
+        "around",
+        "watch",
+        "watching",
+        "keep",
+        "till",
+        "until",
+    }
+)
 
 
 def _loop_salient(text: str) -> set[str]:
@@ -183,6 +229,53 @@ def open_loop_report(script: Script) -> tuple[bool, str]:
     return True, ""
 
 
+def _longest_shared_run(bio: str, text: str) -> int:
+    """Length of the longest run of CONSECUTIVE words appearing in both strings."""
+    a = re.findall(r"[a-z0-9]+", (bio or "").lower())
+    b = re.findall(r"[a-z0-9]+", (text or "").lower())
+    if not a or not b:
+        return 0
+    best = 0
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        for j in range(1, len(b) + 1):
+            if a[i - 1] == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                best = max(best, cur[j])
+        prev = cur
+    return best
+
+
+def credential_recital_report(script: Script, bio: str, *, max_run: int = 6) -> tuple[bool, str]:
+    """The presenter's background must be WOVEN IN, never READ OUT. Returns ``(ok, note)``.
+
+    ``creator_bio`` is a config string, often several roles comma-joined with 'previously'. Pasting
+    it into the narration produces the most obvious machine tell there is -- a CV recited at the
+    viewer instead of a person explaining how they know something.
+
+    Detection is a longest-consecutive-shared-word-run, which is what separates the two uses.
+    CALIBRATED against real output: recitals score 6-12 ('As a Senior Applied AI Scientist at
+    Microsoft, previously an Applied Scientist at Amazon, I can tell you...' = 7) while genuine
+    earned authority scores 2-3 ('because I spent years as an Applied Scientist at Amazon watching
+    those dashboards' = 3), because a natural sentence borrows ONE role and rebuilds the grammar
+    around it. The default cap sits at 2x the observed legitimate maximum, so naming an employer is
+    never penalised -- only quoting the config verbatim is."""
+    bio = (bio or "").strip()
+    if not bio:
+        return True, ""
+    run = _longest_shared_run(bio, all_text(script))
+    if run <= max_run:
+        return True, ""
+    return False, (
+        "CREDENTIAL RECITAL -- HARD FAIL: the narration quotes the presenter's configured "
+        f"background almost word for word ({run} consecutive words of it). That reads as a CV being "
+        "recited, not a person explaining how they know something. Do NOT open a sentence with the "
+        "credential ('As a <role> at <employer>, I can tell you that...'). Name ONE role, in your "
+        "own words, hung off the claim as the REASON it is true -- and only where it earns that "
+        "specific claim."
+    )
+
 
 def redundancy_report(script: Script, *, threshold: float = 0.5) -> tuple[bool, str]:
     """(is_ok, detail): flag scripts that repeat whole scenes near-verbatim, with a specific note
@@ -190,7 +283,9 @@ def redundancy_report(script: Script, *, threshold: float = 0.5) -> tuple[bool, 
     dupes = duplicate_scene_pairs(script, threshold=threshold)
     if not dupes:
         return True, "every scene is distinct."
-    listed = ", ".join(f"scenes {a} & {b} (~{int(sim * 100)}% identical)" for a, b, sim in dupes[:8])
+    listed = ", ".join(
+        f"scenes {a} & {b} (~{int(sim * 100)}% identical)" for a, b, sim in dupes[:8]
+    )
     return False, (
         "REPEATED SCENES (lazy padding that drives viewers away): "
         f"{listed}. Rewrite each flagged scene to make a genuinely DIFFERENT point in fresh words; "
@@ -239,13 +334,17 @@ def freshness_and_fatigue(
     return FreshnessResult(score=_clamp(score), fatigue=fatigue, similarity=round(similarity, 3))
 
 
-def freshness_why(template_id: str, fresh: FreshnessResult, recent_template_ids: Sequence[str]) -> str:
+def freshness_why(
+    template_id: str, fresh: FreshnessResult, recent_template_ids: Sequence[str]
+) -> str:
     parts: list[str] = []
     count = list(recent_template_ids).count(template_id)
     if count > 0:
         parts.append(f"template '{template_id}' used {count} time(s) recently — vary the structure")
     if fresh.similarity > 0.3:
-        parts.append(f"hook too similar to a recent one (Jaccard {fresh.similarity:.2f}) — rewrite the opening")
+        parts.append(
+            f"hook too similar to a recent one (Jaccard {fresh.similarity:.2f}) — rewrite the opening"
+        )
     return "; ".join(parts) or "freshness looks adequate."
 
 
@@ -276,7 +375,13 @@ def heuristic_engagement(script: Script) -> float:
     hooks = len(_ENGAGE_RE.findall(text))
     stats = len(extract_stats(text))
     questions = text.count("?")
-    raw = 4.0 + 0.6 * min(hooks, 5) + 0.35 * min(stats, 5) + 0.6 * min(questions, 3) - 1.5 * generic_hits(script)
+    raw = (
+        4.0
+        + 0.6 * min(hooks, 5)
+        + 0.35 * min(stats, 5)
+        + 0.6 * min(questions, 3)
+        - 1.5 * generic_hits(script)
+    )
     return _clamp(raw)
 
 
@@ -286,7 +391,13 @@ def heuristic_wittiness(script: Script) -> float:
     wit = len(_WIT_RE.findall(text))
     excls = text.count("!")
     questions = text.count("?")
-    raw = 4.5 + 0.9 * min(wit, 4) + 0.6 * min(excls, 3) + 0.3 * min(questions, 3) - 1.5 * generic_hits(script)
+    raw = (
+        4.5
+        + 0.9 * min(wit, 4)
+        + 0.6 * min(excls, 3)
+        + 0.3 * min(questions, 3)
+        - 1.5 * generic_hits(script)
+    )
     return _clamp(raw)
 
 
@@ -316,10 +427,16 @@ def ending_report(script: Script) -> tuple[float, str]:
     if cta and signoff:
         return 10.0, "closes with both a like/subscribe nudge and a sign-off."
     if cta:
-        return 5.0, "has a like/subscribe nudge but NO sign-off — add a warm 'see you in the next one' close."
+        return (
+            5.0,
+            "has a like/subscribe nudge but NO sign-off — add a warm 'see you in the next one' close.",
+        )
     if signoff:
         return 5.0, "has a sign-off but NO like/subscribe nudge — add an explicit 'subscribe' ask."
-    return 0.0, "ends abruptly: NO like/subscribe nudge and NO sign-off — the final scene must add BOTH."
+    return (
+        0.0,
+        "ends abruptly: NO like/subscribe nudge and NO sign-off — the final scene must add BOTH.",
+    )
 
 
 def heuristic_ending(script: Script) -> float:

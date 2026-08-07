@@ -614,8 +614,12 @@ class Settings(BaseSettings):
     output_dir: str = "output/runs"
 
     # ---------- Safeguards ----------
-    require_disclosure: bool = True
-    require_grounding: bool = True
+    # There is deliberately NO `require_grounding` / `require_disclosure` toggle here. Both
+    # protections are enforced, but by settings that actually do something: grounding by the
+    # Judge's hard `grounding_min` floor, disclosure by `require_manual_disclosure_before_public`
+    # + safeguards/disclosure.resolve_publish_outcome. The old booleans were read NOWHERE in src/,
+    # so setting either to false silently changed nothing -- a switch that does not switch is worse
+    # than no switch, because it invites you to trust a change you never made.
 
     # ---------- Content strategy (future plans 3-5) ----------
     time_box_enabled: bool = True

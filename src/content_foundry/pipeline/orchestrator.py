@@ -753,6 +753,7 @@ class Orchestrator:
                 attempt_number=attempt_number,
                 recent_template_ids=recent_ids,
                 recent_hooks=recent_hooks,
+                instructions=self._run_instructions,
             )
             self._record_judge_attempt(run_id, attempt_id, report, paths, produced, hashes)
             self.repo.update_run(
@@ -927,7 +928,7 @@ class Orchestrator:
         self._emit("step", label=label)
         if stage == "voiceover":
             script = self._need(produced, "script", paths)
-            vo = Voiceover(self.s, self._tts_provider(run_id)).run(
+            vo = Voiceover(self.s, self._tts_provider(run_id), self._llm_provider()).run(
                 run_id, script, run_root=run_root
             )
             self._persist(

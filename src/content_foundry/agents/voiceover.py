@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -10,6 +12,9 @@ from ..models import Provenance, SceneTiming, Script, VoiceoverAsset, WordTiming
 
 _WORDS_PER_SEC = 2.5
 _AUDIO_REL = "assets/narration.mp3"
+# Kept beside the audio it produced, so the operator can read what the narrator was told to say and
+# correct any line by hand -- a hand-edited entry is preserved on a re-voice rather than re-asked.
+_PRONUNCIATION_REL = "assets/pronunciations.json"
 
 # Which delivery to clone for each script shape. The template already encodes the video's rhetorical
 # job, so the tone comes free -- no extra model call. A contrarian piece lives on stress ("no, it is
@@ -35,10 +40,55 @@ def tone_for_script(template_id: str, *, override: str = "") -> str:
 
 
 class Voiceover:
-    def __init__(self, settings, tts_provider):
+    def __init__(self, settings, tts_provider, llm_provider=None):
         self._settings = settings
         self._tts = tts_provider
+        self._llm = llm_provider
         self._log = get_logger(component="voiceover")
+
+    def _pronunciations(self, script: Script, run_root: Path) -> dict[str, str]:
+        """How to say every abbreviation in this script. Best-effort: {} keeps the curated tables."""
+        from ..providers.text_normalize import RULES_VERSION
+
+        path = run_root / _PRONUNCIATION_REL
+        known: dict[str, str] = {}
+        if path.exists():
+            with contextlib.suppress(OSError, ValueError):
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                version = loaded.get("rules_version") if isinstance(loaded, dict) else None
+                entries = loaded.get("pronunciations") if isinstance(loaded, dict) else None
+                if version == RULES_VERSION and isinstance(entries, dict):
+                    known = {str(k): str(v) for k, v in entries.items() if v}
+                else:
+                    # Written under different spelling rules (or the older un-stamped format), so
+                    # every entry in it is an answer to a question we no longer ask. Re-derive rather
+                    # than hand the voice a rendering the current rules would never produce.
+                    self._log.info(
+                        "pronunciations_discarded",
+                        found=version,
+                        expected=RULES_VERSION,
+                        hint="rules changed since this run was last voiced; re-resolving",
+                    )
+        try:
+            from .pronunciation import PronunciationDirector
+
+            text = " ".join(s.narration for s in script.scenes)
+            resolved = PronunciationDirector(self._settings, self._llm).resolve(text, known=known)
+        except Exception as exc:  # never let a pronunciation lookup break synthesis
+            self._log.warning("pronunciation_skipped", error=str(exc))
+            return known
+        if resolved and resolved != known:
+            with contextlib.suppress(OSError):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {"rules_version": RULES_VERSION, "pronunciations": resolved},
+                        indent=2,
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+        return resolved
 
     def run(self, run_id: str, script: Script, *, run_root: Path) -> VoiceoverAsset:
         # 0) Tell a cloning provider WHICH delivery to imitate before it prepares its reference.
@@ -49,6 +99,11 @@ class Voiceover:
         if callable(setter):
             setter(tone)
             self._log.info("voice_tone_selected", tone=tone, template=script.template_id)
+
+        # 0b) And HOW to say this script's abbreviations. Same best-effort shape as the tone hook.
+        say = getattr(self._tts, "set_pronunciations", None)
+        if callable(say):
+            say(self._pronunciations(script, run_root))
 
         # 1) Synthesize every scene up front, keeping each provider's raw audio + its timings/estimate.
         scenes = sorted(script.scenes, key=lambda s: s.index)

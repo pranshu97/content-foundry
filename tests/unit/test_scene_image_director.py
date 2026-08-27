@@ -192,6 +192,33 @@ def test_labels_are_allowed_so_the_real_artefact_can_be_shown(monkeypatch, fakes
     assert "label" in example  # and the replacement is actually demonstrated
 
 
+def test_an_invented_nameplate_is_banned_without_re_banning_real_labels(monkeypatch, fakes):
+    """Every video was producing the SAME photograph: a rack or bench panel wearing engraved
+    placards, indicator lamps and dressed cables, with only the engraved words changing.
+
+    It is the unique composition surviving every other ban -- people, paper, monitors, metaphors and
+    decorative infrastructure are all out, so the one object left that can WEAR the sentence is a
+    labelled panel. The model was using the LABEL as the carrier of meaning, so the fix has to
+    forbid inventing one WITHOUT reinstating the blanket text ban that previously caused the
+    metaphor epidemic (see the test above) -- genuine lettering on a curve or a form stays legal.
+    """
+    settings = _settings(monkeypatch)
+    llm = fakes.LLM(script_json={"shots": []})
+    SceneImageDirector(settings, llm).compose(shots=[(0, "the canary deploy rolls back")])
+    system = llm.calls[-1]["system"]
+
+    assert "THE LABEL IS NOT THE PICTURE" in system
+    assert "THE LABELLED EQUIPMENT PANEL" in system
+    # The ban has to name the actual composition, not gesture at it.
+    for element in ("placard", "indicator lamp", "rack-mounted", "engraved"):
+        assert element in system, f"the ban does not name {element}"
+    # Inventing a label is what is forbidden...
+    assert "NEVER invent a nameplate" in system
+    # ...while text that genuinely exists in the world is still explicitly allowed.
+    assert "short labels are ALLOWED" in system
+    assert "no paragraphs of text, no logos, no watermark" in system
+
+
 def test_prompt_makes_relevance_the_hard_constraint(monkeypatch, fakes):
     """Variety rules pushed shots off-topic (a transit hub for a hiring-debrief scene), so relevance
     must outrank them and the repeat-avoidance must change the CAMERA, not the subject."""

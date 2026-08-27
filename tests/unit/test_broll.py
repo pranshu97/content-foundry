@@ -119,8 +119,10 @@ def test_clip_ok_positive_context_drops_unrelated():
         )
         is False
     )
-    # On-topic clip (tags touch the video's vocabulary) is kept:
-    assert _clip_ok("woman at computer", "office, computer, business", vocab) is True
+    # On-topic clip (tags touch the video's vocabulary) is kept. The beat needs a discriminating
+    # word of its own -- "woman" and "computer" are generic/set dressing, so "software" is what the
+    # clip has to earn.
+    assert _clip_ok("woman at computer software", "office, computer, software", vocab) is True
     # No vocabulary known (context off) -> only the denylist applies, unrelated tags pass:
     assert _clip_ok("woman at computer", "pottery, ceramics", set()) is True
     # No tags at all while a vocabulary IS known -> unverifiable bare-URL clip, dropped (this is the
@@ -135,8 +137,32 @@ def test_clip_ok_requires_a_specific_query_word_not_just_generic():
     assert _clip_ok("person pointing chart", "person, honey, beekeeper, jar", vocab) is False
     # A clip that actually names the beat's SPECIFIC subject ("chart") is kept.
     assert _clip_ok("person pointing chart", "businessman, pointing, chart, growth", vocab) is True
-    # Generic-only beats (no specific word to match on) still fall back to the vocabulary check.
-    assert _clip_ok("person standing", "office, person, desk", vocab | {"office", "desk"}) is True
+    # A beat that is ALL set dressing offers NOTHING to verify a clip against, so nothing qualifies.
+    # This used to fall through to the vocabulary check, and that is exactly how the most anonymous
+    # footage in the library got on screen -- measured across runs 0019-0027, every clip that entered
+    # this way was a stranger at a desk. The shot falls back to a generated image built from the whole
+    # spoken line instead. Do NOT restore the fall-through.
+    assert _clip_ok("person standing", "office, person, desk", vocab | {"office", "desk"}) is False
+
+
+def test_the_anonymous_stock_shots_that_reached_real_videos_are_now_refused():
+    """The three beats that actually put generic footage on screen, taken from shipped runs.
+
+    Measured across runs 0019-0027: of 97 stock clips, exactly these three entered through the
+    empty-``specific`` fall-through, and all three are the interchangeable desk/office/building shot
+    that mass-produced channels are built from. Every one goes through ``_search_terms`` first,
+    because that is the trimmed query the gate is really handed -- asserting on the raw beat would
+    test a string production never sees.
+    """
+    vocab = {"engineer", "model", "latency", "team", "monitor", "laptop", "office", "building"}
+    for beat in (
+        "person working on laptop modern desk",
+        "person walking into modern tech building",
+        "tech team looking monitor screen",
+    ):
+        # Tagged the way a stock library really tags these, and touching the video's vocabulary --
+        # so the ONLY thing standing between them and the video is the specific-word requirement.
+        assert _clip_ok(_search_terms(beat), "office, business, laptop, corporate", vocab) is False
 
 
 def test_clip_ok_rich_beat_needs_more_than_one_specific_match():

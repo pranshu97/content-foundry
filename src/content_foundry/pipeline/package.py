@@ -65,7 +65,7 @@ def build_package_md(
         ", ".join(script.tags) or "(none)",
         "",
         "## Thumbnail",
-        f"{visuals.thumbnail_path if visuals else 'assets/thumbnail.png'} — overlay: "
+        f"{visuals.thumbnail_path if visuals else 'assets/thumbnail.png'} — headline: "
         f"\"{visuals.thumbnail_text if visuals else script.thumbnail_concept}\"",
         "",
         "## Grounding (facts used)",

@@ -303,10 +303,17 @@ class IndexTTS2:
         self._reference_window_sec = reference_window_sec
         self._prepared_reference = ""
         self._tone = tone or DEFAULT_TONE
+        self._pronunciations: dict[str, str] = {}
         self.voice = Path(self._reference).stem if self._reference else "cloned"
         self.sample_rate = 22050  # corrected from the first synthesized file
         self._proc: Any = None
         self._stderr_path = ""
+
+    def set_pronunciations(self, mapping: dict[str, str] | None) -> None:
+        """Per-run spoken forms for abbreviations the static tables do not cover (see
+        ``agents.pronunciation``). Best-effort, like ``set_tone``: a bad value is ignored rather than
+        allowed to break synthesis."""
+        self._pronunciations = dict(mapping) if isinstance(mapping, dict) else {}
 
     def set_tone(self, tone: str) -> None:
         """Choose the delivery (see ``TONE_WEIGHTS``). Steers the emotion vector when emotion is on,
@@ -423,7 +430,7 @@ class IndexTTS2:
             raise TTSError(
                 f"Cloning reference clip not found at TTS_REFERENCE_CLIP={self._reference!r}."
             )
-        spoken = speechify_numbers(text)
+        spoken = speechify_numbers(text, self._pronunciations)
         vector = self._emotion_vector()
         speaker = str(Path(self._conditioning_clip()).resolve())
         pieces = []
@@ -546,6 +553,7 @@ class ChatterboxTTS:
         self._reference_window_sec = reference_window_sec
         self._tone = tone or DEFAULT_TONE
         self._prepared_reference = ""
+        self._pronunciations: dict[str, str] = {}
         self.voice = Path(self._reference).stem if self._reference else "cloned"
         self.sample_rate = 24000
         self._model = None
@@ -590,6 +598,12 @@ class ChatterboxTTS:
             self.sample_rate = int(getattr(self._model, "sr", 24000))
         return self._model
 
+    def set_pronunciations(self, mapping: dict[str, str] | None) -> None:
+        """Per-run spoken forms for abbreviations the static tables do not cover (see
+        ``agents.pronunciation``). Best-effort, like ``set_tone``: a bad value is ignored rather than
+        allowed to break synthesis."""
+        self._pronunciations = dict(mapping) if isinstance(mapping, dict) else {}
+
     def set_tone(self, tone: str) -> None:
         """Choose the DELIVERY to clone (see ``TONE_WEIGHTS``). Called best-effort by the voiceover
         agent once it knows what kind of video this is. Invalidates any window already prepared for a
@@ -631,7 +645,7 @@ class ChatterboxTTS:
         # Expand numbers/currency to words so the voice says "two hundred two thousand", not a
         # mangled "202,000" — Chatterbox's front-end mis-reads comma-grouped figures. Only the AUDIO
         # input is normalized; the original digits stay in the script for captions/citations.
-        spoken = speechify_numbers(text)
+        spoken = speechify_numbers(text, self._pronunciations)
         # Chatterbox generates at most ~1000 tokens (~40s) PER CALL, so a long scene voiced in one
         # shot is TRUNCATED mid-sentence and the video then cuts to the next scene before the line
         # finishes. Split into sentence-sized chunks that each sit well inside that window, then

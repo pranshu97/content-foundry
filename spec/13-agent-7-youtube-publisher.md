@@ -4,6 +4,18 @@
 Upload the finished video to YouTube as a **privacy-gated draft**, attach all metadata and the thumbnail, and **guarantee the synthetic-content disclosure** is handled before anything can go public. This is the compliance backbone of the system.
 
 > **Post-publish comment (current behavior).** Right after upload the publisher posts ONE top comment (needs the `youtube.force-ssl` scope, requested when either comment feature is on): a **"watch next" list** linking the most related PRIOR channel uploads (`RECOMMEND_COMMENT_ENABLED`, the same picks as the `end_screen.json` sidecar, works on long-form + Shorts) plus, when `PUBLISH_TOP_COMMENT` is on, the subscribe/affiliate CTA. Best-effort; the API cannot pin, so pin once in Studio.
+>
+> A comment can only be posted where the API is allowed to post one. A **private** video returns
+> `commentsDisabled`, so the comment is silently lost — if a video is published private for review,
+> its comment has to be re-posted after it goes unlisted/public.
+
+> **Back-filling metadata (`scripts/recategorize.py`).** `videos.update` **replaces** the whole
+> snippet rather than patching it, so a naive category change wipes the description, tags and
+> localisations. `youtube.recategorized_snippet()` therefore does a read-modify-write: it re-sends
+> every writable snippet field (`title` and `categoryId` are both mandatory) and returns `None` when
+> the video is already correct, so re-running is a no-op. The script is dry-run by default and needs
+> `--apply` to write. Used once to move 16 existing uploads from 28 (Science & Technology) to 27
+> (Education), which is where this channel's audience actually browses.
 
 ### 13.2 Inputs / outputs
 - **Input:** `VideoAsset` + `Script` (title/description/tags) + `VisualPackage` (thumbnail).

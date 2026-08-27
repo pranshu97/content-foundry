@@ -48,7 +48,7 @@ class Script(BaseModel):
     cta: str                       # call to action (subscribe / next video)
     description: str               # YouTube description draft
     tags: list[str]
-    thumbnail_concept: str         # visual idea + overlay text for Agent 5
+    thumbnail_concept: str         # visual idea for Agent 5 (the picture only, no words)
     word_count: int
     grounded_fact_refs: list[int]  # which DataBrief facts were actually used
     synthetic_disclosure: bool = True
@@ -71,6 +71,7 @@ class Script(BaseModel):
 - **Depth / explain the mechanism (the Insight lever):** a top prompt rule makes each main point unpack the MECHANISM — not just *what* to do but *how* it works and *why* (the cause, incentive, or psychology), with a concrete example and, where interesting, the second-order effect. Merely stating a tip reads as shallow and scores low on Insight. This draws on the model's own qualitative domain knowledge, so the grounding gate leaves it alone (only invented *numbers* are stripped).
 - **Length:** Target `SCRIPT_TARGET_WORDS`; a repair pass re-prompts once for the full script when a draft falls below the Judge's completeness floor (`MIN_SCENES` / `MIN_SCRIPT_WORD_RATIO`), keeping the longer draft. Narration is plain spoken English (no stage directions inside `narration`).
 - **Robust parsing:** malformed model output is tolerated — an int field returned as a list (`[3, 5]`), a stringified number, or `null` is coerced to a single valid value instead of failing schema validation.
+- **Thumbnail text must fire the SECOND barrel ("Double Barrel"):** `thumbnail_text` is 2-4 big words rendered *into* the thumbnail image by Agent 5's director — it is not stamped on afterwards, so the writer describes the picture in `thumbnail_concept` with no words in it. The rule the prompt enforces is that the thumbnail must say something the **title does not**: the title carries the factual, searchable context; the thumbnail fires the emotion, the stakes or the twist, and the click comes from the *tension* between them. Originally the prompt REQUIRED the thumbnail to restate the topic, and 5 of the first 8 runs shipped a thumbnail that simply repeated their own title — one barrel fired twice, with 2-4 words spent on a keyword already present in the title, the description and the tags.
 - **Disclosure:** `synthetic_disclosure=True` is always set and surfaced in the description draft.
 
 ### 8.7 Resumability hooks

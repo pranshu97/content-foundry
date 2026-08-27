@@ -277,6 +277,85 @@ def credential_recital_report(script: Script, bio: str, *, max_run: int = 6) -> 
     )
 
 
+_NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20,
+    "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}  # fmt: skip
+# Units worth policing: a quantity the operator attached to one of these is a CLAIM, not prose.
+# Bare years and decades are deliberately excluded -- "the 1970s" is legitimately paraphrased as
+# "the seventies", and flagging that would be noise. Every surface form is listed explicitly rather
+# than stripped to a stem, because stemming "times" gives "time" and silently raises KeyError.
+_UNITS = {
+    "percent": "percent", "%": "percent",
+    "millisecond": "ms", "milliseconds": "ms", "ms": "ms",
+    "x": "times", "time": "times", "times": "times", "fold": "times",
+    "dollar": "dollars", "dollars": "dollars",
+}  # fmt: skip
+# The unit may end in "%" or "x", which are not word characters, so a trailing \b would never match.
+_QUANTITY_RE = re.compile(
+    r"\b(\d[\d,]*(?:\.\d+)?|" + "|".join(_NUMBER_WORDS) + r")[\s-]*"
+    r"(percent|%|milliseconds|millisecond|ms|times|time|fold|dollars|dollar|x)(?![a-z])",
+    re.I,
+)
+
+
+def _quantities(text: str) -> set[tuple[float, str]]:
+    """Every ``(value, unit)`` pair stated in ``text``, normalised across digits and number words."""
+    out: set[tuple[float, str]] = set()
+    for raw, unit in _QUANTITY_RE.findall(text or ""):
+        token = raw.lower().replace(",", "")
+        word = _NUMBER_WORDS.get(token)
+        if word is not None:
+            value = float(word)
+        else:
+            try:
+                value = float(token)
+            except ValueError:
+                continue
+        out.add((value, _UNITS[unit.lower()]))
+    return out
+
+
+def specified_figures_report(script: Script, instructions: str) -> tuple[bool, str]:
+    """A figure the CREATOR wrote into ``--instructions`` must not come back changed. ``(ok, note)``.
+
+    Run 0025 is the case this exists for: the brief said model code is "ten percent of the job", the
+    script said "five percent", and it kept the matching "ninety percent" -- so the video shipped a
+    claim that contradicted both the operator's instruction AND itself, and the thumbnail then
+    faithfully rendered the wrong number. Coverage checking cannot catch this: the ask WAS covered,
+    the topic WAS discussed, only the quantity was silently rewritten.
+
+    Deliberately narrow, because a steer that nags is a steer that gets ignored. A figure is flagged
+    ONLY when the script uses the SAME UNIT with a DIFFERENT value -- i.e. it is talking about the
+    thing and got the number wrong. A figure the script simply never mentions is left alone (that is
+    the instruction-coverage machinery's job), and any EXTRA figures the writer researched are never
+    penalised. Bare years and decades are excluded entirely, since they are routinely paraphrased.
+    """
+    instructions = (instructions or "").strip()
+    if not instructions:
+        return True, ""
+    wanted = _quantities(instructions)
+    if not wanted:
+        return True, ""
+    present = _quantities(all_text(script))
+    units_in_play = {unit for _, unit in present}
+    missing = [
+        (value, unit)
+        for value, unit in sorted(wanted)
+        if unit in units_in_play and (value, unit) not in present
+    ]
+    if not missing:
+        return True, ""
+    listed = ", ".join(f"{value:g} {unit}" for value, unit in missing)
+    return False, (
+        f"CHANGED THE CREATOR'S OWN FIGURES -- HARD FAIL: the brief specifies {listed}, and the "
+        "script discusses the same quantity using a DIFFERENT number. These are the creator's "
+        "figures, not yours: reproduce each one EXACTLY as written, and check that any related "
+        "figures still add up. Never substitute a number that merely sounds similar."
+    )
+
+
 def redundancy_report(script: Script, *, threshold: float = 0.5) -> tuple[bool, str]:
     """(is_ok, detail): flag scripts that repeat whole scenes near-verbatim, with a specific note
     naming the offending scene pairs so the rewrite fixes exactly them."""

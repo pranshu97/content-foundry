@@ -923,3 +923,22 @@ def test_sound_design_respects_model_authored_cues(monkeypatch, data_brief, fake
         "R", data_brief, get_template("contrarian")
     )
     assert [s.sfx for s in script.scenes] == ["pop"] * 5  # left untouched
+
+
+def test_the_thumbnail_line_is_told_to_fire_the_second_barrel():
+    """The title and the thumbnail must say DIFFERENT things, or there is no tension to resolve.
+
+    The prompt used to REQUIRE the opposite -- "the ONE core SEARCHABLE keyword of the topic" -- which
+    is why 5 of 8 shipped videos had a thumbnail line rebuilt from the title's own nouns ("Will AI
+    Replace ML Engineers?" over "WILL AI REPLACE MLEs?"). The rule caused the defect; a weak "It MAY
+    differ from the title" three lines below never stood a chance against it.
+    """
+    from content_foundry.prompts import load_prompt
+
+    system = load_prompt("script_generator.system")
+    assert "DOUBLE BARREL" in system
+    assert "must say something the TITLE DOES NOT" in system
+    # The old requirement must stay gone, not merely be contradicted somewhere else in the file.
+    assert "ONE core SEARCHABLE keyword" not in system
+    # The worked examples were ALWAYS right; they are the thing the rule now agrees with.
+    assert "THEY'RE WATCHING YOU" in system

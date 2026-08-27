@@ -299,18 +299,23 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   rubric, a terminal or dashboard showing the actual failure. Those beat generic abstract glow,
   swirling particles and vague "tech" imagery, which read as stock filler and signal you don't have
   the answer. Keep the drama and the lighting; just anchor it to a real artifact.
-  Describe ONLY what the camera sees, with NO words or letters in the image (the thumbnail_text below
-  is overlaid for you). Example (adapt the drama to YOUR niche): "a stunned person staring at a laptop
+  Describe ONLY what the camera sees, with NO words or letters in the image (a separate thumbnail
+  director decides the typography and composes the text INTO the picture). Example (adapt the drama
+  to YOUR niche): "a stunned person staring at a laptop
   glowing with a big red rejection X, dark background, dramatic blue and red split lighting".
-- THUMBNAIL TEXT (2-4 BIG words overlaid ON the thumbnail — this + the image WIN THE CLICK; separate
-  from the title). Engineer it to stop the scroll. It MUST hit all three:
+- THUMBNAIL TEXT (2-4 BIG words rendered INTO the thumbnail image — this + the image WIN THE CLICK;
+  separate from the title). Engineer it to stop the scroll. It MUST hit all three:
   (1) A CURIOSITY GAP or a bold, specific claim — a concrete number, a "you're doing it wrong", real
       stakes/urgency, or a provocative question (make the viewer NEED the answer).
-  (2) The ONE core SEARCHABLE keyword of the topic (the role / company / skill someone would type),
-      so the thumbnail reinforces the topic at a glance and the words aren't wasted.
+  (2) DOUBLE BARREL — it must say something the TITLE DOES NOT. The title carries the factual,
+      searchable context; the thumbnail fires the second barrel: the emotion, the stakes, the twist,
+      the consequence. The viewer clicks to resolve the TENSION between them, and there is no tension
+      if both barrels say the same thing. So do NOT reuse the title's nouns — the topic keyword is
+      already in the title, in the description and in the tags, so spending your 2-4 words repeating
+      it wastes every one of them. Title "How Recommendation Engines Work" + "RECOMMENDATION ENGINES"
+      is one barrel fired twice; + "THEY'RE WATCHING YOU" is two.
   (3) Instantly readable at arm's length: 2-4 huge words, ALL-CAPS energy, never a sentence.
-  It MAY differ from the title (the title is the complete searchable version; the thumbnail is the
-  bolder hook) and MAY use the credibility tag when it sharpens it.
+  It MAY use the credibility tag when that sharpens it.
   BANNED vague filler that kills CTR: "The Truth", "Explained", "The Real Playbook", "Ultimate Guide",
   "Secrets Revealed", "Deep Dive", "A Guide", "Everything You Need", or just restating the plain
   topic. TEST: if the line could sit on ANY video in the niche, it's too vague — rewrite it around

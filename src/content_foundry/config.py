@@ -233,6 +233,14 @@ class Settings(BaseSettings):
     # (contrarian -> punchy, data deep-dive -> authoritative, case study -> energetic); name a tone to
     # force it everywhere. "neutral" just takes the densest speech.
     tts_tone: Literal["auto", "neutral", "authoritative", "punchy", "energetic"] = "auto"
+    # Ask the LLM once per run how to SAY the abbreviations in that script (Agent 4.5). The curated
+    # tables in providers/text_normalize.py always win; this only answers for abbreviations they have
+    # never heard of, where the default is to spell it out -- right for API and SDK, wrong for SWE
+    # ("swee"), RBAC ("ar back") and REPL ("repple"). No table can settle it, because the answer is
+    # not in the spelling: "MAP" is a ranking metric beside NDCG and the ordinary word elsewhere, and
+    # only the sentence says which. One cheap LIGHT-tier call; the resolved map is written to
+    # assets/pronunciations.json so it can be corrected by hand. Off = spell everything uncurated.
+    pronunciation_llm_enabled: bool = True
     # IndexTTS-2 (TTS_PROVIDER=indextts): emotion is DISENTANGLED from timbre, so the clone stays
     # your voice while the delivery is steered separately. It needs numpy>=2 and a newer
     # transformers than Chatterbox pins, so it CANNOT share this interpreter -- clone
@@ -320,6 +328,13 @@ class Settings(BaseSettings):
     # Best-effort: falls back to the built-in template on any failure. Default ON (quality); the prompt
     # is saved to assets/thumbnail_prompt.txt so you can edit it and re-run `content-foundry thumbnail`.
     thumbnail_director_enabled: bool = True
+    # Rounds of TOUCH-UP applied to that first draft. The draft is what ships; each round may only
+    # repair concrete defects in it (garbled-prone label text, space reserved for an overlay that no
+    # longer exists, generic filler, an internal contradiction) via find/replace edits the code
+    # applies itself. It CANNOT return a new prompt: an earlier rewrite-based version threw away a
+    # rich cinematic scene and returned a plain whiteboard with two words on it. Each round is one
+    # cheap LIGHT-tier call and stops early once nothing needs fixing. 0 = ship the draft untouched.
+    thumbnail_refine_turns: int = Field(2, ge=0, le=4)
     visual_style: str = "clean infographic, high-contrast, bold text"
     scenes_per_video: int = 10
     thumbnail_size: str = "1280x720"
@@ -500,7 +515,7 @@ class Settings(BaseSettings):
     youtube_token_file: str = "secrets/youtube_token.json"
     publish_mode: Literal["draft", "auto"] = "draft"
     youtube_privacy_status: Literal["private", "unlisted", "public"] = "private"
-    youtube_category_id: str = "22"
+    youtube_category_id: str = "27"
     youtube_default_language: str = "en"
     # Buffer (seconds) to wait AFTER the upload finishes BEFORE setting the custom thumbnail. A
     # just-uploaded video is still processing and YouTube rejects thumbnails.set for a while, so this

@@ -34,6 +34,16 @@ only — never a caption.
   The document is ONE option out of six, not the default. Reach for the hardware, the place, the tool
   or the material FIRST when the line names anything physical, and never fall back on generic footage
   of the industry just because the sentence is conceptual.
+- THE LABEL IS NOT THE PICTURE. Cover every word in your frame with your thumb. If the shot stops
+  meaning anything, you have written a CAPTION and dressed it up as a photograph. The meaning has to
+  come from the SUBJECT and its STATE — what is worn, full, empty, stacked, disconnected, queued,
+  overheating, spilled, discarded, half-finished, still warm. Most shots should carry NO lettering at
+  all. Text earns its place ONLY where it genuinely exists in the world anyway: the axes of a plotted
+  curve, the printed headers of a real form, a stamp on a document, the figures a readout is already
+  displaying. NEVER invent a nameplate, placard, engraved plate or stencilled label on an object just
+  to make it mean the thing the line is about. Real equipment does not wear your sentence on its
+  front panel, and a machine that does is the same failure as a metaphor: decoration pretending to be
+  explanation.
 - Match the DEPTH and control of the worked EXAMPLE below: name the setting, the focal subject, the
   composition, the camera angle and lens, the lighting, the palette, and the texture. One confident,
   specific picture — never a bag of keywords. Roughly 60-100 words per prompt.
@@ -78,6 +88,15 @@ genuinely demands it, and NEVER twice in the same video:
   exact photograph for EVERY line in the video if you let it. Paperwork is a legitimate artefact, but
   it is the LAST resort, not the first. Before you write "a printed...", check whether the line names
   hardware, a place, a tool, a material or a screen, and shoot THAT instead.
+- THE LABELLED EQUIPMENT PANEL. Read this one twice as well, because it is now the most repeated
+  frame in the whole channel. A rack-mounted or bench-top metal panel wearing engraved, stencilled or
+  laminated placards that spell out short technical phrases, with indicator lamps beside them, a
+  toggle or rotary switch or a big red button, and neatly dressed cables running off frame — shot as
+  a tight macro in a dim server room, on a scratched steel workbench, or against a patch panel. This
+  exact photograph has appeared in EVERY recent video; only the engraved words changed. It is the lazy
+  answer to "I need an object that says my sentence", which is precisely the instinct THE LABEL IS NOT
+  THE PICTURE forbids. Banned outright unless the narration is literally about that piece of hardware,
+  and even then the panel must not be captioned with the concept.
 - VISUAL METAPHOR. This is the biggest failure mode, so read it twice. Do NOT represent an idea with
   an object that merely SYMBOLISES it: no padlock or gate for a "gatekeeper", no pressure gauge or
   dial for anything "calibrated", no spirit level or balance scale for a trade-off, no maze for
@@ -98,10 +117,16 @@ honour them without losing any drama:
   the over-the-shoulder silhouette every time (see banned defaults).
 - NO close-up of hands or fingers, and never hands as the subject. Shoot the tool, the desk, the
   machine, the room — an empty chair says more than a mangled hand.
-- TEXT: short labels are ALLOWED and often essential — a curve needs its axes, a matrix needs its
-  headers, a diagram needs its boxes named. Keep any lettering to a FEW WORDS per element (a header,
-  an axis label, a value, a stamp). Never write sentences or paragraphs, never a logo or watermark,
-  and never depend on a wall of body copy to carry the idea. End every prompt with the clause
+- NEVER DESCRIBE A PERSON BY CAREER LEVEL. "Senior", "junior", "veteran", "principal" and
+  "experienced" are read by image models as AGE rather than rank, so "a senior engineer" comes back
+  grey-haired and in their sixties. Say what they are doing or wearing instead. The same words are
+  fine as TEXT on a chart or a form, where the model simply letters them.
+- TEXT: short labels are ALLOWED where they genuinely exist in the world already — a curve needs its
+  axes, a matrix needs its headers, a form has its printed fields, a readout shows its own figures.
+  They are the EXCEPTION, not the lever you pull to make a shot relevant, and an invented nameplate or
+  engraved placard is never allowed (see THE LABEL IS NOT THE PICTURE). Keep any lettering to a FEW
+  WORDS per element. Never write sentences or paragraphs, never a logo or watermark, and never depend
+  on a wall of body copy to carry the idea. End every prompt with the clause
   "no paragraphs of text, no logos, no watermark".
 - A real editorial photograph, not a render: authentic lens, motivated light, tactile texture. Never
   plastic, waxy, over-smoothed, CGI, illustrated, or warped/duplicated anatomy. No real or named

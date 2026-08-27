@@ -57,6 +57,8 @@ _BASE_ENV = {
     "BROLL_DIRECTOR_ENABLED": "false",
     # Off so a b-roll gap doesn't add the scene-image director's LLM call to the fake call sequence.
     "SCENE_IMAGE_DIRECTOR_ENABLED": "false",
+    # Off so the voiceover stage's pronunciation lookup doesn't add an LLM call to the fake sequence.
+    "PRONUNCIATION_LLM_ENABLED": "false",
     # Off so the visuals stage's thumbnail director doesn't add an LLM call to the fake call sequence.
     "THUMBNAIL_DIRECTOR_ENABLED": "false",
     # Off by default so the fake (non-mp3) TTS output isn't fed to the pydub mixer; enabled per-test.

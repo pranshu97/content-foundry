@@ -155,7 +155,7 @@ YOUTUBE_CLIENT_SECRETS_FILE=secrets/client_secrets.json
 YOUTUBE_TOKEN_FILE=secrets/youtube_token.json
 PUBLISH_MODE=draft                            # draft | auto  (draft = upload then stop for approval)
 YOUTUBE_PRIVACY_STATUS=private                # private | unlisted | public
-YOUTUBE_CATEGORY_ID=22                        # 22 = People & Blogs
+YOUTUBE_CATEGORY_ID=27                        # 27 = Education, 28 = Science & Technology, 22 = People & Blogs, 24 = Entertainment
 YOUTUBE_DEFAULT_LANGUAGE=en
 REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC=true  # hard gate: never auto-publish public without disclosure
 # Viewer pull: append a subscribe + explore CTA to EVERY description (long and Short); opt-in comment.

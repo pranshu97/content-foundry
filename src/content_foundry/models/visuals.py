@@ -17,6 +17,11 @@ class VisualShot(BaseModel):
     source: str  # pexels | pixabay | stock
     query: str  # the shot description used to find it
     prompt: str = ""  # for a GENERATED shot: the exact image prompt used (blank for stock clips)
+    # For a DRAWN shot: the exact spec that produced the chart. Without this a chart can only ever
+    # be redrawn by re-asking the LLM, which returns DIFFERENT content -- so a purely cosmetic
+    # layout fix would silently rewrite what the chart says. Keeping it makes a redraw free, exact
+    # and hand-editable.
+    diagram: dict | None = None
 
 
 class SceneVisual(BaseModel):

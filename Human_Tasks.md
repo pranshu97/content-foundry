@@ -91,6 +91,52 @@ Things a **human** must do to get this running from scratch. The agent can write
     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
     ```
     Verify with `python -c "import torch; print(torch.cuda.is_available())"` → `True`. With `TTS_CLONE_DEVICE=cuda` the run hard-fails if the GPU isn't visible (so it never silently falls back to slow CPU).
+- [ ] _(opt)_ **Your own voice, free, best quality — IndexTTS-2.** Emotion is disentangled from timbre, so the clone stays *you* while the delivery changes. It needs a **second conda env**, and that is not optional: IndexTTS-2 requires `numpy>=2`, while Chatterbox's pinned `diffusers==0.29.0` requires `numpy<2`. The two can never share an interpreter, so the pipeline drives IndexTTS-2 out-of-process over a line protocol.
+
+  ```powershell
+  # 1. a SEPARATE env - do not install this into content_foundry
+  conda create -n content_foundry2 python=3.11 -y
+  conda activate content_foundry2
+
+  # 2. the upstream checkout (anywhere; D:\index-tts here)
+  git clone https://github.com/index-tts/index-tts D:\index-tts
+  cd D:\index-tts
+  pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+  pip install -e .
+
+  # 3. the weights (~8 GB)
+  hf download IndexTeam/IndexTTS-2 --local-dir=checkpoints
+  ```
+
+  Then point the pipeline at that env — `INDEXTTS_PYTHON` is the **second env's** interpreter, not this repo's:
+  ```ini
+  TTS_PROVIDER=indextts
+  INDEXTTS_PYTHON=C:\Users\<you>\.conda\envs\content_foundry2\python.exe
+  INDEXTTS_MODEL_DIR=D:\index-tts\checkpoints
+  INDEXTTS_FP16=true          # half precision; materially lower VRAM on a 6 GB card
+  TTS_REFERENCE_CLIP=assets/voice_reference.wav
+  ```
+  Verify: `& C:\Users\<you>\.conda\envs\content_foundry2\python.exe -c "import indextts; print('ok')"`.
+
+### Verified versions
+
+Neither env is fully reproducible from `requirements.txt` alone — the CUDA wheels come from a
+different index, and the second env is a different stack entirely. This is the combination this
+project is known-good on (Windows 11, RTX 3060 Laptop, 6 GB VRAM):
+
+| | `content_foundry` (pipeline) | `content_foundry2` (IndexTTS-2 only) |
+|---|---|---|
+| Python | 3.11.15 | 3.11.15 |
+| torch | 2.6.0+cu124 | 2.8.0+cu128 |
+| numpy | <2.0 (Chatterbox/diffusers) | 2.2.6 |
+| transformers | 4.44.2 (pinned) | 4.52.1 |
+| installed from | `requirements.txt` + cu124 index | `pip install -e D:\index-tts` + cu128 index |
+
+Also external to pip, so back them up or be ready to re-fetch:
+- **ffmpeg** 8.1.1 (Gyan essentials build) — on PATH, or `FFMPEG_PATH` in `.env`
+- **IndexTTS-2 checkpoints** ~8 GB in `D:\index-tts\checkpoints` (re-downloadable with the `hf download` above)
+- **Piper voice** `.onnx` + `.onnx.json`, only if `TTS_PROVIDER=piper`
+- **`assets/voice_reference.wav`** and **`assets/avatar.png`** — yours, irreplaceable; see step 14
 
 ## 8. YouTube publishing (only when you're ready to upload)
 
@@ -200,3 +246,36 @@ picks which to show per video (no per-video product curation). Blank platforms a
 
 _The script may also SAY "link in the description" for a resource that fits the video (higher CTR), but
 it will never claim to have personally used a product._
+
+## 14. Back up what git does **not** have
+
+Everything that makes this checkout *yours* is deliberately gitignored — the keys, the OAuth token,
+your voice sample and face, your curated catalog, your private notes. A fresh clone plus a dead
+laptop leaves you unable to publish as your own channel again. Bundle them into one restorable file:
+
+```powershell
+python scripts/backup_secrets.py            # -> secrets_backup.txt (~15 MB, binaries base64'd)
+python scripts/backup_secrets.py --keys-only   # small text-only dump, credentials only
+```
+
+- [ ] Copy `secrets_backup.txt` somewhere off this machine (Drive, password manager vault, etc.).
+- [ ] Re-run it whenever you rotate a key or re-record `voice_reference.wav`.
+
+On a new machine, after cloning and building the env:
+
+```powershell
+python scripts/backup_secrets.py --verify secrets_backup.txt   # checksums still good?
+python scripts/backup_secrets.py --restore secrets_backup.txt  # writes the files back
+```
+
+Restore refuses to overwrite files that already exist (pass `--force` to insist), and refuses to
+restore at all if any checksum fails — so a copy that got mangled in transit is caught *before* it
+overwrites a good one.
+
+> **That file is a live credential.** It holds every key in plaintext. It is gitignored *and* blocked
+> by the pre-commit secrets hook, so it cannot be committed by accident — but treat it like the keys
+> themselves: never paste it into a chat, an issue, or a shared drive folder.
+>
+> Not included, by design: `data/content_foundry.db` (rebuild with `scripts/init_db.py`),
+> `assets/avatar.cutout.png` (regenerated), and `output/runs/**` (finished videos — back those up
+> separately if you want to keep them).

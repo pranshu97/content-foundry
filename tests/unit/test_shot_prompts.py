@@ -184,3 +184,62 @@ def test_write_shot_prompts_skips_a_run_with_no_generated_images(tmp_path):
     ]
     assert write_shot_prompts(scenes, tmp_path) == 0
     assert not (tmp_path / "shot_prompts.json").exists()  # no empty file left behind
+
+
+def _chart_shot(spec: dict) -> VisualShot:
+    return VisualShot(
+        path="assets/scenes/scene_0_shot_0.png",
+        duration_sec=2.0,
+        source="diagram",
+        query="a beat",
+        prompt="the photographic fallback",
+        diagram=spec,
+    )
+
+
+SPEC = {"type": "bars", "items": [{"label": "a", "value": 1}], "title": "t"}
+
+
+def test_a_chart_carries_the_spec_that_drew_it(tmp_path):
+    """Run 0025's charts could not be redrawn after a layout fix, because the spec lived ONLY in
+    ``Visuals._shot_diagrams`` for the length of the run and was never written anywhere.
+
+    That made a purely COSMETIC fix impossible to apply: the only way back to a chart was to re-ask
+    the model, which returns different content, so the chart would have silently changed what it
+    said. Persisting the spec makes a redraw free, exact and hand-editable.
+    """
+    write_shot_prompts([_scene(0, [_chart_shot(SPEC)])], tmp_path)
+    stored = json.loads((tmp_path / "shot_prompts.json").read_text(encoding="utf-8"))
+    assert stored["scene_0_shot_0"]["diagram"] == SPEC
+    assert _read_shot_prompts(tmp_path)["scene_0_shot_0"]["diagram"] == SPEC
+
+
+def test_a_reused_chart_keeps_its_spec(tmp_path):
+    """A reuse pass has no spec in hand, so it must recover the previous one or the chart becomes
+    unredrawable the first time visuals are re-run without --force-images."""
+    write_shot_prompts([_scene(0, [_chart_shot(SPEC)])], tmp_path)
+    reused = VisualShot(
+        path="assets/scenes/scene_0_shot_0.png",
+        duration_sec=2.0,
+        source="reused",
+        query="a beat",
+        prompt="the photographic fallback",
+    )
+    write_shot_prompts([_scene(0, [reused])], tmp_path)
+    stored = json.loads((tmp_path / "shot_prompts.json").read_text(encoding="utf-8"))
+    assert stored["scene_0_shot_0"]["source"] == "diagram"  # resolved back through the prior file
+    assert stored["scene_0_shot_0"]["diagram"] == SPEC
+
+
+def test_a_plain_image_carries_no_diagram_key(tmp_path):
+    """The key is the discriminator, so it must be absent rather than null on a photographed shot."""
+    shot = VisualShot(
+        path="assets/scenes/scene_0_shot_0.png",
+        duration_sec=2.0,
+        source="google",
+        query="a beat",
+        prompt="A tight macro of a server lock.",
+    )
+    write_shot_prompts([_scene(0, [shot])], tmp_path)
+    stored = json.loads((tmp_path / "shot_prompts.json").read_text(encoding="utf-8"))
+    assert "diagram" not in stored["scene_0_shot_0"]

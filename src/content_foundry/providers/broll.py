@@ -524,7 +524,18 @@ def _clip_ok(
         for w in re.findall(r"[a-z]+", (query or "").lower())
         if len(w) >= 3 and w not in _GENERIC_SUBJECTS and w not in _STOCK_FILLER
     }
-    if specific and len(meta_words & specific) < _required_matches(len(specific)):
+    if not specific:
+        # The beat is ALL set dressing -- "person working laptop modern", "tech team looking monitor
+        # screen" -- so there is no discriminating word to hold a clip to and the check below cannot
+        # run. Falling through used to let such a beat pass on the vocabulary and moment gates alone,
+        # which is how the most GENERIC footage in the library got in: the clips it returns are the
+        # anonymous desk/office/building shots that sit on every mass-produced video, and stock
+        # libraries tag thousands of them identically. Refuse instead. This is the same judgement the
+        # empty-``meta_words`` branch above already makes -- when relevance cannot be VERIFIED we do
+        # not gamble -- and the beat falls back to a bespoke generated image built from the whole
+        # line, which is strictly more relevant than a stranger at a desk.
+        return False
+    if len(meta_words & specific) < _required_matches(len(specific)):
         return False
     # THE MOMENT GATE: the beat is written once per SCENE, but a scene runs 45-90 s and carries several
     # different claims, so a clip that satisfies the beat can still be sitting under a line it has

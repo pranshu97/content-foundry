@@ -5,8 +5,10 @@ from __future__ import annotations
 import contextlib
 import json
 import re
+import time
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 from ..logging import get_logger
 from ..models import Provenance, SceneVisual, Script, VisualPackage, VisualShot, VoiceoverAsset
@@ -19,6 +21,10 @@ _CAPTIONS_REL = "assets/captions.srt"
 _THUMB_PROMPT_REL = (
     "assets/thumbnail_prompt.txt"  # the editable image prompt used for the thumbnail
 )
+# A stock clip download is retried before the beat is given up on: a CDN 522/timeout is transient,
+# and retrying is free where the fallback (a generated image) costs a paid call.
+_CLIP_ATTEMPTS = 3
+_CLIP_RETRY_BACKOFF_SEC = 1.5
 _MIN_SHOT_SEC = 2.0  # each B-roll beat runs at least this long, to avoid choppiness
 # More, shorter beats per scene: slicing a long scene into up to 8 clips (not a few long ones) stops
 # any single clip lingering or being slowed to fill the gap — more distinct footage, less stretching.
@@ -403,7 +409,7 @@ def write_shot_prompts(scene_visuals: list[SceneVisual], run_root: Path) -> int:
     so WITHOUT this field the two are indistinguishable and every chart looks like a candidate for
     regeneration. Best-effort: a write failure must never break the visuals stage.
     """
-    out: dict[str, dict[str, str]] = {}
+    out: dict[str, dict[str, object]] = {}
     # A REUSED shot only knows it was reused, so recover what originally drew it from the previous
     # file (read BEFORE this one overwrites it). Without that, one reuse pass would turn every
     # chart into an indistinguishable "reused" and the field would stop being useful after a re-run.
@@ -415,7 +421,13 @@ def write_shot_prompts(scene_visuals: list[SceneVisual], run_root: Path) -> int:
                 source = shot.source or ""
                 if source == "reused":
                     source = prior.get(key, {}).get("source") or "reused"
-                out[key] = {"source": source, "prompt": shot.prompt}
+                entry: dict[str, object] = {"source": source, "prompt": shot.prompt}
+                # Carry the chart's own spec through, including across a reuse pass, so a redraw
+                # never has to go back to the model for content it already decided.
+                spec = shot.diagram or prior.get(key, {}).get("diagram")
+                if spec:
+                    entry["diagram"] = spec
+                out[key] = entry
     if not out:
         return 0
     with contextlib.suppress(OSError):
@@ -425,12 +437,14 @@ def write_shot_prompts(scene_visuals: list[SceneVisual], run_root: Path) -> int:
     return len(out)
 
 
-def _read_shot_prompts(run_root: Path) -> dict[str, dict[str, str]]:
-    """Previous run's ``shot_prompts.json`` as ``scene_N_shot_M -> {source, prompt}``.
+def _read_shot_prompts(run_root: Path) -> dict[str, dict[str, Any]]:
+    """Previous run's ``shot_prompts.json`` as ``scene_N_shot_M -> {source, prompt, diagram?}``.
 
     Used so an image that is REUSED rather than regenerated still reports the prompt it was actually
     made from AND the source that originally produced it -- without the latter a reused chart would
     report only ``"reused"`` and the operator could no longer tell it apart from a reused AI image.
+    A drawn chart's ``diagram`` spec rides along for the same reason: it is what makes a redraw
+    possible without going back to the model.
 
     Accepts the ORIGINAL flat ``key -> prompt`` shape too, so a run whose file predates the source
     field still restores its prompts instead of silently losing them. Best-effort: a missing or
@@ -442,7 +456,7 @@ def _read_shot_prompts(run_root: Path) -> dict[str, dict[str, str]]:
         return {}
     if not isinstance(data, dict):
         return {}
-    out: dict[str, dict[str, str]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for key, value in data.items():
         if not isinstance(key, str):
             continue
@@ -450,10 +464,13 @@ def _read_shot_prompts(run_root: Path) -> dict[str, dict[str, str]]:
             out[key] = {"source": "", "prompt": value}
         elif isinstance(value, dict) and isinstance(value.get("prompt"), str):
             source = value.get("source")
-            out[key] = {
+            entry: dict[str, Any] = {
                 "source": source if isinstance(source, str) else "",
                 "prompt": value["prompt"],
             }
+            if isinstance(value.get("diagram"), dict):
+                entry["diagram"] = value["diagram"]
+            out[key] = entry
     return out
 
 
@@ -619,6 +636,16 @@ class Visuals:
         image_prompt = prompt
         if image_prompt is None and prompt_path.exists():
             image_prompt = prompt_path.read_text(encoding="utf-8").strip() or None
+        if image_prompt:
+            # An explicit or SAVED prompt skips the director entirely, so it never sees any of the
+            # director's rules -- including the one banning career-rank words, which image models
+            # read as age ("a senior AI architect" comes back in their sixties). A prompt saved
+            # before that rule existed would keep reproducing the fault on every regenerate, with
+            # nothing in the pipeline able to correct it. Scrub it here so the fix reaches the
+            # reuse path too; drawn labels inside quotes are left untouched.
+            from .thumbnail_director import strip_career_rank
+
+            image_prompt = strip_career_rank(image_prompt)
         used = self._compose_thumbnail(
             script.thumbnail_concept,
             thumbnail_text,
@@ -626,6 +653,11 @@ class Visuals:
             override_prompt=image_prompt,
             title=(script.title_options or [""])[0],
             description=(script.description or ""),
+            # The description is SEO copy and usually carries no figures, so a director working from
+            # it alone INVENTS them -- a thumbnail reading "5%" over a script whose first line says
+            # "10%" contradicts the video within seconds of the click. The hook is the one line
+            # guaranteed to hold the video's real central number.
+            claim=(script.hook or ""),
         )
         if used:  # persist the exact prompt used, so it can be inspected and edited for a re-run
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -713,7 +745,8 @@ class Visuals:
                 beats=len(gap_shots),
                 hint="falling back to the deterministic template; generated images will not vary",
             )
-        found: list[tuple[str, str, str, str]] = []  # (rel_path, source, query, prompt)
+        # (rel_path, source, query, prompt, diagram_spec)
+        found: list[tuple[str, str, str, str, dict | None]] = []
         for j, (beat, url) in enumerate(zip(chosen, clips, strict=True)):
             stem = f"assets/scenes/scene_{scene.index}_shot_{j}"
             if not url and j in keep:
@@ -721,7 +754,7 @@ class Visuals:
                 # The source stays "reused" DELIBERATELY -- the bytes on disk may be the operator's
                 # own replacement, so claiming they came from an image model would be false. What
                 # originally produced the shot is recovered in write_shot_prompts instead.
-                found.append((f"{stem}.png", "reused", beat, keep[j]))
+                found.append((f"{stem}.png", "reused", beat, keep[j], None))
                 continue
             # A beat that used to resolve to a stock clip may now resolve to a generated image (or the
             # reverse), which would leave scene_N_shot_M.mp4 sitting next to scene_N_shot_M.png. The
@@ -729,53 +762,60 @@ class Visuals:
             # to the video — but it makes the folder impossible to read by hand and invites editing the
             # file that is no longer used. Clear the other extension so what is on disk IS the decision.
             _drop_stale_shot_files(run_root / stem)
-            if url:
+            data = self._download_clip(url) if url else None
+            if url and data is not None:
                 rel = f"{stem}.mp4"
-                (run_root / rel).write_bytes(self._broll.download(url))
-                found.append((rel, _broll_source(url), beat, ""))
-            else:
-                rel = f"{stem}.png"
-                prompt = gap_prompts.get(j) or build_image_prompt(
-                    [beat], scene.on_screen_text, self._settings.visual_style
-                )
-                # A levelling matrix or a two-stage pipeline is not a photograph. When the director
-                # supplied a spec, DRAW it: free, exact, and the text is real instead of a model's
-                # guess at lettering. Falls through to generation on any failure, which is why the
-                # prompt above is still required.
-                source = ""
-                spec = self._shot_diagrams.get(j)
-                if spec and self._settings.diagrams_enabled:
-                    width, height = self._settings.resolution_wh
-                    if render_diagram(spec, run_root / rel, width=width, height=height):
-                        source = "diagram"
-                        # Feed the shape back into the cross-scene variety list the director already
-                        # reads. Diagram chrome (frame, palette, box style) is identical by design,
-                        # so the SHAPE is the only thing that stops two of them looking like one
-                        # picture -- run 0024 shipped 7 diagrams that made only 4 distinct layouts.
-                        kind = str(spec.get("type") or "").strip()
-                        if kind:
-                            self._used_compositions.append(f"a {kind} diagram")
-                        self._log.info(
-                            "diagram_rendered", scene=scene.index, shot=j, kind=spec.get("type")
-                        )
-                    else:
-                        self._log.warning(
-                            "diagram_render_failed",
-                            scene=scene.index,
-                            shot=j,
-                            kind=spec.get("type"),
-                        )
-                if not source:
-                    source = self._render_shot_image(
-                        prompt, run_root / rel, caption=scene.on_screen_text or beat
+                (run_root / rel).write_bytes(data)
+                found.append((rel, _broll_source(url), beat, "", None))
+                continue
+            if url:
+                # The clip could not be fetched. Fall through to the generated-image path, which is
+                # exactly what a beat with no clip already does, so the beat still gets a picture.
+                self._log.warning("broll_clip_abandoned", scene=scene.index, shot=j)
+            rel = f"{stem}.png"
+            prompt = gap_prompts.get(j) or build_image_prompt(
+                [beat], scene.on_screen_text, self._settings.visual_style
+            )
+            # A levelling matrix or a two-stage pipeline is not a photograph. When the director
+            # supplied a spec, DRAW it: free, exact, and the text is real instead of a model's
+            # guess at lettering. Falls through to generation on any failure, which is why the
+            # prompt above is still required.
+            source = ""
+            drawn: dict | None = None
+            spec = self._shot_diagrams.get(j)
+            if spec and self._settings.diagrams_enabled:
+                width, height = self._settings.resolution_wh
+                if render_diagram(spec, run_root / rel, width=width, height=height):
+                    source = "diagram"
+                    drawn = spec
+                    # Feed the shape back into the cross-scene variety list the director already
+                    # reads. Diagram chrome (frame, palette, box style) is identical by design,
+                    # so the SHAPE is the only thing that stops two of them looking like one
+                    # picture -- run 0024 shipped 7 diagrams that made only 4 distinct layouts.
+                    kind = str(spec.get("type") or "").strip()
+                    if kind:
+                        self._used_compositions.append(f"a {kind} diagram")
+                    self._log.info(
+                        "diagram_rendered", scene=scene.index, shot=j, kind=spec.get("type")
                     )
-                found.append((rel, source, beat, prompt))
+                else:
+                    self._log.warning(
+                        "diagram_render_failed",
+                        scene=scene.index,
+                        shot=j,
+                        kind=spec.get("type"),
+                    )
+            if not source:
+                source = self._render_shot_image(
+                    prompt, run_root / rel, caption=scene.on_screen_text or beat
+                )
+            found.append((rel, source, beat, prompt, drawn))
         if not found:
             return []
         per = round(duration / len(found), 3)  # split the scene evenly across the beats we found
         return [
-            VisualShot(path=r, duration_sec=per, source=src, query=q, prompt=p)
-            for r, src, q, p in found
+            VisualShot(path=r, duration_sec=per, source=src, query=q, prompt=p, diagram=d)
+            for r, src, q, p, d in found
         ]
 
     def _shot_image_prompts(self, scene, shots: list[tuple[int, str]]) -> dict[int, str]:
@@ -810,6 +850,29 @@ class Visuals:
             self._log.warning("scene_image_director_skipped", error=str(exc))
             self._shot_diagrams = {}
             return {}
+
+    def _download_clip(self, url: str) -> bytes | None:
+        """Fetch a stock B-roll clip, retrying a transient CDN failure. ``None`` when it cannot be had.
+
+        A single flaky download used to abort the ENTIRE run: run 0027 died on a Cloudflare 522 from
+        the Pexels CDN at scene 4, **after 13 paid images had already been generated**, and because
+        `visuals.json` and `shot_prompts.json` are only written at the end of the stage, none of that
+        work was recorded. Stock footage is the most disposable thing in the pipeline -- there is
+        always a generated image behind it -- so it must never be able to take a run down with it.
+
+        A 522/timeout is almost always transient, so retrying costs nothing and usually wins; falling
+        through to the image path is the expensive answer, since that spends a paid generation.
+        """
+        for attempt in range(1, _CLIP_ATTEMPTS + 1):
+            try:
+                return self._broll.download(url)
+            except Exception as exc:  # noqa: BLE001 - any transport failure is equally survivable
+                self._log.warning(
+                    "broll_download_failed", attempt=attempt, error=str(exc)[:200], url=url[:120]
+                )
+                if attempt < _CLIP_ATTEMPTS:
+                    time.sleep(_CLIP_RETRY_BACKOFF_SEC * attempt)
+        return None
 
     def _render_shot_image(self, prompt: str, target: Path, *, caption: str) -> str:
         """Generate a gap-fill image for one shot (at the full video resolution) and return its source
@@ -897,6 +960,7 @@ class Visuals:
         override_prompt: str | None = None,
         title: str = "",
         description: str = "",
+        claim: str = "",
     ) -> str | None:
         """Render the thumbnail and RETURN the image prompt actually used, so the caller ALWAYS persists
         it to the editable file — even when the AI image failed and only the text card was drawn (so a
@@ -910,7 +974,16 @@ class Visuals:
         # (no_person) so the pasted face is the only one; otherwise the scene includes the person.
         prepared = self._prepare_avatar(avatar) if avatar is not None else None
         prompt = override_prompt or self._scene_prompt(
-            concept, title, no_person=prepared is not None, description=description
+            concept,
+            title,
+            no_person=prepared is not None,
+            description=description,
+            claim=claim,
+            # The writer's own punchy line names what the video ANSWERS. Left to itself the model
+            # writes its own headline and reaches for the most striking internal statistic, so a
+            # video asking "Will AI Replace ML Engineers?" shipped a thumbnail whose biggest words
+            # were "90% ARCHITECTURE" -- accurate, and it never named the question.
+            headline=text,
         )
         base = self._generate_image(prompt)
         # With no AI scene the face carries the designed card, so show it big; over a real scene it
@@ -920,8 +993,12 @@ class Visuals:
             if base is not None
             else max(self._settings.thumbnail_avatar_scale, 0.85)
         )
+        # The GENERATED thumbnail is a finished frame in its own right -- the director composes the
+        # scene's own in-image labels -- so stamping a title over it just covers the picture it was
+        # asked to make. Text is drawn ONLY on the fallback card, where the background is an abstract
+        # designed gradient that means nothing on its own and would otherwise ship looking blank.
         _write_card(
-            text,
+            text if base is None else "",
             size,
             target,
             base_png=base,
@@ -946,7 +1023,14 @@ class Visuals:
             return None
 
     def _scene_prompt(
-        self, concept: str, title: str, *, no_person: bool, description: str = ""
+        self,
+        concept: str,
+        title: str,
+        *,
+        no_person: bool,
+        description: str = "",
+        claim: str = "",
+        headline: str = "",
     ) -> str:
         """The thumbnail SCENE image prompt. When the thumbnail director is enabled and an LLM is
         available, an LLM writes a rich, per-video creative prompt from the video's own DESCRIPTION
@@ -962,6 +1046,8 @@ class Visuals:
                     niche=self._settings.target_niche,
                     no_person=no_person,
                     description=description,
+                    claim=claim,
+                    headline=headline,
                 )
             except Exception as exc:  # a thumbnail-prompt failure must never crash the run
                 self._log.warning("thumbnail_director_skipped", error=str(exc))
@@ -1068,7 +1154,11 @@ def _write_card(
         occupied = _paste_avatar(img, avatar_path, size_wh, avatar_scale)
 
     if punchy:
-        _draw_punchy_title(img, text or "", size_wh, reserve_right=occupied)
+        # Blank text means "leave the image alone". It must SKIP the draw rather than pass an empty
+        # string down: _draw_punchy_title substitutes "WATCH THIS" for empty text and lays a dark
+        # scrim under it, so calling it here would stamp a placeholder onto a finished thumbnail.
+        if text.strip():
+            _draw_punchy_title(img, text, size_wh, reserve_right=occupied)
         img.save(target, format="PNG")
         return
 

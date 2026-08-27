@@ -29,6 +29,7 @@ from .judge_checks import (
     redundancy_report,
     specificity_score,
     specificity_why,
+    specified_figures_report,
 )
 
 # Dimension weights (Ch. 9.3) sum to 1.0, so weighted_total is a plain weighted average on 0-5.
@@ -62,6 +63,7 @@ class Judge:
         attempt_number: int,
         recent_template_ids: list[str] | None = None,
         recent_hooks: list[str] | None = None,
+        instructions: str = "",
     ) -> JudgeReport:
         recent_template_ids = recent_template_ids or []
         recent_hooks = recent_hooks or []
@@ -88,6 +90,9 @@ class Judge:
         # The presenter's background must be WOVEN IN, never READ OUT: a long verbatim run of the
         # configured bio is a CV recital, the most obvious machine tell an opening can carry.
         bio_ok, bio_note = credential_recital_report(script, s.creator_bio)
+        # A quantity the CREATOR wrote into --instructions must come back unchanged. Coverage checks
+        # cannot see this: the ask is covered and the topic discussed, only the number is wrong.
+        figures_ok, figures_note = specified_figures_report(script, instructions)
 
         # An egregiously short draft (a single scene) is rejected without spending an LLM call,
         # exactly like a grounding/compliance violation. Full completeness (scene/word floors) is
@@ -99,6 +104,7 @@ class Judge:
             or (not redundancy_ok)
             or (not open_loop_ok)
             or (not bio_ok)
+            or (not figures_ok)
         )
 
         # ---- subjective dims: LLM (hybrid/llm) or heuristic (deterministic / fallback) ----
@@ -227,6 +233,7 @@ class Judge:
                 None if redundancy_ok else redundancy_note,
                 None if open_loop_ok else open_loop_note,
                 None if bio_ok else bio_note,
+                None if figures_ok else figures_note,
             )
         )
 
@@ -402,6 +409,7 @@ class Judge:
         redundancy_note=None,
         open_loop_note=None,
         bio_note=None,
+        figures_note=None,
     ) -> str:
         """A per-dimension critique the Generator can act on — reuses the judge's own reasoning
         (justification + the evidence it flagged) for every dimension that fell short, so the
@@ -413,6 +421,9 @@ class Judge:
                 "- KEEP INTACT (already strong — edit around these, do NOT let them regress): "
                 f"{', '.join(strengths)}."
             )
+        # The creator's own figures come FIRST: everything else is craft, this one is factually wrong.
+        if figures_note:
+            lines.append(f"- {figures_note}")
         if bio_note:
             lines.append(f"- {bio_note}")
         if open_loop_note:

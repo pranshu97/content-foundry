@@ -224,6 +224,59 @@ def test_visuals_generate_image_when_a_beat_has_no_broll(settings, good_script, 
         assert (tmp_path / shot.path).exists()
 
 
+def test_a_flaky_clip_download_cannot_kill_the_run(
+    settings, good_script, tmp_path, fakes, monkeypatch
+):
+    """Run 0027 died on a Cloudflare 522 from the Pexels CDN, at scene 4, AFTER 13 paid images had
+    been generated -- and since visuals.json is only written at the END of the stage, none of that
+    work was recorded.
+
+    Stock footage is the most disposable thing in the pipeline (there is always a generated image
+    behind it), so a flaky CDN must never be able to take a run down. The beat degrades to a
+    generated image instead.
+    """
+    import content_foundry.agents.visuals as visuals_mod
+
+    monkeypatch.setattr(visuals_mod.time, "sleep", lambda _s: None)  # keep the retry loop instant
+
+    scene = good_script.scenes[0]
+    scene.b_roll_keywords = ["handshake across a desk"]
+    one = good_script.model_copy(update={"scenes": [scene]})
+    vo = VoiceoverAsset(
+        run_id="0001",
+        audio_path="assets/narration.mp3",
+        duration_sec=6.0,
+        sample_rate=16000,
+        voice_id="v",
+        provider="fake",
+        word_timings=[],
+        scene_timings=[SceneTiming(scene_index=scene.index, start=0.0, end=6.0)],
+        provenance=Provenance(produced_by="voiceover"),
+    )
+
+    class _DeadCdn:
+        enabled = True
+
+        def __init__(self):
+            self.attempts = 0
+
+        def search(self, query, *, context="", moment=""):
+            return ["https://videos.pexels.com/video-files/32135470/13701187.mp4"]
+
+        def download(self, url):
+            self.attempts += 1
+            raise RuntimeError("Server error '522 <none>' for url")
+
+    broll = _DeadCdn()
+    pkg = Visuals(settings, image_provider=fakes.Image(), broll_client=broll).run(
+        "0001", one, vo, run_root=tmp_path
+    )
+    assert broll.attempts == visuals_mod._CLIP_ATTEMPTS, "the transient failure was not retried"
+    shot = pkg.scenes[0].shots[0]
+    assert shot.path.endswith(".png")  # degraded to a generated image rather than raising
+    assert (tmp_path / shot.path).exists()
+
+
 def test_visuals_keeps_existing_images_unless_asked_to_redo(
     settings, good_script, tmp_path, fakes, monkeypatch
 ):

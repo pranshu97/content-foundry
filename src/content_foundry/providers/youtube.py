@@ -26,6 +26,41 @@ def _granted_scopes(token_file: str) -> set[str]:
         return set()
 
 
+# Fields the API will accept back on a snippet write. `localized` and the read-only descriptive
+# fields (channelTitle, publishedAt, thumbnails, liveBroadcastContent) are deliberately absent:
+# echoing a read-only value back is at best ignored and at worst rejected.
+_WRITABLE_SNIPPET = (
+    "title",
+    "description",
+    "tags",
+    "categoryId",
+    "defaultLanguage",
+    "defaultAudioLanguage",
+)
+
+
+def recategorized_snippet(current: dict, category_id: str) -> dict | None:
+    """The snippet to write back to change ONLY a video's category, or None when already correct.
+
+    THIS IS A READ-MODIFY-WRITE, AND THAT IS THE ENTIRE POINT. ``videos.update`` REPLACES the snippet
+    it is given -- the API reference states that ``snippet.title`` and ``snippet.categoryId`` are both
+    REQUIRED -- so sending ``{"categoryId": "27"}`` on its own does not patch the category, it wipes
+    the title, description and tags off a published video. Every existing writable field is carried
+    across verbatim; only the category changes.
+
+    Returns None when the category already matches, so a re-run costs no quota and cannot rewrite a
+    video the operator has since edited by hand.
+    """
+    if not isinstance(current, dict) or not current.get("title"):
+        # No title means we cannot satisfy a required field, and guessing one would rename the video.
+        return None
+    if str(current.get("categoryId") or "") == str(category_id):
+        return None
+    updated = {k: current[k] for k in _WRITABLE_SNIPPET if k in current}
+    updated["categoryId"] = str(category_id)
+    return updated
+
+
 @runtime_checkable
 class Publisher(Protocol):
     name: str

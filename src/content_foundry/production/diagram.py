@@ -57,20 +57,31 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-def _measure(ax, renderer, text: str, size: float) -> float:
-    """Width of ``text`` at ``size`` as a fraction of the figure width."""
-    probe = ax.text(0.5, 0.5, text, fontsize=size, ha="center", va="center")
+def _measure(ax, renderer, text: str, size: float, weight: str = "normal") -> float:
+    """Width of ``text`` at ``size`` as a fraction of the figure width.
+
+    ``weight`` matters: bold is measurably wider than regular, so measuring one and drawing the other
+    silently under-estimates the width. Callers must pass what they will actually draw.
+    """
+    probe = ax.text(0.5, 0.5, text, fontsize=size, fontweight=weight, ha="center", va="center")
     width = probe.get_window_extent(renderer).width / ax.figure.bbox.width
     probe.remove()
     return width
 
 
-def _fit_fontsize(ax, text: str, max_frac: float, start: float, floor: float = 9.0) -> float:
+def _fit_fontsize(
+    ax, text: str, max_frac: float, start: float, floor: float = 9.0, *, weight: str = "normal"
+) -> float:
     """Largest font size at which ``text`` fits ``max_frac`` of the axes width.
 
     This is the whole reason matplotlib won over graphviz: real metrics mean a label can be measured
     and shrunk instead of silently overflowing its box. Shrinks rather than truncates, because a
     clipped word reads as a rendering bug while slightly smaller type just reads as design.
+
+    MEASURE EXACTLY WHAT YOU DRAW. Pass the final string (already upper-cased if it will be drawn
+    upper-cased) and the final ``weight``. Run 0025 overlapped its matrix headers because the caller
+    measured "Safety Guardrail" at regular weight and then drew "SAFETY GUARDRAIL" in bold, which is
+    about a quarter wider -- so a size this function had certified as fitting did not fit at all.
 
     NOTE it returns ``floor`` when even that does not fit, and the caller draws at that size anyway.
     For text sitting INSIDE a panel use ``_fit_wrapped``, which wraps before that can happen.
@@ -82,7 +93,7 @@ def _fit_fontsize(ax, text: str, max_frac: float, start: float, floor: float = 9
     renderer = fig.canvas.get_renderer()
     size = start
     while size > floor:
-        if _measure(ax, renderer, text, size) <= max_frac:
+        if _measure(ax, renderer, text, size, weight) <= max_frac:
             return size
         size -= 1.0
     return floor
@@ -102,7 +113,9 @@ def _split_two(text: str) -> str:
     return best
 
 
-def _fit_wrapped(ax, text: Any, max_frac: float, start: float, floor: float = 9.0):
+def _fit_wrapped(
+    ax, text: Any, max_frac: float, start: float, floor: float = 9.0, *, weight: str = "normal"
+):
     """Fit text inside a panel, WRAPPING to a second line rather than letting it overflow.
 
     ``_fit_fontsize`` returns its floor when nothing fits and the caller then draws at that size
@@ -115,11 +128,11 @@ def _fit_wrapped(ax, text: Any, max_frac: float, start: float, floor: float = 9.
     text = _clean(text)
     if not text:
         return text, start
-    size = _fit_fontsize(ax, text, max_frac, start, floor)
+    size = _fit_fontsize(ax, text, max_frac, start, floor, weight=weight)
     fig = ax.figure
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
-    if _measure(ax, renderer, text, size) <= max_frac:
+    if _measure(ax, renderer, text, size, weight) <= max_frac:
         return text, size
     wrapped = _split_two(text)
     if wrapped == text:  # a single unbreakable word: nothing to wrap, keep the smallest type
@@ -127,7 +140,7 @@ def _fit_wrapped(ax, text: Any, max_frac: float, start: float, floor: float = 9.
     lines = wrapped.split("\n")
     probe = start
     while probe > floor:
-        if max(_measure(ax, renderer, line, probe) for line in lines) <= max_frac:
+        if max(_measure(ax, renderer, line, probe, weight) for line in lines) <= max_frac:
             return wrapped, probe
         probe -= 1.0
     return wrapped, floor
@@ -152,7 +165,7 @@ def _title(ax, text: str) -> None:
     text = _clean(text).upper()
     if not text:
         return
-    size = _fit_fontsize(ax, text, 0.86, 30.0, 16.0)
+    size = _fit_fontsize(ax, text, 0.86, 30.0, 16.0, weight="bold")
     ax.text(0.5, 0.90, text, ha="center", va="center", color=FG, fontsize=size, fontweight="bold")
 
 
@@ -197,34 +210,64 @@ def _matrix(ax, spec: dict) -> None:
     block = len(rows) * rowh + header
     top = CONTENT_BOTTOM + (CONTENT_BAND - block) / 2 + block - header - rowh / 2
 
-    for j, col in enumerate(cols):
-        size = _fit_fontsize(ax, col, colw * 0.9, 19.0, 11.0)
+    # Fit the UPPER-CASED, BOLD string -- the one that actually gets drawn -- and wrap it rather
+    # than let it run into its neighbour. Headers sit above the grid, so a second line grows UP
+    # into the empty band under the title (va="bottom") instead of down onto the first row.
+    heads = [_fit_wrapped(ax, c.upper(), colw * 0.86, 19.0, 10.0, weight="bold") for c in cols]
+    # ONE size for the whole header row. Fitting each cell independently is what let "METRIC" tower
+    # over "PENALTY FUNCTION" sitting right beside it -- a table carrying five different type sizes
+    # reads as broken layout rather than as emphasis. The narrowest fit wins, and a size smaller
+    # than a cell needs always still fits it.
+    head_size = min(size for _, size in heads)
+    for j, (head, _) in enumerate(heads):
         ax.text(
             left + colw * (j + 0.5),
             top + rowh * 0.5 + 0.028,
-            col.upper(),
+            head,
             ha="center",
+            va="bottom",
             color=MUTED,
-            fontsize=size,
+            fontsize=head_size,
             fontweight="bold",
+            linespacing=0.95,
         )
 
-    for i, row in enumerate(rows):
+    # Fit every cell BEFORE drawing any of them, so the grid shares one body size for the same
+    # reason the headers do.
+    fitted = []
+    for row in rows:
         cells = [_clean(c) for c in row]
         label, values = (cells[0], cells[1:]) if len(cells) > len(cols) else ("", cells)
+        drawn = [
+            _fit_wrapped(
+                ax, values[j] if j < len(values) else "", colw * 0.78, 30.0, 12.0, weight="bold"
+            )
+            for j in range(len(cols))
+        ]
+        fitted.append((label, drawn))
+    cell_size = min(size for _, drawn in fitted for _, size in drawn)
+    labels = [label for label, _ in fitted if label]
+    label_size = (
+        min(_fit_fontsize(ax, x.upper(), 0.16, 18.0, 10.0) for x in labels) if labels else 18.0
+    )
+
+    for i, (label, drawn) in enumerate(fitted):
         y = top - i * rowh
         is_hot = hot is not None and i == hot
         if label:
-            size = _fit_fontsize(ax, label, 0.16, 18.0, 10.0)
             ax.text(
-                left - 0.03, y, label.upper(), ha="right", va="center", color=MUTED, fontsize=size
+                left - 0.03,
+                y,
+                label.upper(),
+                ha="right",
+                va="center",
+                color=MUTED,
+                fontsize=label_size,
             )
-        for j in range(len(cols)):
-            value = values[j] if j < len(values) else ""
+        for j, (value, _) in enumerate(drawn):
             _panel(
                 ax, left + colw * j + 0.010, y - rowh * 0.36, colw - 0.020, rowh * 0.72, hot=is_hot
             )
-            value, size = _fit_wrapped(ax, value, colw * 0.78, 30.0, 12.0)
             ax.text(
                 left + colw * (j + 0.5),
                 y,
@@ -232,7 +275,7 @@ def _matrix(ax, spec: dict) -> None:
                 ha="center",
                 va="center",
                 color=WARM if is_hot else FG,
-                fontsize=size,
+                fontsize=cell_size,
                 fontweight="bold",
             )
 
@@ -251,7 +294,11 @@ def _bars(ax, spec: dict) -> None:
     peak = max(values) or 1.0
     rowh = min(0.20, CONTENT_BAND / len(items))
     top = CONTENT_BOTTOM + (CONTENT_BAND - rowh * len(items)) / 2 + rowh * len(items) - rowh / 2
-    left, maxw = 0.30, 0.56
+    # The note is drawn AFTER the bar, so the longest bar decides how much room is left for it.
+    # At the old maxw=0.56 the peak bar ended at 0.86 and left 0.14 for a note fitted to a flat
+    # 0.20 budget -- so run 0025 pushed "100% Pass" and "3.0x multiplier" clean off the frame.
+    left, maxw = 0.30, 0.46
+    note_gap = 0.015
 
     for i, (item, value) in enumerate(zip(items, values, strict=True)):
         y = top - i * rowh
@@ -263,9 +310,11 @@ def _bars(ax, spec: dict) -> None:
         _panel(ax, left, y - rowh * 0.30, width, rowh * 0.60, hot=hot)
         note = _clean(item.get("note")) or _clean(item.get("value"))
         if note:
-            size = _fit_fontsize(ax, note, 0.20, 18.0, 10.0)
+            # Budget what is ACTUALLY left between this bar's end and the frame edge.
+            room = min(0.24, 1.0 - (left + width + note_gap) - 0.02)
+            note, size = _fit_wrapped(ax, note, room, 18.0, 9.0, weight="bold")
             ax.text(
-                left + width + 0.015,
+                left + width + note_gap,
                 y,
                 note,
                 ha="left",
@@ -294,8 +343,13 @@ def _ladder(ax, spec: dict) -> None:
         x = 0.16 + (0.30 * i / max(n - 1, 1))  # step right as well as up, so the climb reads
         hot = bool(step.get("highlight"))
         _panel(ax, x, y, boxw, boxh, hot=hot)
-        label = _clean(step.get("label"))
-        size = _fit_fontsize(ax, label, boxw * _RUNG_LABEL_W, 25.0, 12.0)
+        # WRAP rather than fit-or-floor. The width budgets alone cannot stop a collision: both
+        # strings are fitted independently, and `_fit_fontsize` draws at its floor even when that
+        # does not fit -- so on run 0025 "Market Expansion" grew right and "New software products
+        # become viable" grew left until they met in the middle of the rung.
+        label, size = _fit_wrapped(
+            ax, step.get("label"), boxw * _RUNG_LABEL_W, 25.0, 10.0, weight="bold"
+        )
         ax.text(
             x + _RUNG_PAD,
             y + boxh * 0.5,
@@ -305,10 +359,11 @@ def _ladder(ax, spec: dict) -> None:
             color=WARM if hot else FG,
             fontsize=size,
             fontweight="bold",
+            linespacing=0.95,
         )
         detail = _clean(step.get("detail"))
         if detail:
-            size = _fit_fontsize(ax, detail, boxw * _RUNG_DETAIL_W, 16.0, 9.0)
+            detail, size = _fit_wrapped(ax, detail, boxw * _RUNG_DETAIL_W, 16.0, 8.0)
             ax.text(
                 x + boxw - _RUNG_PAD,
                 y + boxh * 0.5,
@@ -317,6 +372,7 @@ def _ladder(ax, spec: dict) -> None:
                 va="center",
                 color=MUTED,
                 fontsize=size,
+                linespacing=0.95,
             )
 
 
@@ -347,18 +403,19 @@ def _flow(ax, spec: dict) -> None:
         centers.append(cx)
         tag = _clean(node.get("tag"))
         if tag:
-            size = _fit_fontsize(ax, tag, boxw * 0.86, 17.0, 9.0)
+            tag = tag.upper()
+            size = _fit_fontsize(ax, tag, boxw * 0.86, 17.0, 9.0, weight="bold")
             ax.text(
                 cx,
                 boxy + boxh * 0.76,
-                tag.upper(),
+                tag,
                 ha="center",
                 va="center",
                 color=WARM if hot else ACCENT,
                 fontsize=size,
                 fontweight="bold",
             )
-        name, size = _fit_wrapped(ax, node.get("name"), boxw * 0.88, 25.0, 11.0)
+        name, size = _fit_wrapped(ax, node.get("name"), boxw * 0.88, 25.0, 11.0, weight="bold")
         ax.text(
             cx,
             boxy + boxh * 0.50,

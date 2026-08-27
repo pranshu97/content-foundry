@@ -19,6 +19,10 @@ from content_foundry.production.diagram import (
     _RUNG_PAD,
     CONTENT_BOTTOM,
     CONTENT_TOP,
+    _ladder,
+    _matrix,
+    _measure,
+    _new_axes,
     _split_two,
     render_diagram,
 )
@@ -114,6 +118,143 @@ def test_two_row_and_five_row_matrices_are_not_the_same_picture(tmp_path):
 )
 def test_split_two_breaks_at_the_evenest_word_boundary(text, expected):
     assert _split_two(text) == expected
+
+
+# ------------------------------------------------------- run 0025: overlapping column headers
+def _header_spans(columns, rows):
+    """Rendered [x0, x1] of each column header as a fraction of figure width.
+
+    ``_matrix`` draws the headers first, so the leading texts are the header row.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = _new_axes(1920, 1080)
+    _matrix(ax, {"type": "matrix", "columns": columns, "rows": rows})
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    width = fig.bbox.width
+    spans = [
+        (t.get_window_extent(renderer).x0 / width, t.get_window_extent(renderer).x1 / width)
+        for t in ax.texts[: len(columns)]
+    ]
+    plt.close(fig)
+    return spans
+
+
+def test_bold_upper_case_is_measured_as_the_wider_string_it_really_is():
+    """The root cause of the run-0025 overlap, isolated.
+
+    The caller measured "Safety Guardrail" at regular weight and then drew "SAFETY GUARDRAIL" in
+    bold. Both transforms make the string wider, so a size certified as fitting did not fit.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = _new_axes(1920, 1080)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    plain = _measure(ax, renderer, "Safety Guardrail", 19.0)
+    drawn = _measure(ax, renderer, "SAFETY GUARDRAIL", 19.0, "bold")
+    plt.close(fig)
+    assert drawn > plain * 1.10, (
+        "upper-case bold must measure materially wider than mixed-case regular, "
+        f"got {plain:.4f} -> {drawn:.4f}"
+    )
+
+
+def test_matrix_column_headers_never_run_into_each_other():
+    """The exact run-0025 spec: four columns with long two-word headers.
+
+    Two of the three adjacent pairs used to overlap by ~0.03 of the frame width, which is what made
+    "PRIMARY TARGET SAFETY GUARDRAIL PENALTY FUNCTION" read as one unbroken smear.
+    """
+    spans = _header_spans(
+        ["Metric", "Primary Target", "Safety Guardrail", "Penalty Function"],
+        [
+            ["Ad Revenue", "Maximize eCPM", "Min $0.02/view", "Linear"],
+            ["Retention", "Max D30 Active", "Floor 85% D30", "Exponential"],
+            ["Latency SLA", "p99 < 40ms", "Hard Cap 50ms", "Step Function"],
+        ],
+    )
+    for (_, left_end), (right_start, _) in zip(spans, spans[1:], strict=False):
+        assert right_start > left_end, f"headers overlap by {left_end - right_start:.4f}"
+
+
+def test_headers_stay_inside_the_frame_even_when_absurdly_long():
+    """A header too long to fit at any size must WRAP, never bleed off the edge."""
+    spans = _header_spans(
+        ["Cross Functional Reliability Guardrail", "Aggregate Downstream Penalty Weighting"],
+        [["a", "b"], ["c", "d"]],
+    )
+    assert spans[0][0] > 0.0, "first header runs off the left edge"
+    assert spans[-1][1] < 1.0, "last header runs off the right edge"
+    assert spans[1][0] > spans[0][1], "long headers still collide"
+
+
+def test_a_bar_note_stays_inside_the_frame(tmp_path):
+    """Run 0025 pushed "100% Pass" and "3.0x multiplier" clean off the right edge.
+
+    The note is drawn AFTER its bar, so the LONGEST bar dictates how much room is left -- but the
+    note was fitted to a flat 0.20 budget that took no account of where the bar ended.
+    """
+    out = tmp_path / "bars.png"
+    assert render_diagram(
+        {
+            "type": "bars",
+            "title": "Engineering Output Leverage",
+            "items": [
+                {"label": "Manual Code Entry", "value": 1.0, "note": "1.0x baseline"},
+                {
+                    "label": "AI Architecture",
+                    "value": 3.0,
+                    "note": "3.0x multiplier",
+                    "highlight": True,
+                },
+            ],
+            "caption": "c",
+        },
+        out,
+    )
+    ink = _ink(out)
+    cols = np.where(ink.any(axis=0))[0]
+    assert cols[-1] < ink.shape[1] - 9, "the note on the longest bar runs off the right edge"
+
+
+def test_a_ladder_label_never_runs_into_its_detail():
+    """The exact run-0025 rung: "Market Expansion" was drawn straight through its own detail.
+
+    The width budgets alone cannot prevent this -- both strings are fitted independently and
+    ``_fit_fontsize`` draws at its floor even when the floor does not fit, so the left-aligned label
+    grew right and the right-aligned detail grew left until they met.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = _new_axes(1920, 1080)
+    _ladder(
+        ax,
+        {
+            "type": "ladder",
+            "steps": [
+                {"label": "Cost Collapse", "detail": "Automation drops unit build cost"},
+                {"label": "Market Expansion", "detail": "New software products become viable"},
+                {
+                    "label": "Talent Surge",
+                    "detail": "Total demand for AI architects multiplies",
+                    "highlight": True,
+                },
+            ],
+        },
+    )
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    width = fig.bbox.width
+    spans = [
+        (t.get_window_extent(renderer).x0 / width, t.get_window_extent(renderer).x1 / width)
+        for t in ax.texts
+    ]
+    plt.close(fig)
+    # _ladder draws label then detail for each rung, so they pair up in order.
+    for (_, label_end), (detail_start, _) in zip(spans[0::2], spans[1::2], strict=False):
+        assert detail_start > label_end, f"rung text collides by {label_end - detail_start:.4f}"
 
 
 def test_a_ladder_rung_cannot_have_its_label_and_detail_collide(tmp_path):

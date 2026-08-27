@@ -32,7 +32,7 @@ SCRIPT_JSON_SHAPE = """{
   "description": "YouTube description draft: SEO-friendly, keyword-rich first sentence, no AI/synthetic-content note",
   "tags": ["tag1", "tag2"],
   "thumbnail_concept": "ONE bold, emotional, curiosity-driving SCENE for an image generator: concrete subject + exaggerated expression + dramatic lighting + bold contrasting colors; only what the camera sees, NO words in the image",
-  "thumbnail_text": "VERY short punchy overlay words for the thumbnail (2-5 words); MAY differ from the title — a bold hook or intriguing question",
+  "thumbnail_text": "VERY short punchy words rendered into the thumbnail (2-5 words); MAY differ from the title — a bold hook or intriguing question",
   "open_loop": "the EXACT end-payoff you promised early to make viewers stay till the end, or empty string if you planted none (see the retention rules); if set it MUST be delivered in a later scene",
   "time_sensitive": false,
   "word_count": 0,

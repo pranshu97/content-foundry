@@ -125,6 +125,36 @@ def _scale_cover(stream, width, height):  # pragma: no cover - requires ffmpeg o
     )
 
 
+# How much of a stock clip to crop away before delivering it. A 16:9 clip in a 16:9 frame makes the
+# `_scale_cover` crop a no-op, so the frames we publish ARE the library's frames -- the same file
+# thousands of other uploads are built from. Reframing slightly means our pixels are our own.
+# Deliberately small: this is a reframe, not a move. It must stay far below `motion.ZOOM_TRAVEL`
+# (0.18), which is a visible camera push on a STILL; a clip already has motion of its own and a
+# second one layered on top looks wrong.
+CLIP_REFRAME = 0.04
+
+
+def _reframe_crop(index: int, margin_w: int, margin_h: int) -> tuple[int, int]:
+    """Where to take the crop from, inside the margin ``CLIP_REFRAME`` opens up.
+
+    Off-centre and varying with the shot's position, for two reasons: a fixed centre crop is trivially
+    undone by anything that normalises framing, and identical framing on every clip is itself a
+    signature. Deterministic, so re-rendering a run reproduces the same video rather than a
+    gratuitously different one.
+
+    Purely spatial. It cannot change frame COUNT or duration, which is the whole reason this is a
+    crop and not a slow push -- a time-varying zoom on this path once silently dropped 17% of a
+    beat's frames and slid every scene off the narration.
+    """
+    margin_w, margin_h = max(0, margin_w), max(0, margin_h)
+    # Coprime strides over small grids, so consecutive shots land far apart and the pattern takes
+    # many shots to repeat.
+    return (
+        round(margin_w * (((index * 3) % 5) / 4.0)),
+        round(margin_h * (((index * 2) % 3) / 2.0)),
+    )
+
+
 _ENCODER_CACHE: dict[str, set[str]] = {}
 _WORKING_ENCODER_CACHE: dict[str, str | None] = {}
 # Preference order for automatic GPU encoder selection: NVIDIA NVENC, Intel Quick Sync, AMD AMF.
@@ -329,8 +359,18 @@ class FfmpegBackend:
                     clen = _probe_seconds(path)
                     if clen and clen + 0.05 < d:
                         v = v.filter("setpts", f"{d / clen:.6f}*PTS")
+                    # Render slightly larger than the frame, then take the frame back out of it
+                    # off-centre, so the delivered pixels are not the stock file's pixels. Spatial
+                    # only -- every timing filter below is untouched.
+                    # `width`/`height` arrive as STRINGS from the resolution split, so coerce before
+                    # any arithmetic (see the same note in `_still_stream`).
+                    out_w, out_h = int(width), int(height)
+                    zw = round(out_w * (1 + CLIP_REFRAME) / 2) * 2
+                    zh = round(out_h * (1 + CLIP_REFRAME) / 2) * 2
+                    dx, dy = _reframe_crop(seg.index * 7 + j, zw - out_w, zh - out_h)
                     s = (
-                        _scale_cover(v, width, height)
+                        _scale_cover(v, zw, zh)
+                        .filter("crop", out_w, out_h, dx, dy)
                         .filter("setsar", "1")
                         .filter("fps", fps)
                         .filter("tpad", stop_mode="clone", stop_duration=d)

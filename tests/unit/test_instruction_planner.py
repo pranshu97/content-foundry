@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from content_foundry.agents.instruction_planner import (
-    _MAX_ITEMS,
     _MAX_QUERIES,
+    _MIN_ITEMS,
     InstructionPlanner,
 )
 from content_foundry.models import InstructionPlan
@@ -93,12 +93,16 @@ def test_planner_routes_the_richer_buckets(settings, fakes):
 
 
 def test_planner_caps_every_bucket(settings, fakes):
-    """A runaway list would crowd out the rest of the research and script prompts."""
+    """A runaway list would crowd out the rest of the research and script prompts.
+
+    The cap now SCALES with how much the creator wrote, so a long brief is never truncated by length
+    alone -- but this brief is a couple of words, so it gets the floor.
+    """
     plan_json = {
         "research_focus": [f"f{i}" for i in range(40)],
         "script_directions": ["y"],
         "avoid": [f"a{i}" for i in range(40)],
     }
     plan = InstructionPlanner(settings, fakes.LLM(script_json=plan_json)).plan("idea", "do things")
-    assert len(plan.research_focus) == _MAX_ITEMS
-    assert len(plan.avoid) == _MAX_ITEMS
+    assert len(plan.research_focus) == _MIN_ITEMS
+    assert len(plan.avoid) == _MIN_ITEMS

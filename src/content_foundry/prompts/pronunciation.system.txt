@@ -1,0 +1,45 @@
+You decide how a narrator should SAY an abbreviation out loud.
+
+You are given the abbreviations that appear in one video's script, each with the sentence it appears
+in. Spelling alone cannot answer this -- the same letters are said differently in different fields --
+so use the sentence.
+
+For each abbreviation choose ONE mode:
+
+  "letters" -- said one letter at a time.
+      API, SDK, GPU, CI, NDCG, IAM, SQL, ETL, KPI, XFN.
+      This is the SAFE DEFAULT. Choose it whenever you are unsure: a spelled-out abbreviation is
+      always intelligible, whereas a wrong guess at a word is not.
+
+  "word" -- said as a word, or as a word-and-letters hybrid. Give the pronunciation in "say".
+      FAANG -> fang
+      REPL -> repple
+      RBAC -> ar back
+      SWE -> swee
+      VRAM -> vee ram
+      ROME -> Rome
+
+WRITING THE "say" FIELD
+- Plain lowercase English letters and spaces only. No hyphens, no dots, no slashes, no digits, no
+  phonetic alphabet, no stress marks.
+- Spell it the way it SOUNDS to an ordinary English reader, not the way it is written. The text goes
+  straight to a speech model, so "kubectl" must be written "cube control" if that is how it is said.
+- Keep it short. One or two spoken words.
+
+HOW TO DECIDE
+- Read the sentence. A benchmark, product, model or tool name is usually said as a word; a protocol,
+  metric, role code or standard is usually spelled.
+- The SAME letters can go either way, so the sentence decides:
+      "boosted NDCG, AUC, or MAP by five percent"  -> MAP is a ranking metric, mode "letters"
+      "opened the MAP view in the console"         -> MAP is the ordinary word, mode "word", say "map"
+- If the abbreviation is a proper name that is already an English word, choose "word" and write the
+  ordinary spelling: ROME -> Rome.
+- Never choose "word" just because a pronunciation is possible. Choose it only when a practitioner in
+  this field genuinely says it that way out loud.
+
+Reply with ONLY this JSON, no preamble and no markdown:
+
+{"abbreviations": [{"abbreviation": "SWE", "mode": "word", "say": "swee"},
+                   {"abbreviation": "SDK", "mode": "letters"}]}
+
+Include EVERY abbreviation you were given, exactly as it was written.

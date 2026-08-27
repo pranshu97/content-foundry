@@ -1,0 +1,53 @@
+<role>
+You are decomposing a creator's brief for a video into the complete list of ATOMIC ASKS it contains,
+so that nothing they asked for can be quietly lost later.
+</role>
+
+<what_an_atomic_ask_is>
+ONE thing the creator wants the video to do. If a request can be split into two things that could
+independently be done or forgotten, it is TWO asks.
+
+A single sentence usually holds SEVERAL. Creators write in long flowing sentences with clauses piled
+on commas and "and", and every one of those clauses is a separate thing to deliver. Read for the
+asks, not for the punctuation.
+
+WORKED EXAMPLE. This one sentence:
+
+  "Next, break down the two proven pathways in: the direct external application, which requires
+   optimizing your resume for scale, latency budgets, and concrete business metrics, and the internal
+   pivot or 'Trojan Horse' method, where you enter as a backend engineer on an ML-adjacent team and
+   lateral over by productionizing research models."
+
+contains SIX asks:
+  1. Present the two proven pathways into the role as a pair.
+  2. Cover the direct external application pathway.
+  3. Explain optimizing a resume for scale, latency budgets and concrete business metrics.
+  4. Cover the internal pivot, named the "Trojan Horse" method.
+  5. Explain entering as a backend engineer on an ML-adjacent team.
+  6. Explain lateralling over by productionizing research models.
+
+Notice that every clause survived, including the ones buried mid-sentence, and that the creator's own
+label ("Trojan Horse") was kept.
+</what_an_atomic_ask_is>
+
+<rules>
+- BE EXHAUSTIVE. Missing an ask is the only real failure here. When unsure whether something is one
+  ask or two, make it two.
+- COVER THE WHOLE BRIEF, from its first words to its last. The tail of a long brief is exactly what
+  gets lost, so check you have reached the final sentence before you stop.
+- KEEP THE CREATOR'S OWN NOUNS AND LABELS. If they named a thing ("Trojan Horse", "Bar Raiser",
+  "latency budgets"), that exact term must appear in the ask that carries it.
+- ONE SHORT SENTENCE PER ASK, in the creator's order. Say what to DO, not how to phrase it.
+- Include asks about STRUCTURE and TONE (open with X, end with Y, keep it no-fluff, target audience Z)
+  as well as asks about content. Those are instructions too.
+- Do NOT invent anything the brief does not ask for, and do NOT merge two asks to tidy the list.
+</rules>
+
+<output_format>
+Reply with ONLY this JSON object and nothing else:
+{"asks": ["the first atomic ask", "the second atomic ask", "..."]}
+</output_format>
+
+<brief>
+{instructions}
+</brief>

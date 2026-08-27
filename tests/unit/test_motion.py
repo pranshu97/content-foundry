@@ -1,4 +1,4 @@
-"""Still-image camera motion: a generated image must not sit frozen between moving B-roll clips."""
+"""How footage is framed at render time: camera motion on stills, and the reframe on stock clips."""
 
 from __future__ import annotations
 
@@ -127,3 +127,35 @@ def test_still_filter_graph_is_built_for_a_static_shot_too():
 def test_single_frame_shot_does_not_divide_by_zero():
     for motion in (PUSH_IN, PAN_RIGHT, KEN_BURNS):
         assert motion_expressions(motion, frames=1) is not None
+
+
+def test_the_stock_clip_reframe_is_a_reframe_not_a_camera_move():
+    """It has to be far gentler than a move on a still: the clip already has motion of its own."""
+    from content_foundry.production.motion import ZOOM_TRAVEL
+    from content_foundry.providers.render_backend import CLIP_REFRAME
+
+    assert 0.0 < CLIP_REFRAME <= 0.06
+    assert CLIP_REFRAME < ZOOM_TRAVEL / 2
+
+
+def test_every_clip_is_framed_differently_and_reproducibly():
+    """Identical framing on every clip is itself a signature, and a centred crop is trivially undone.
+
+    Reproducible matters just as much: re-rendering a run must give the same video back, not a
+    gratuitously different one.
+    """
+    from content_foundry.providers.render_backend import _reframe_crop
+
+    offsets = [_reframe_crop(i, 76, 42) for i in range(6)]
+    assert len(set(offsets)) == len(offsets)  # no two consecutive shots share a framing
+    assert offsets == [_reframe_crop(i, 76, 42) for i in range(6)]  # deterministic
+    for x, y in offsets:
+        assert 0 <= x <= 76 and 0 <= y <= 42  # never crops outside the margin
+
+
+def test_a_clip_with_no_margin_is_left_where_it_is():
+    """A zero or negative margin must clamp to the origin rather than crop off the frame."""
+    from content_foundry.providers.render_backend import _reframe_crop
+
+    assert _reframe_crop(3, 0, 0) == (0, 0)
+    assert _reframe_crop(3, -10, -10) == (0, 0)

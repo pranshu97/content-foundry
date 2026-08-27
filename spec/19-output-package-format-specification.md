@@ -12,14 +12,25 @@ output/runs/<run_id>/
 ├── publish_result.json
 ├── package.md                 # the human-facing deliverable
 └── assets/
-    ├── narration.mp3
+    ├── narration.mp3           # the raw voiceover
+    ├── narration_mixed.mp3     # narration + SFX bed, the track actually rendered
     ├── thumbnail.png
+    ├── thumbnail_prompt.txt    # the exact image prompt used; edit it and re-run to redo the thumbnail
+    ├── pronunciations.json     # Agent 4.5's acronym verdicts, stamped with the spelling RULES_VERSION
     ├── captions.srt
+    ├── citations.srt           # on-screen source attributions, burned in at render
+    ├── like_badge.png
+    ├── subscribe_badge.png
     ├── video.mp4
     └── scenes/
-        ├── scene_0.png
-        └── scene_1.mp4
+        ├── scene_0.png         # generated still
+        └── scene_1.mp4         # or a stock B-roll clip
 ```
+
+The reusable ones are the point of resuming: `assets/scenes/**` and `thumbnail_prompt.txt` mean a
+re-voice or a re-render costs nothing in image credits. `pronunciations.json` is reused too, but only
+while its `rules_version` matches the current spelling rules — see
+[`10-agent-4-voiceover-tts.md`](10-agent-4-voiceover-tts.md#1031-agent-45--pronunciation-director-agentspronunciationpy).
 
 ### 19.2 Shared `provenance` block (every JSON artifact)
 ```json
@@ -58,7 +69,7 @@ A single Markdown file the operator opens to record/approve and publish. Skeleto
 tag1, tag2, ...
 
 ## Thumbnail
-assets/thumbnail.png — overlay: "<thumbnail_text>"
+assets/thumbnail.png — headline: "<thumbnail_text>"
 
 ## Grounding (facts used)
 - <fact statement> — <source>, <url>

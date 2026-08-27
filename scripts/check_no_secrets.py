@@ -35,6 +35,10 @@ FORBIDDEN_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(^|/)\.env$"), "a real .env with API keys (commit .env.example instead)"),
     (re.compile(r"(^|/)\.env\.(?!example$)[\w.]+$"), "a real .env variant"),
     (re.compile(r"^secrets/"), "OAuth client secrets / cached tokens"),
+    (
+        re.compile(r"(^|/)secrets_backup[^/]*\.txt$"),
+        "the off-machine key backup (every credential in one file)",
+    ),
     (re.compile(r"(^|/)client_secret[^/]*\.json$"), "Google OAuth client secrets"),
     (re.compile(r"(^|/)[^/]*token[^/]*\.json$"), "a cached OAuth refresh token"),
     (re.compile(r"\.(pem|key|p12|pfx)$"), "a private key"),

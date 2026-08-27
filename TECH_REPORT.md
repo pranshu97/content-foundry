@@ -335,6 +335,15 @@ $$\text{complete} \iff |\text{scenes}| \ge \text{MIN\_SCENES} \;\wedge\; \text{w
 
 A single-scene draft is rejected **without** spending an LLM call, exactly like a grounding violation.
 
+**Instruction fidelity.** A figure the creator wrote into `--instructions` must come back unchanged.
+This is a *different property* from instruction coverage: a brief asking for "ten percent of the job"
+was covered, discussed at length, and silently rewritten as "five percent" — while the matching
+"ninety percent" survived, so the script contradicted both the instruction and itself. Coverage
+checks cannot see it, because the topic *is* discussed and the words *do* overlap. The gate compares
+`(value, unit)` pairs across digits and number-words, and fires **only when the script uses the same
+unit with a different value** — silence is the coverage checker's problem, and extra figures the
+writer researched are never penalised, so the check cannot decay into noise.
+
 **Cost-saving short-circuit.** When a deterministic hard gate already decides the verdict (e.g. a
 grounding or completeness violation), the subjective LLM pass is skipped entirely — the system spends
 tokens on exactly the scripts most likely to pass.

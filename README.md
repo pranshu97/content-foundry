@@ -46,11 +46,15 @@ See [`spec/23-deployment-instructions.md`](spec/23-deployment-instructions.md) f
 ```
 src/content_foundry/    # the engine (models, agents, providers, pipeline, ...)
 dashboard/            # Streamlit review dashboard
-scripts/              # init_db, seed_demo
+scripts/              # init_db, seed_demo, backup_secrets, recategorize, check_no_secrets
 tests/                # unit / agent / integration / e2e (dry-run)
 spec/                 # the authoritative specification (26 chapters)
 output/runs/<run_id>/ # per-run artifacts + media + package.md
 ```
+
+Everything that makes a checkout *yours* — keys, OAuth token, voice sample, avatar — is gitignored.
+`python scripts/backup_secrets.py` bundles them into one restorable file to keep off-machine; see
+[step 14 of `Human_Tasks.md`](Human_Tasks.md).
 
 ## Cost discipline
 
@@ -61,7 +65,8 @@ Cost levers (cheapest first):
 - **Run the LLM locally** — `PRIMARY_PROVIDER=local` (Ollama / LM Studio / vLLM) makes generation free.
 - **Free voice** — `TTS_PROVIDER=edge` (Microsoft neural, free, no key) or `piper` (fully offline), or **clone your own voice** free & locally with `chatterbox` (MIT) or `indextts` (IndexTTS-2, Apache-2.0 — emotion separated from timbre, and it picks the reference window whose delivery matches the script's tone). Paid: elevenlabs / openai. Voices auto-alternate male/female by run number.
 - **Free visuals** — `IMAGE_PROVIDER=none` renders polished title cards; add free Pexels + Pixabay keys for real, moment-matched B-roll (a clip per narration beat), now held to a STRICT on-topic bar — a beat with no confidently-relevant clip falls back to a bespoke generated image (or a clean card when no image provider is set), never an off-topic clip.
-- **Free charts** — a levelling matrix, a comparison of magnitudes, a tier ladder or a short pipeline is **drawn with matplotlib** rather than sent to an image model (`DIAGRAMS_ENABLED`): no API call, and the labels come out exact instead of as a model's guess at lettering.
+- **Free charts** — a levelling matrix, a comparison of magnitudes, a tier ladder or a short pipeline is **drawn with matplotlib** rather than sent to an image model (`DIAGRAMS_ENABLED`): no API call, and the labels come out exact instead of as a model's guess at lettering. The spec that produced each chart is persisted, so it can be corrected and redrawn for free without going back to the model.
+- **Your brief is enforced, not just read** — `--instructions` is decomposed into *atomic asks* (one sentence usually carries five or six), routed to research and to the writer separately, and any ask the plan missed is re-planned. If the script then changes a figure you specified — a brief saying "ten percent" coming back as "five percent" — the Judge rejects it outright.
 - **Free research (default)** — `ENABLED_SOURCES=search` runs free DuckDuckGo web research on your run's topic (no key), so it works on **any** niche out of the box; the labor-market feeds (adzuna/layoffs/bls) are opt-in add-ons.
 - **Free idea discovery** — `IDEA_MINING_ENABLED=true` + a free `YOUTUBE_API_KEY` mines *proven* outlier videos in your niche (views far above the channel's median) so each run builds a topic with demonstrated demand instead of a guess; best-effort, so it never blocks a run.
 - **Free polish** — bundled sound effects (`SFX_ENABLED`), scene crossfades, a warm grade, and a Subscribe nudge are all local/ffmpeg (no paid services).

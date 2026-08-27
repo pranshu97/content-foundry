@@ -3,6 +3,8 @@
 *.env
 !.env.example
 secrets/
+# off-machine backup produced by scripts/backup_secrets.py - contains EVERY key in one file
+secrets_backup*.txt
 
 # ---- Data & generated output ----
 # (git has NO trailing/inline comments on patterns — keep each comment on its OWN line or the rule breaks)

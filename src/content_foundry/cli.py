@@ -454,7 +454,8 @@ def thumbnail(
     if prompt is not None:
         prompt_source = "your --prompt (also saved to the prompt file)"
     elif prompt_file.exists():
-        prompt_source = f"the SAVED prompt file — pass --reset to rebuild it fresh ({prompt_file})"
+        # ASCII only: the cp1252 console renders an em-dash as mojibake in the operator's terminal.
+        prompt_source = f"the SAVED prompt file - pass --reset to rebuild it fresh ({prompt_file})"
     else:
         prompt_source = "a freshly rebuilt prompt from the Thumbnail Director"
     try:

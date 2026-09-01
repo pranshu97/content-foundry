@@ -101,15 +101,18 @@ def test_optimize_description_does_not_duplicate_cta():
     assert desc.lower().count("subscribe now") == 1
 
 
-def test_credential_leads_the_description_so_it_survives_the_more_fold():
-    """YouTube collapses everything after the first couple of lines behind '...more', so a credential
-    anywhere below that is invisible to a viewer who never expands it."""
+def test_the_topic_leads_the_description_not_the_credential():
+    """The opening of a description is what search reads and excerpts, so the topic sentence gets it.
+
+    The credential used to lead, to survive the "...more" fold. But it is identical on every upload,
+    so it can never help one video rank for its own subject -- it only displaces the words that can.
+    """
     desc = optimize_description(
         "Base body.", cta="Subscribe now.", tags=[], chapters=[], credential="Ex-Amazon scientist."
     )
-    assert desc.startswith("Ex-Amazon scientist.")
-    assert "Base body." in desc
-    # The CTA dedupe must still compare against the BODY, not the credential now sitting in front.
+    assert desc.startswith("Base body.")
+    assert desc.index("Base body.") < desc.index("Ex-Amazon scientist.")
+    # The CTA dedupe still compares against the BODY, which the credential must not disturb.
     assert desc.lower().count("subscribe now") == 1
 
 

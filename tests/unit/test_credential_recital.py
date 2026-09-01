@@ -1,13 +1,16 @@
 """The presenter's background must be WOVEN IN, never READ OUT.
 
-`creator_bio` is a config string ("Senior Applied AI Scientist at Microsoft, previously Applied AI
-Scientist at Amazon"). Run 0024 pasted it into scene 0 almost verbatim -- "As a Senior Applied AI
-Scientist at Microsoft, previously an Applied Scientist at Amazon, I can tell you that..." -- which
-reads as a CV recital rather than a person explaining how they know something.
+`creator_bio` is a config string ("Senior Data Platform Engineer at Contoso, previously Data
+Platform Engineer at Northwind"). Run 0024 pasted it into scene 0 almost verbatim -- "As a Senior
+Data Platform Engineer at Contoso, previously a Data Platform Engineer at Northwind, I can tell you
+that..." -- which reads as a CV recital rather than a person explaining how they know something.
 
 Detection is a longest-consecutive-shared-word-run. CALIBRATED on real phrasings: recitals score
 6-12, genuine earned authority scores 2-3, because a natural sentence borrows ONE role and rebuilds
-the grammar around it.
+the grammar around it -- note the legitimate phrasings below drop the MIDDLE word of the role
+("Data Platform Engineer" -> "Data Engineer"), which is exactly what breaks the run.
+
+The bio here is deliberately fictional: this repo is public, and a real one would tie it to a person.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import pytest
 
 from content_foundry.agents.judge_checks import _longest_shared_run, credential_recital_report
 
-BIO = "Senior Applied AI Scientist at Microsoft, previously Applied AI Scientist at Amazon"
+BIO = "Senior Data Platform Engineer at Contoso, previously Data Platform Engineer at Northwind"
 
 
 def _script(good_script, opening: str):
@@ -28,11 +31,11 @@ def _script(good_script, opening: str):
 @pytest.mark.parametrize(
     "opening",
     [
-        # the exact line run 0024 shipped
-        "As a Senior Applied AI Scientist at Microsoft, previously an Applied Scientist at Amazon, "
-        "I can tell you that big tech cares about live traffic.",
-        "Speaking as a Senior Applied AI Scientist at Microsoft, previously Applied AI Scientist "
-        "at Amazon, here is the truth.",
+        # the exact line run 0024 shipped, with the employers anonymised
+        "As a Senior Data Platform Engineer at Contoso, previously a Data Platform Engineer at "
+        "Northwind, I can tell you that big tech cares about live traffic.",
+        "Speaking as a Senior Data Platform Engineer at Contoso, previously Data Platform Engineer "
+        "at Northwind, here is the truth.",
     ],
 )
 def test_a_recited_bio_is_a_hard_fail(good_script, opening):
@@ -46,10 +49,10 @@ def test_a_recited_bio_is_a_hard_fail(good_script, opening):
 @pytest.mark.parametrize(
     "opening",
     [
-        "And I know that number is wrong, because I spent years as an Applied Scientist at Amazon "
+        "And I know that number is wrong, because I spent years as a Data Engineer at Northwind "
         "watching those dashboards during peak.",
-        "When I was an Applied Scientist at Amazon, nobody once asked me to derive backprop.",
-        "Every promo packet I reviewed at Microsoft told the same story.",
+        "When I was a Data Engineer at Northwind, nobody once asked me to derive backprop.",
+        "Every promo packet I reviewed at Contoso told the same story.",
     ],
 )
 def test_naming_one_employer_in_your_own_words_is_fine(good_script, opening):
@@ -64,7 +67,7 @@ def test_a_blank_bio_can_never_fail(good_script):
 
 def test_threshold_sits_above_every_legitimate_use_with_headroom():
     """Locks the calibration: legitimate phrasings must stay well under the cap."""
-    legit = "because I spent years as an Applied Scientist at Amazon watching those dashboards"
+    legit = "because I spent years as a Data Engineer at Northwind watching those dashboards"
     assert _longest_shared_run(BIO, legit) <= 3
-    recital = "As a Senior Applied AI Scientist at Microsoft, previously an Applied Scientist"
+    recital = "As a Senior Data Platform Engineer at Contoso, previously a Data Platform Engineer"
     assert _longest_shared_run(BIO, recital) >= 6

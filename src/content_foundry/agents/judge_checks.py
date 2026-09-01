@@ -255,9 +255,9 @@ def credential_recital_report(script: Script, bio: str, *, max_run: int = 6) -> 
     viewer instead of a person explaining how they know something.
 
     Detection is a longest-consecutive-shared-word-run, which is what separates the two uses.
-    CALIBRATED against real output: recitals score 6-12 ('As a Senior Applied AI Scientist at
-    Microsoft, previously an Applied Scientist at Amazon, I can tell you...' = 7) while genuine
-    earned authority scores 2-3 ('because I spent years as an Applied Scientist at Amazon watching
+    CALIBRATED against real output: recitals score 6-12 ('As a Senior Data Platform Engineer at
+    Contoso, previously a Data Platform Engineer at Northwind, I can tell you...' = 7) while genuine
+    earned authority scores 2-3 ('because I spent years as a Data Engineer at Northwind watching
     those dashboards' = 3), because a natural sentence borrows ONE role and rebuilds the grammar
     around it. The default cap sits at 2x the observed legitimate maximum, so naming an employer is
     never penalised -- only quoting the config verbatim is."""

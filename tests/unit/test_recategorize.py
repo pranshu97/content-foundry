@@ -14,7 +14,7 @@ from content_foundry.providers.youtube import recategorized_snippet
 LIVE = {
     "publishedAt": "2026-08-01T00:00:00Z",
     "channelId": "UC123",
-    "channelTitle": "The Cracked Engineer",
+    "channelTitle": "Example Channel",
     "title": "L3 vs L4 vs L5: How FAANG Actually Levels You",
     "description": "Long description with links\nand newlines.",
     "thumbnails": {"high": {"url": "https://i.ytimg.com/x.jpg"}},

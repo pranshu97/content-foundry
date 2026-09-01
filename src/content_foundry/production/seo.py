@@ -178,18 +178,20 @@ def optimize_description(
     isn't buried. ``shorts_hashtag`` (e.g. #Shorts) leads the hashtag line so YouTube classifies the
     upload as a Short.
 
-    ``credential`` leads the whole description when set, because YouTube collapses everything after
-    the first couple of lines behind "…more": anything below that is invisible to a viewer who never
-    expands it. Keep it to ONE short line — it is spending the most valuable real estate in the
-    description, which is otherwise carrying the search keywords. Skipped when it already appears in
-    the body, so it can never be said twice.
+    ``credential`` sits directly BELOW the body, never in front of it. It used to lead, on the
+    reasoning that YouTube hides everything past the first couple of lines behind "...more" -- but
+    that traded the wrong thing away: the line is byte-identical on every upload, so it adds no signal
+    that could ever distinguish one video from another, while eating the opening that search reads and
+    excerpts (measured at 69 of ~157 snippet characters, 44%, across runs 0024-0030). The topic leads;
+    the credential still lands high enough to be read. Skipped when it already appears in the body, so
+    it can never be said twice.
     """
     blocks: list[str] = []
     body = (description or "").strip()
+    blocks.append(body)
     cred = (credential or "").strip()
     if cred and cred.lower() not in body.lower():
         blocks.append(cred)
-    blocks.append(body)
     if cta and cta.strip() and cta.strip().lower() not in body.lower():
         blocks.append(cta.strip())
     if affiliate and affiliate.strip():

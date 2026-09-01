@@ -1,20 +1,18 @@
 # Content Foundry
 
-An autonomous, fully-resumable multi-agent pipeline that turns real labor-market data into a
-published (Private/Unlisted draft) YouTube video — grounded in data, gated by a
-strict quality rubric, and compliant with synthetic-content disclosure by default.
+An autonomous, fully-resumable multi-agent pipeline that turns one topic into a published
+(Private/Unlisted draft) YouTube video — researched from live sources, gated by a strict quality
+rubric, and compliant with synthetic-content disclosure by default. It is niche-agnostic: free web
+research is the default source, so it works on any subject out of the box.
 
-**Pipeline:** Data Fetcher → Script Generator → Judge → Voiceover → Visuals → Render → Publish
+**Core stages:** Data Fetcher → Script Generator → Judge → Voiceover → Visuals → Render → Publish
+
+Around that spine sit smaller specialists that only run when they are needed — an instruction
+planner, a researcher, b-roll / scene-image / thumbnail directors, and a pronunciation director.
 
 > The complete engineering specification (single source of truth) lives in [`spec/`](spec/README.md).
 > A high-level architecture summary is in [`TECH_REPORT.md`](TECH_REPORT.md), and the operator guide
 > in [`Tutorial.md`](Tutorial.md).
-
-## Live channel
-
-Watch the output live: **[youtube.com/@TheCrackedEng](https://www.youtube.com/@TheCrackedEng)**
-
-> **Disclaimer:** This channel is 100% generated, voiced, and published autonomously by this repository.
 
 ## Quickstart
 
@@ -52,14 +50,17 @@ spec/                 # the authoritative specification (26 chapters)
 output/runs/<run_id>/ # per-run artifacts + media + package.md
 ```
 
-Everything that makes a checkout *yours* — keys, OAuth token, voice sample, avatar — is gitignored.
+Everything that makes a checkout *yours* - keys, OAuth token, voice sample, avatar - is gitignored.
 `python scripts/backup_secrets.py` bundles them into one restorable file to keep off-machine; see
 [step 14 of `Human_Tasks.md`](Human_Tasks.md).
 
 ## Cost discipline
 
-Only **Agent 2 (Script Generator)** always calls an LLM. The Data Fetcher, most of the Judge, and
-the Visuals prompt-builder are deterministic Python — free, fast, and hallucination-proof.
+Several agents call an LLM, but only the **Script Generator** and the **Judge** do so on every run;
+the directors (b-roll, scene image, thumbnail, pronunciation) fire once per run at a cheap tier, and
+the planner and researcher only when you pass `--instructions` or enable research. The Data Fetcher,
+chapters, SEO metadata, chart rendering and every hard gate are deterministic Python — free, fast,
+and hallucination-proof.
 
 Cost levers (cheapest first):
 - **Run the LLM locally** — `PRIMARY_PROVIDER=local` (Ollama / LM Studio / vLLM) makes generation free.
@@ -79,6 +80,34 @@ Cost levers (cheapest first):
 
 Use `--profile quality` for publishing.
 
+## Beyond the core loop
+
+These ship on by default (or behind one flag) and are what turn a rendered file into a channel:
+
+- **Spoken-acronym control** — acronyms are voiced as spaced capitals (`SDK` → `S D K`), with a
+  curated table for the ones that are really words (`FAANG` → "fang"). Anything uncurated gets one
+  cheap classification call per run (`PRONUNCIATION_LLM_ENABLED`), cached per run and invalidated
+  automatically when the spelling rules change.
+- **Retention shaping** — the hook is spoken, not just written; an optional open loop
+  (`RETENTION_OPEN_LOOP_ENABLED`) is *deterministically checked to pay off* before the video ends;
+  the Judge floors engagement, insight, wit and the ending.
+- **Post-production** — composition-matched camera motion on stills (`IMAGE_MOTION`), EBU R128
+  loudness mastering (`AUDIO_LOUDNESS_LUFS`), playback pacing (`VIDEO_SPEED`), sound-effect mixing,
+  and like / subscribe badges.
+- **Thumbnails** — a director writes the image prompt from the video's own description, then a
+  low-temperature critique pass returns *edits*, never a rewrite (`THUMBNAIL_REFINE_TURNS`), so a
+  refinement can only improve or no-op.
+- **Distribution** — auto chapters, SEO title/description/tags, end-screen picks and a "watch next"
+  top comment built from your own prior uploads (`END_SCREEN_ENABLED`, `RECOMMEND_COMMENT_ENABLED`).
+- **Monetization** — optional affiliate resources (`AFFILIATE_ENABLED`) resolved *before* the script
+  is written, so the narration never promises a link the description cannot deliver. You supply only
+  a referral tag per platform; a local catalog is matched to the topic, and nothing attaches when
+  nothing genuinely fits.
+- **Idea sourcing** — `BRAINSTORM_ENABLED` proposes angles, `IDEA_MINING_ENABLED` grounds them in
+  proven outlier videos from your niche.
+- **Operations** — a Streamlit review dashboard, a scheduler, Telegram notifications, per-run logs,
+  and full resume-from-any-stage.
+
 ## Testing
 
 ```bash
@@ -86,3 +115,9 @@ pytest                # unit + agent + integration + e2e dry-run, ≥85% coverag
 ```
 
 All tests run offline — vendors are mocked behind their protocols; no real network or API calls.
+
+## Live channel
+
+Watch the output live: **[youtube.com/@TheCrackedEng](https://www.youtube.com/@TheCrackedEng)**
+
+> **Disclaimer:** This channel is 100% generated, voiced, and published autonomously by this repository.

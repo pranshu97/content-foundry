@@ -54,6 +54,49 @@ def test_gitignore_rules_are_not_disabled_by_inline_comments() -> None:
     assert problems == [], "\n".join(problems)
 
 
+# ------------------------------------------------- personal identifiers come from the untracked .env
+def test_the_denylist_never_states_a_personal_identifier() -> None:
+    """A denylist ships with the repo, so writing a real handle or job title into it would publish
+    the very thing it exists to hide. Personal terms belong in .env, which is never committed."""
+    for ident in guard.CHANNEL_IDENTIFIERS:
+        assert " " not in ident, f"{ident!r} reads like a name or title, not an opaque tag"
+        assert len(ident) <= 20, f"{ident!r} is long enough to be identifying"
+
+
+def test_personal_identifiers_are_read_from_env_and_split_into_clauses(tmp_path) -> None:
+    (tmp_path / ".env").write_text(
+        "CREATOR_BIO=Staff Widget Engineer at Acme, previously Widget Engineer at Globex\n"
+        "YOUTUBE_CHANNEL_URL=https://www.youtube.com/@SomeHandle\n"
+        "OPENAI_API_KEY=sk-not-personal\n",
+        encoding="utf-8",
+    )
+    found = guard.personal_identifiers(tmp_path)
+
+    assert "Staff Widget Engineer at Acme" in found  # a clause leaks on its own
+    assert "Widget Engineer at Globex" in found
+    assert not any("sk-not-personal" in f for f in found)  # only the personal keys are read
+    # The channel URL is published in the README on purpose, so it must NOT be blocked.
+    assert not any("SomeHandle" in f for f in found)
+
+
+def test_a_tracked_file_quoting_your_env_bio_is_blocked(tmp_path) -> None:
+    (tmp_path / ".env").write_text("CREATOR_BIO=Staff Widget Engineer at Acme\n", encoding="utf-8")
+    (tmp_path / "notes.py").write_text(
+        '"""Example: as a Staff Widget Engineer at Acme, I can tell you..."""\n', encoding="utf-8"
+    )
+
+    problems = guard.check_files(["notes.py"], root=tmp_path)
+
+    assert problems and "personal identifier" in problems[0]
+
+
+def test_no_env_file_degrades_quietly(tmp_path) -> None:
+    """A fresh clone and CI have no .env; the guard must still run on the shipped denylist."""
+    assert guard.personal_identifiers(tmp_path) == []
+    (tmp_path / "ok.py").write_text("print('hello')\n", encoding="utf-8")
+    assert guard.check_files(["ok.py"], root=tmp_path) == []
+
+
 def _is_ignored(path: str) -> bool:
     """Ask git itself whether the rule works — substring-matching .gitignore proves nothing.
 

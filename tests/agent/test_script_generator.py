@@ -325,9 +325,9 @@ def test_creator_bio_stays_generic_when_unset():
 
     assert _creator_context("") == ""
     assert _creator_context("   ", "  ") == ""
-    clause = _creator_context("AI Scientist at Microsoft", "FAANG AI Scientist")
-    assert "AI Scientist at Microsoft" in clause  # narration authority
-    assert "FAANG AI Scientist" in clause  # title/thumbnail credibility tag
+    clause = _creator_context("Data Platform Engineer at Contoso", "FAANG Data Engineer")
+    assert "Data Platform Engineer at Contoso" in clause  # narration authority
+    assert "FAANG Data Engineer" in clause  # title/thumbnail credibility tag
     assert "SPARINGLY" in clause  # woven in subtly, never a brag
 
 
@@ -338,10 +338,10 @@ def test_authority_names_the_employer_but_still_bans_invented_achievements():
     were previously tangled together, which is why the model kept retreating to 'someone in big tech'."""
     from content_foundry.agents.script_generator import _creator_context
 
-    clause = _creator_context("Senior Applied AI Scientist at Microsoft, previously at Amazon")
+    clause = _creator_context("Senior Data Platform Engineer at Contoso, previously at Northwind")
     assert "NAME IT, DO NOT HINT AT IT" in clause
     assert "EMPLOYER is licensed, an ACHIEVEMENT is not" in clause
-    assert "SageMaker" in clause  # the fabricated-achievement example survives
+    assert "recommendation pipeline" in clause  # the fabricated-achievement example survives
     # And the old generalise-it instruction must be GONE, or the two rules contradict each other.
     assert "GENERAL level it is written" not in clause
 
@@ -353,12 +353,12 @@ def test_authority_line_is_placed_after_the_hook_and_picks_the_fitting_role():
     insider on that topic."""
     from content_foundry.agents.script_generator import _creator_context
 
-    clause = _creator_context("Senior Applied AI Scientist at Microsoft, previously at Amazon")
+    clause = _creator_context("Senior Data Platform Engineer at Contoso, previously at Northwind")
     assert "IMMEDIATELY AFTER the hook" in clause
     assert "HOW YOU KNOW THIS" in clause and "not WHO YOU ARE" in clause
     assert "ONE sentence at most" in clause
     assert (
-        "Hi, I am a Senior Applied AI Scientist" in clause
+        "Hi, I am a Senior Data Platform Engineer" in clause
     )  # the BAD exemplar is shown, not described
     assert "PICK THE ROLE THAT FITS THIS VIDEO" in clause
     assert "even when it is the older one" in clause
@@ -371,7 +371,7 @@ def test_good_exemplar_is_off_topic_so_it_cannot_be_copied_verbatim():
     different subject, and say so."""
     from content_foundry.agents.script_generator import _creator_context
 
-    clause = _creator_context("Senior Applied AI Scientist at Microsoft, previously at Amazon")
+    clause = _creator_context("Senior Data Platform Engineer at Contoso, previously at Northwind")
     assert "from an UNRELATED video" in clause
     assert "Do NOT reuse the good example's wording" in clause
     # The example must not be about the hiring/resume subject these videos are actually about.

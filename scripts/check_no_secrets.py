@@ -69,9 +69,19 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("private key block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
 )
 
-# The operator's own monetization / channel identifiers. Tests must use neutral placeholders so the
-# public repo never ties back to a specific channel.
+# The operator's own monetization identifiers. Tests must use neutral placeholders so the public repo
+# never ties back to a specific channel.
+#
+# NOTHING PERSONAL GOES IN THIS TUPLE. A denylist is published with the repo, so listing a channel
+# handle or a real job title here would disclose the exact thing it is meant to protect. Those are
+# read at runtime from the untracked .env instead -- see ``personal_identifiers``.
 CHANNEL_IDENTIFIERS: tuple[str, ...] = ("crackedstudio-20", "8jh38a", "BXmM", "7jL6")
+
+# .env keys whose VALUES must never appear in a tracked file. The channel URL is deliberately
+# published in the README, so it is NOT listed here -- what ties the repo to a PERSON is the
+# employer and job title, and those must never be quoted in code, tests or prompt examples.
+_PERSONAL_ENV_KEYS = ("CREATOR_BIO", "CREATOR_TITLE_TAG")
+_MIN_IDENTIFIER_LEN = 6  # shorter values are words, not identifiers, and would match everywhere
 
 _BINARY_SUFFIXES = frozenset(
     {
@@ -119,7 +129,40 @@ def forbidden_path(rel_path: str) -> str:
     return ""
 
 
-def scan_text(rel_path: str, text: str) -> list[str]:
+def personal_identifiers(root: Path) -> list[str]:
+    """Values from the untracked ``.env`` that must never appear in a tracked file.
+
+    Deliberately sourced from ``.env`` rather than written down here: the file you must not leak is
+    already the file that is never committed, so the guard gains the operator's real employer and job
+    title without the public repo ever stating them. Absent ``.env`` (a fresh clone, CI) just yields
+    nothing, so the check degrades to the shipped denylist.
+    """
+    env = root / ".env"
+    if not env.is_file():
+        return []
+    out = []
+    try:
+        lines = env.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        key, sep, value = line.partition("=")
+        if not sep or key.strip() not in _PERSONAL_ENV_KEYS:
+            continue
+        value = value.strip().strip("'\"")
+        if len(value) < _MIN_IDENTIFIER_LEN:
+            continue
+        out.append(value)
+        # A bio is several roles comma-joined; each clause leaks on its own.
+        out.extend(
+            part.strip()
+            for part in re.split(r"[,;|]| previously ", value)
+            if len(part.strip()) >= _MIN_IDENTIFIER_LEN
+        )
+    return sorted(set(out), key=len, reverse=True)
+
+
+def scan_text(rel_path: str, text: str, *, extra: tuple[str, ...] | list[str] = ()) -> list[str]:
     """Credential / channel-identifier findings inside one file's text."""
     rel = _norm(rel_path)
     if rel in SELF_EXCLUDE:
@@ -133,12 +176,18 @@ def scan_text(rel_path: str, text: str) -> list[str]:
         for ident in CHANNEL_IDENTIFIERS
         if ident in text
     ]
+    found += [
+        f"{rel}: contains a personal identifier from your .env - use a neutral placeholder"
+        for ident in extra
+        if ident and ident in text
+    ]
     return found
 
 
 def check_files(paths: list[str], *, root: Path) -> list[str]:
     """Every problem found in ``paths`` (forbidden locations + secret content)."""
     problems: list[str] = []
+    personal = personal_identifiers(root)
     for raw in paths:
         rel = _norm(raw)
         reason = forbidden_path(rel)
@@ -149,9 +198,10 @@ def check_files(paths: list[str], *, root: Path) -> list[str]:
         if not full.is_file() or full.suffix.lower() in _BINARY_SUFFIXES:
             continue
         try:
-            problems.extend(scan_text(rel, full.read_text(encoding="utf-8", errors="ignore")))
+            text = full.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        problems.extend(scan_text(rel, text, extra=personal))
     return problems
 
 

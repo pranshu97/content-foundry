@@ -950,6 +950,38 @@ def _repair_dropped_year(text: str) -> str:
     return _ORPHAN_YEAR_RE.sub(_fix, text)
 
 
+# "Hiring Manager (HM)", "Leadership Principles (LPs)" -- a written convention for defining an
+# acronym on first use, which the writer keeps importing into SPOKEN narration.
+_DEFINED_ACRONYM_RE = re.compile(r"((?:\b[A-Z][\w-]*\s+){1,5})\(([A-Z]{2,6})(s?)\)")
+
+
+def _drop_defined_acronyms(text: str) -> str:
+    """Remove a parenthetical acronym that is just the initials of the words right before it.
+
+    Defining an acronym in brackets is correct on the page and absurd out loud: run 0034 shipped
+    "The Hiring Manager (HM)" and "Leadership Principles (LPs)", which the voice reads as "Hiring
+    Manager H M" and "Leadership Principles L pees". The spoken words already carry the meaning, so
+    the bracket is pure redundancy. Only stripped when the letters REALLY are the initials, which
+    leaves a genuinely informative aside like "(Prime Day)" alone.
+    """
+    if not text or "(" not in text:
+        return text
+
+    def _fix(m: re.Match) -> str:
+        phrase, acronym = m.group(1), m.group(2)
+        words = [w for w in re.findall(r"[A-Za-z][\w-]*", phrase) if w[:1].isupper()]
+        # Match the acronym against the TAIL of the phrase, since the capitalised run can start
+        # earlier than the definition does ("The Amazon Applied Scientist (AS)").
+        for start in range(len(words)):
+            initials = "".join(w[0] for w in words[start:]).upper()
+            hyphenated = "".join(p[0] for w in words[start:] for p in w.split("-")).upper()
+            if acronym in (initials, hyphenated):
+                return phrase.rstrip()
+        return m.group(0)
+
+    return _DEFINED_ACRONYM_RE.sub(_fix, text)
+
+
 def _clean_narration(text: str) -> str:
     """Make narration safe to speak: strip leaked structured-field annotations, neutralize any
     first-person company voice, and remove em dashes (the prompt forbids these; this guarantees it)."""
@@ -960,6 +992,7 @@ def _clean_narration(text: str) -> str:
     cleaned = _LABEL_LEADIN_RE.sub(lambda m: m.group(1).upper(), cleaned)
     cleaned = _neutralize_company_voice(cleaned)
     cleaned = _replace_em_dashes(cleaned)
+    cleaned = _drop_defined_acronyms(cleaned)  # "Hiring Manager (HM)" is written, not spoken
     cleaned = _repair_dropped_year(cleaned)  # fix an orphaned "In , ..." left when the year was cut
     cleaned = re.sub(r"\s+([.,!?;:])", r"\1", cleaned)  # tidy any space left before punctuation
     return re.sub(r"\s{2,}", " ", cleaned).strip()

@@ -21,7 +21,7 @@ REL = "assets/pronunciations.json"
 
 def _script():
     """Only ``scenes[*].narration`` is read, so a stub keeps this test about the cache alone."""
-    return SimpleNamespace(scenes=[SimpleNamespace(narration="The AI team ships the API.")])
+    return SimpleNamespace(scenes=[SimpleNamespace(narration="The ETL team ships the API.")])
 
 
 @pytest.fixture
@@ -80,11 +80,11 @@ def test_what_gets_written_carries_the_stamp(agent, tmp_path, monkeypatch):
 
     class _LLM:
         def complete(self, prompt, *, system="", temperature=0.0, max_tokens=0, model=""):
-            body = {"abbreviations": [{"abbreviation": "AI", "mode": "letters"}]}
+            body = {"abbreviations": [{"abbreviation": "ETL", "mode": "letters"}]}
             return type("R", (), {"text": json.dumps(body)})()
 
     out = Voiceover(get_settings(), None, _LLM())._pronunciations(_script(), tmp_path)
-    assert out["AI"] == "A I"
+    assert out["ETL"] == "E T L"
     saved = json.loads((tmp_path / REL).read_text(encoding="utf-8"))
     assert saved["rules_version"] == RULES_VERSION
-    assert saved["pronunciations"]["AI"] == "A I"
+    assert saved["pronunciations"]["ETL"] == "E T L"

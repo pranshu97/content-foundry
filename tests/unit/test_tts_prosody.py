@@ -110,13 +110,13 @@ class TestKeepSlicesEdgePad:
             n, silent, pad=10, max_gap=200, edge_pad=10
         )
 
-    def test_edges_trim_tighter_while_internal_collapse_keeps_its_own_beat(self):
-        """Edges are trimmed close so the caller's explicit punctuation pause is what is heard, but a
-        collapsed INTERNAL gap must still land on the natural 2*pad beat."""
+    def test_edges_trim_tighter_while_internal_pause_lands_on_the_cap(self):
+        """Edges are trimmed close so the caller's explicit punctuation pause is what is heard, while a
+        compressed INTERNAL gap lands on the ceiling and is cut from its middle."""
         n = 1000
         silent = [(0, 100), (300, 700), (900, 1000)]
         keep = _keep_slices(n, silent, pad=50, max_gap=200, edge_pad=2)
-        assert keep == [(98, 350), (650, 902)]
+        assert keep == [(98, 400), (600, 902)]
 
     def test_voiced_samples_are_never_cut(self):
         n = 1000

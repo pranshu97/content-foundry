@@ -590,20 +590,21 @@ def test_chunk_for_tts_splits_long_text_without_dropping_words():
     assert " ".join(pieces).split() == one_long.split()
 
 
-def test_keep_slices_trims_edges_and_collapses_only_long_internal_pauses():
+def test_keep_slices_trims_edges_and_compresses_only_long_internal_pauses():
     from content_foundry.providers.tts import _keep_slices
 
     n = 1000
     # Speech at [100,300) and [700,900); silence: lead [0,100), internal [300,700), trailing [900,1000).
     silent = [(0, 100), (300, 700), (900, 1000)]
 
-    # No internal cap (max_gap=0): only edges trimmed to pad=10; the 400-sample internal gap is KEPT.
+    # No internal work (max_gap=0): only edges trimmed to pad=10; the 400-sample internal gap is KEPT.
     keep = _keep_slices(n, silent, pad=10, max_gap=0)
     assert keep == [(90, 910)]  # lead trimmed to 10 before speech, trailing to 10 after
 
-    # With a cap SHORTER than the internal gap: it collapses to 2*pad (drop its middle), edges as above.
+    # Default knee/ratio = a plain hard cap AT max_gap, and the cut comes out of the MIDDLE so the
+    # decay after a word and the attack before the next one both survive.
     keep = _keep_slices(n, silent, pad=10, max_gap=200)
-    assert keep == [(90, 310), (690, 910)]  # internal 400 -> keeps 10 each side, drops [310,690)
+    assert keep == [(90, 400), (600, 910)]  # internal 400 -> 200, dropped from the centre
 
     # NO REGRESSION: an internal gap SHORTER than the cap is left byte-identical (never touched).
     short_gap = [(0, 100), (300, 500), (900, 1000)]  # internal gap is only 200 samples
@@ -612,6 +613,26 @@ def test_keep_slices_trims_edges_and_collapses_only_long_internal_pauses():
 
     # An all-silent signal is left whole (the caller short-circuits before ever compressing it).
     assert _keep_slices(n, [(0, n)], pad=10, max_gap=100) == [(0, n)]
+
+
+def test_long_pauses_are_compressed_not_flattened_to_one_length():
+    """Collapsing every long pause to a FIXED length is its own robotic sound.
+
+    Measured on run 0033, a fixed target left 108 pauses at an identical duration. Compression keeps
+    the hierarchy instead: a longer pause stays longer, so a full stop still outlasts a comma.
+    """
+    from content_foundry.providers.tts import _knee_target
+
+    kw = {"knee": 200, "ratio": 0.45, "ceiling": 400}
+    assert _knee_target(150, **kw) == 150  # under the knee -> byte-identical
+    assert _knee_target(200, **kw) == 200  # exactly at the knee -> untouched
+    assert _knee_target(400, **kw) == 290  # 200 + 200*0.45
+    assert _knee_target(5000, **kw) == 400  # ceiling holds
+
+    # The property that matters: ordering is preserved, so pauses never all become the same beat.
+    outs = [_knee_target(g, **kw) for g in (120, 260, 400, 700, 1200)]
+    assert outs == sorted(outs)
+    assert len(set(outs)) >= 4
 
 
 def test_pick_voice_alternates_by_run_id_parity():

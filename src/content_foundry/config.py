@@ -211,12 +211,18 @@ class Settings(BaseSettings):
     # and sentence-to-sentence transitions feel abrupt/clipped; ~150 ms leaves a natural breath so the
     # stitched narration flows instead of jump-cutting between sentences.
     tts_silence_pad_ms: int = Field(150, ge=0, le=1000)
-    # Cap on any INTERNAL pause inside a Chatterbox chunk: a neural cloner occasionally emits a long
-    # 2-3 s dead-air gap between two sentences that share a chunk, and edge-trimming can't reach it.
-    # Any silent run LONGER than this collapses to the normal ~2x pad beat, so those rare outliers
-    # match the consistent pauses. Set comfortably ABOVE a natural pause (default 1000 ms) so ONLY the
-    # outliers move and every normal pause is left byte-identical; 0 disables the internal cap.
-    tts_max_pause_ms: int = Field(1000, ge=0, le=5000)
+    # Ceiling on any INTERNAL pause the cloner emits inside a chunk. Measured on run 0033: 24.1% of
+    # the video was silence and 186 pauses sat between 300 ms and 1 s -- every one of them under the
+    # old 1000 ms cap, so the trimmer fired 10 times in nine minutes and the delivery read as "every
+    # word separate". Pauses are now COMPRESSED rather than collapsed: untouched below
+    # TTS_PAUSE_KNEE_MS, the excess above scaled by TTS_PAUSE_RATIO, nothing longer than this.
+    # Collapsing to one fixed length instead left 108 pauses identical -- a metronome is simply a
+    # different robotic sound. 0 disables all internal shortening.
+    tts_max_pause_ms: int = Field(400, ge=0, le=5000)
+    # Where compression starts. Anything shorter is a natural micro-pause and is left byte-identical.
+    tts_pause_knee_ms: int = Field(200, ge=0, le=2000)
+    # How much of the excess above the knee survives; 1.0 keeps everything (a plain hard cap).
+    tts_pause_ratio: float = Field(0.45, ge=0.05, le=1.0)
     # Chunks are synthesized SEPARATELY and stitched, so the gap at each join is ours to set. Trim the
     # chunk edges close (tts_edge_pad_ms) and then insert a pause sized by the punctuation the chunk
     # ended on: a full sentence pause after ".", more after "?", far less after a comma, and almost

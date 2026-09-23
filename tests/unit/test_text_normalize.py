@@ -26,6 +26,37 @@ def test_expands_currency_and_scale_suffixes():
     assert "million" in speechify_numbers("$1.5M")  # one million, five hundred thousand dollars
 
 
+@pytest.mark.parametrize(
+    ("raw", "spoken"),
+    [
+        # The glued suffix always worked; it is the SPACED scale word that broke.
+        ("$1M", "one million dollars"),
+        ("$1 million", "one million dollars"),
+        ("$1 billion", "one billion dollars"),
+        ("$2.5 billion", "two point five billion dollars"),
+        ("$400 thousand", "four hundred thousand dollars"),
+        # A dead decimal would otherwise be read out: "one point zero million".
+        ("$1.0 million", "one million dollars"),
+        # Exactly one dollar takes the singular; a scaled amount never does.
+        ("$1", "one dollar"),
+    ],
+)
+def test_a_currency_amount_never_strands_its_scale_word(raw, spoken):
+    """Run 0031 opened by saying "one dollars million".
+
+    ``_CURRENCY`` matched only the digits, appended the unit, and left the scale word behind it --
+    so every "$1 million" in the script was voiced as "one dollars million". In the first fifteen
+    seconds of a video about compensation, that is the number the whole premise rests on.
+    """
+    assert speechify_numbers(raw) == spoken
+
+
+def test_currency_scale_words_survive_inside_a_sentence():
+    out = speechify_numbers("a $1 million deal and a $2.5 billion market")
+    assert "one million dollars" in out and "two point five billion dollars" in out
+    assert "dollars million" not in out and "dollars billion" not in out
+
+
 def test_expands_percent_and_times():
     assert "one percent" in speechify_numbers("top 1%")
     assert "three times" in speechify_numbers("3x faster")
@@ -94,7 +125,9 @@ def test_designations_survive_the_rest_of_the_pipeline():
     [
         ("SLA", "S L A"),  # the reported bug: voiced as the word "Sla"
         ("ETL", "E T L"),
-        ("AI", "A I"),
+        # AI is pinned UNSPACED: "A I" tokenizes to the article + the pronoun, so the voice read it
+        # as "an applied eye scientist" in run 0036. Unspaced it is one indivisible piece.
+        ("AI", "AI"),
         ("GPU", "G P U"),
         ("KPI", "K P I"),
         # Plurals: a person says the LAST letter pluralised, never a trailing "ess". Only the tail

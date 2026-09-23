@@ -163,6 +163,12 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   the on-screen citation is added for you and is enough.
 
 ## NARRATION HYGIENE
+- NEVER DEFINE AN ACRONYM IN BRACKETS. "The Hiring Manager (HM)", "Leadership Principles (LPs)",
+  "High-Level Architecture (HLA)" is a convention for the PAGE, and it is read aloud as "the hiring
+  manager, aitch em" — you have said the same thing twice and the second time was letters. Speak it
+  ONE way: use the full words when the phrase is the point, or the bare acronym when the audience
+  already lives in it. If a term genuinely needs introducing, introduce it the way a person does
+  ("what Amazon calls the bar raiser"), never with a parenthetical gloss.
 - NEVER RECITE A TABLE. A run of codes, levels, tiers, model names or version numbers read out in a
   single sentence ("Google L3, L4, L5, Meta E3, E4, E5, and Amazon L4, L5, L6") is a LOOKUP TABLE,
   not speech. No listener can hold it, and the voice slurs the codes together into noise. Name AT

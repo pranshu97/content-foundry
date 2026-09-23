@@ -14,7 +14,12 @@ _SCALE = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
 
 # $1.5M / 202K / $202,000 / 45% / 3x / 202,000 — matched most-specific first.
 _SCALED = re.compile(r"(?P<dollar>\$)?(?P<num>\d[\d,]*(?:\.\d+)?)\s?(?P<suffix>[KkMmBb])\b")
-_CURRENCY = re.compile(r"\$(?P<num>\d[\d,]*(?:\.\d+)?)")
+# The scale WORD has to be consumed here too. Matching only "$1" left "million" stranded behind the
+# unit, so "$1 million" was voiced "one dollars million" -- caught in run 0031's first 15 seconds.
+_CURRENCY = re.compile(
+    r"\$(?P<num>\d[\d,]*(?:\.\d+)?)(?:\s+(?P<scale>thousand|million|billion|trillion))?\b",
+    re.IGNORECASE,
+)
 _PERCENT = re.compile(r"(?P<num>\d[\d,]*(?:\.\d+)?)\s?%")
 _TIMES = re.compile(r"\b(?P<num>\d[\d,]*(?:\.\d+)?)x\b")
 _PLAIN = re.compile(r"\d[\d,]*(?:\.\d+)?")
@@ -89,6 +94,12 @@ _CUSTOM_SOUNDS = {
     "ML": "M L",
     "LLM": "L L M",
     "LLMS": "L L ems",
+    # AI is the ONE acronym spacing cannot fix, and the tokenizer says why: "A I" becomes the
+    # pieces _A _I, which ARE the article "a" and the pronoun "I" -- so "an Applied A I Scientist"
+    # is, to the model, ordinary prose, and run 0036 duly said "an applied eye scientist". S/D/E/R/U
+    # have no _X piece at all, which is the only reason S D E and R S U survive. Left unspaced, AI is
+    # a single piece (_AI) that cannot decompose into words.
+    "AI": "AI",
 }
 
 # Acronyms that are real WORDS when said aloud, so spelling them out would be the bug rather than
@@ -114,7 +125,7 @@ _INITIALISM = re.compile(r"\b([A-Z]{2,6})(s?)\b")
 # have fed the broken pronunciation straight back with a green PASS and nothing to see. Stamping the
 # version lets a cache written under older rules invalidate ITSELF, while a hand edit made under the
 # CURRENT rules survives every ordinary run.
-RULES_VERSION = 2
+RULES_VERSION = 3
 
 
 def _pluralise(sound: str) -> str:
@@ -268,10 +279,15 @@ def speechify_numbers(text: str, overrides: dict[str, str] | None = None) -> str
         return f"{words} dollars" if m["dollar"] else words
 
     def currency(m: re.Match) -> str:
+        scale = (m["scale"] or "").lower()
         try:
-            return f"{_to_words(m['num'])} dollars"
+            value = float(m["num"].replace(",", ""))
+            # A dead decimal reads aloud: "$1.0 million" would be "one point zero million".
+            words = _to_words(str(int(value)) if value == int(value) else m["num"])
         except Exception:
             return m.group(0)
+        amount = f"{words} {scale}" if scale else words
+        return f"{amount} {'dollar' if value == 1 and not scale else 'dollars'}"
 
     def percent(m: re.Match) -> str:
         try:

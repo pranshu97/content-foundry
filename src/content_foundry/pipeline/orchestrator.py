@@ -117,10 +117,10 @@ class Orchestrator:
         self.s = settings or get_settings()
         self._reporter = reporter
         self._idea_chooser = idea_chooser
-        # With a live progress reporter (the CLI), keep the console quiet so it doesn't fight the
-        # spinner — surface only real errors; the reporter shows the human-friendly progress.
+        # With a live progress reporter (the CLI), keep the CONSOLE quiet so it doesn't fight the
+        # spinner — but only at the renderer, so the per-run run.log still records everything.
         if reporter is not None:
-            configure_logging(level="ERROR", fmt="console")
+            configure_logging(fmt="console", console_level="ERROR")
         else:
             configure_logging()
         self.log = get_logger(component="orchestrator")

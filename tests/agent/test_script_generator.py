@@ -692,6 +692,40 @@ def test_clean_narration_drops_bracketed_source_attribution():
     assert _clean_narration("Build one source of truth.") == "Build one source of truth."
 
 
+def test_clean_narration_drops_an_acronym_defined_in_brackets():
+    """Run 0034 shipped "The Hiring Manager (HM)", which the voice reads as "hiring manager aitch em".
+
+    Defining an acronym in brackets is a convention for the PAGE. Spoken, the words already carry the
+    meaning and the bracket just says it again in letters.
+    """
+    from content_foundry.agents.script_generator import _clean_narration
+
+    assert (
+        _clean_narration("The Hiring Manager (HM) is not testing you.")
+        == "The Hiring Manager is not testing you."
+    )
+    # Plural definitions ("LPs") and hyphenated phrases are the same mistake.
+    assert (
+        _clean_narration("Split between Leadership Principles (LPs) and design.")
+        == "Split between Leadership Principles and design."
+    )
+    assert (
+        _clean_narration("Your High-Level Architecture (HLA) must scale.")
+        == "Your High-Level Architecture must scale."
+    )
+    # The capitalised run may start before the definition does.
+    assert (
+        _clean_narration("The Amazon Applied Scientist (AS) loop is brutal.")
+        == "The Amazon Applied Scientist loop is brutal."
+    )
+    # An aside that is NOT the initials is genuinely informative and must survive.
+    assert (
+        _clean_narration("Traffic spikes on Prime Day (BFCM) too.")
+        == "Traffic spikes on Prime Day (BFCM) too."
+    )
+    assert _clean_narration("No brackets here at all.") == "No brackets here at all."
+
+
 def test_clean_narration_repairs_orphaned_dropped_year():
     # A model that names the year "at most once" sometimes cuts it from the body but leaves the
     # preposition + comma behind ("In 2026, the vast..." -> "In , the vast..."). Repair the orphan.

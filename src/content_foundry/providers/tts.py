@@ -282,7 +282,9 @@ class IndexTTS2:
         edge_pad_ms: int = 40,
         sentence_pause_ms: int = 300,
         silence_pad_ms: int = 150,
-        max_pause_ms: int = 1000,
+        max_pause_ms: int = 400,
+        pause_knee_ms: int = 200,
+        pause_ratio: float = 0.45,
         reference_window_sec: float = 12.0,
         tone: str = DEFAULT_TONE,
     ) -> None:
@@ -300,6 +302,8 @@ class IndexTTS2:
         self._sentence_pause_ms = sentence_pause_ms
         self._silence_pad_ms = silence_pad_ms
         self._max_pause_ms = max_pause_ms
+        self._pause_knee_ms = pause_knee_ms
+        self._pause_ratio = pause_ratio
         self._reference_window_sec = reference_window_sec
         self._prepared_reference = ""
         self._tone = tone or DEFAULT_TONE
@@ -458,6 +462,8 @@ class IndexTTS2:
                     pad_ms=self._silence_pad_ms,
                     max_pause_ms=self._max_pause_ms,
                     edge_pad_ms=self._edge_pad_ms,
+                    knee_ms=self._pause_knee_ms,
+                    ratio=self._pause_ratio,
                 )
                 pieces.append(piece)
                 if i < len(chunks) - 1:
@@ -534,7 +540,9 @@ class ChatterboxTTS:
         exaggeration: float = 0.5,
         cfg_weight: float = 0.5,
         silence_pad_ms: int = 150,
-        max_pause_ms: int = 1000,
+        max_pause_ms: int = 400,
+        pause_knee_ms: int = 200,
+        pause_ratio: float = 0.45,
         edge_pad_ms: int = 40,
         sentence_pause_ms: int = 300,
         reference_window_sec: float = 12.0,
@@ -548,6 +556,8 @@ class ChatterboxTTS:
         self._cfg_weight = cfg_weight
         self._silence_pad_ms = silence_pad_ms
         self._max_pause_ms = max_pause_ms
+        self._pause_knee_ms = pause_knee_ms
+        self._pause_ratio = pause_ratio
         self._edge_pad_ms = edge_pad_ms
         self._sentence_pause_ms = sentence_pause_ms
         self._reference_window_sec = reference_window_sec
@@ -676,6 +686,8 @@ class ChatterboxTTS:
                 pad_ms=self._silence_pad_ms,
                 max_pause_ms=self._max_pause_ms,
                 edge_pad_ms=self._edge_pad_ms,
+                knee_ms=self._pause_knee_ms,
+                ratio=self._pause_ratio,
             )
             pieces.append(piece)
             # Then put the pause back at a length the PUNCTUATION earns. The edges above are trimmed
@@ -917,17 +929,41 @@ def _prepare_reference(
         return path
 
 
+def _knee_target(gap: int, *, knee: int, ratio: float, ceiling: int) -> int:
+    """How long an internal pause of ``gap`` samples should end up.
+
+    Compressor semantics applied to silence: under ``knee`` it is left alone, the excess above is
+    scaled by ``ratio``, and nothing exceeds ``ceiling``. Collapsing every long pause to ONE fixed
+    length is what the previous rule did, and measured on run 0033 it left 108 pauses at an identical
+    duration -- a metronome is simply a different robotic sound. Scaling keeps the hierarchy, so a
+    full stop still outlasts a comma.
+    """
+    if gap <= knee:
+        return gap
+    return int(min(knee + (gap - knee) * ratio, ceiling))
+
+
 def _keep_slices(
-    n: int, silent: list[tuple[int, int]], *, pad: int, max_gap: int, edge_pad: int | None = None
+    n: int,
+    silent: list[tuple[int, int]],
+    *,
+    pad: int,
+    max_gap: int,
+    edge_pad: int | None = None,
+    knee: int | None = None,
+    ratio: float = 1.0,
 ) -> list[tuple[int, int]]:
     """Plan which sample slices of ``[0, n)`` to KEEP so leading/trailing silence is trimmed to
-    ``edge_pad`` samples (defaulting to ``pad``) and any INTERNAL silent run longer than ``max_gap``
-    (0 disables) collapses to ``2*pad`` samples. The two pads are separate because the caller now adds
-    an explicit, punctuation-sized pause BETWEEN chunks: the edges are trimmed close so that inserted
-    pause is what the listener hears, while internal collapsing still lands on a natural beat.
+    ``edge_pad`` samples (defaulting to ``pad``) and long INTERNAL pauses are shortened.
+
+    ``max_gap`` is the CEILING no internal pause may exceed (0 disables all internal work). ``knee``
+    is where compression starts (defaulting to ``max_gap``, which reproduces the old hard-cap shape)
+    and ``ratio`` how much of the excess above it survives. Silence is always removed from the MIDDLE
+    of a run, so the natural decay after a word and the attack before the next one are preserved.
     ``silent`` = the maximal silent ``(start, end)`` runs, sorted, non-overlapping, inside
     ``[0, n)``. Voiced samples are NEVER cut. Pure + deterministic, so it is unit-tested directly."""
     edge = pad if edge_pad is None else edge_pad
+    kn = max_gap if knee is None else knee
     drops: list[tuple[int, int]] = []
     for s, e in silent:
         lead, trail = s <= 0, e >= n
@@ -939,8 +975,13 @@ def _keep_slices(
         elif trail:
             if e - s > edge:
                 drops.append((s + edge, e))  # keep only `edge` after the last word
-        elif max_gap and (e - s) > max_gap:
-            drops.append((s + pad, e - pad))  # collapse a very long internal pause to ~2*pad
+        elif max_gap:
+            gap = e - s
+            target = _knee_target(gap, knee=kn, ratio=ratio, ceiling=max_gap)
+            if target < gap:
+                excess = gap - target
+                head = (gap - excess) // 2
+                drops.append((s + head, s + head + excess))
     keep: list[tuple[int, int]] = []
     cursor = 0
     for a, b in drops:
@@ -973,13 +1014,15 @@ def _trim_silence(
     pad_ms: int = 40,
     max_pause_ms: int = 0,
     edge_pad_ms: int | None = None,
+    knee_ms: int | None = None,
+    ratio: float = 1.0,
 ):  # pragma: no cover - needs torch + real audio
-    """Trim leading/trailing near-silence from a Chatterbox waveform tensor (channels, samples),
-    keeping an ``edge_pad_ms`` pad (default ``pad_ms``), and (when ``max_pause_ms`` > 0) collapse any
-    INTERNAL silent run longer than it to ~2*``pad_ms`` so a rare 2-3 s dead-air gap between two
-    sentences in a chunk stops being an outlier. Only SILENT samples are ever removed (speech is
-    untouched), and pauses shorter than the cap are left byte-identical. Returns the tensor unchanged
-    when it is all silence or on any error."""
+    """Trim leading/trailing near-silence from a synthesized waveform (channels, samples), keeping an
+    ``edge_pad_ms`` pad (default ``pad_ms``), and (when ``max_pause_ms`` > 0) shorten long INTERNAL
+    pauses toward it: untouched below ``knee_ms``, the excess above scaled by ``ratio``, never longer
+    than ``max_pause_ms``. Only SILENT samples are ever removed (speech is untouched), and pauses
+    under the knee stay byte-identical. Returns the tensor unchanged when it is all silence or on any
+    error."""
     try:
         import torch
 
@@ -993,7 +1036,10 @@ def _trim_silence(
         pad = int(sample_rate * pad_ms / 1000)
         edge = pad if edge_pad_ms is None else int(sample_rate * edge_pad_ms / 1000)
         max_gap = int(sample_rate * max_pause_ms / 1000) if max_pause_ms else 0
-        keep = _keep_slices(n, _silent_runs(voiced), pad=pad, max_gap=max_gap, edge_pad=edge)
+        knee = int(sample_rate * knee_ms / 1000) if knee_ms else None
+        keep = _keep_slices(
+            n, _silent_runs(voiced), pad=pad, max_gap=max_gap, edge_pad=edge, knee=knee, ratio=ratio
+        )
         if not keep:
             return wav
         if len(keep) == 1:

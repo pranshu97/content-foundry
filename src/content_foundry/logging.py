@@ -37,8 +37,39 @@ def _run_file_sink(logger: Any, method_name: str, event_dict: dict) -> dict:
     return event_dict
 
 
-def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
+_LEVEL_NUM = {
+    "critical": logging.CRITICAL,
+    "error": logging.ERROR,
+    "warning": logging.WARNING,
+    "warn": logging.WARNING,
+    "info": logging.INFO,
+    "debug": logging.DEBUG,
+}
+
+
+def _console_filter(min_level: int) -> Any:
+    """Drop events below ``min_level`` on their way to the RENDERER only.
+
+    The console level cannot be enforced by ``wrapper_class``: that filters before the processor
+    chain runs, so a quiet console also silenced ``_run_file_sink`` and no run ever wrote a run.log.
+    Filtering here keeps stdout quiet while the file still receives everything.
+    """
+
+    def processor(logger: Any, method_name: str, event_dict: dict) -> dict:
+        if _LEVEL_NUM.get(str(event_dict.get("level", "")).lower(), logging.INFO) < min_level:
+            raise structlog.DropEvent
+        return event_dict
+
+    return processor
+
+
+def configure_logging(
+    level: str | None = None, fmt: str | None = None, console_level: str | None = None
+) -> None:
     """Configure structlog once. Safe to call repeatedly (idempotent).
+
+    ``level`` gates what is produced at all (and so what reaches the per-run log file);
+    ``console_level``, when given, additionally quietens STDOUT without hiding anything from the file.
 
     Logging must never hard-fail just because application settings are missing or invalid (e.g.
     importing the package before ``.env`` is set up). When ``get_settings()`` can't load, the log
@@ -58,23 +89,22 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
     level = level.upper()
 
     renderer: Any = (
-        structlog.processors.JSONRenderer()
-        if fmt == "json"
-        else structlog.dev.ConsoleRenderer()
+        structlog.processors.JSONRenderer() if fmt == "json" else structlog.dev.ConsoleRenderer()
     )
+    processors: list[Any] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        _run_file_sink,  # tee to the per-run log file (no-op until set_run_log_file is called)
+    ]
+    if console_level:
+        processors.append(_console_filter(getattr(logging, console_level.upper(), logging.ERROR)))
+    processors.append(renderer)
     structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso", utc=True),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            _run_file_sink,  # tee to the per-run log file (no-op until set_run_log_file is called)
-            renderer,
-        ],
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, level, logging.INFO)
-        ),
+        processors=processors,
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, level, logging.INFO)),
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )

@@ -60,6 +60,69 @@ def test_optimize_title_truncates_overlong():
     assert len(out) <= 20 and out.endswith("…")
 
 
+# ------------------------------------------- the title must deliver on what the opening actually says
+def test_congruence_never_changes_a_pick_when_no_opening_is_supplied():
+    """The zero-regression lock: with no opening every candidate scores 0, so the old rules decide.
+
+    Kept as an explicit test because congruence was added to a function whose output is a PUBLISHED
+    title -- a silent change there would rename videos for reasons nobody could trace.
+    """
+    options = ["Top 5 Moves", "A Much Longer Title About Careers", "Another Option Entirely"]
+    for max_chars in (20, 40, 70):
+        assert pick_title(options, max_chars=max_chars) == pick_title(
+            options, max_chars=max_chars, opening=""
+        )
+
+
+def test_congruence_breaks_the_tie_that_index_order_used_to_decide():
+    """Run 0023's real case: both options fit and neither has a digit, so the writer's arbitrary
+    ordering picked the one whose vocabulary the first fifteen seconds never used (22% vs 50%)."""
+    options = [
+        "FAANG ML Resume Guide: Why You Get Auto-Rejected",
+        "Why FAANG Auto-Rejects Your Machine Learning Resume",
+    ]
+    opening = (
+        "If you think a blind automated ATS robot is silently binning your machine learning "
+        "resume for missing keywords, you are blaming the wrong villain. The real filter is a "
+        "specialist screener who spots a framework"
+    )
+    assert pick_title(options, max_chars=70, opening=opening) == options[1]
+    assert pick_title(options, max_chars=70) == options[0]  # unchanged without the opening
+
+
+def test_congruence_cannot_overturn_the_length_or_digit_rules():
+    """It sits BELOW both, so it can only re-decide what index order was deciding arbitrarily."""
+    opening = "alpha beta gamma delta"
+    # The congruent option is too long -> the short one still wins.
+    assert (
+        pick_title(
+            ["Short One", "Alpha Beta Gamma Delta Epsilon Zeta"], max_chars=12, opening=opening
+        )
+        == "Short One"
+    )
+    # The congruent option has no digit -> the numeric one still wins.
+    assert pick_title(["Top 5 Moves", "Alpha Beta Gamma"], max_chars=70, opening=opening) == (
+        "Top 5 Moves"
+    )
+
+
+def test_script_opening_is_about_fifteen_seconds_of_the_first_scenes(good_script):
+    from content_foundry.production.seo import script_opening
+
+    opening = script_opening(good_script)
+    assert opening
+    assert len(opening.split()) <= 39
+    assert opening.split()[0] in good_script.scenes[0].narration
+
+
+def test_opening_congruence_scores_shared_vocabulary():
+    from content_foundry.production.seo import opening_congruence
+
+    assert opening_congruence("Machine Learning Resume", "your machine learning resume") == 1.0
+    assert opening_congruence("Machine Learning Resume", "something entirely unrelated") == 0.0
+    assert opening_congruence("anything", "") == 0.0  # no opening -> no influence
+
+
 # --------------------------------------------------------------- chapters
 def test_build_chapters_happy_path():
     chapters = build_chapters([(12.0, "Intro"), (15.0, "Body"), (20.0, "End")])

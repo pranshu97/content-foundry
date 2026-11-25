@@ -14,7 +14,7 @@ import pytest
 
 from content_foundry.agents.voiceover import Voiceover
 from content_foundry.config import get_settings, reset_settings_cache
-from content_foundry.providers.text_normalize import RULES_VERSION
+from content_foundry.providers.text_normalize import RULES_VERSION, speechify_numbers
 
 REL = "assets/pronunciations.json"
 
@@ -42,6 +42,23 @@ def test_a_map_written_under_the_current_rules_is_reused(agent, tmp_path):
     """The whole point of caching: a hand correction has to survive an ordinary re-voice."""
     _write(tmp_path, {"rules_version": RULES_VERSION, "pronunciations": {"AI": "hand edited"}})
     assert agent._pronunciations(_script(), tmp_path) == {"AI": "hand edited"}
+
+
+def test_cached_api_letters_use_the_plural_rule_in_the_tts_input(agent, tmp_path):
+    cache = _write(tmp_path, {"rules_version": RULES_VERSION, "pronunciations": {"API": "A P I"}})
+    before = cache.read_bytes()
+    script = _script()
+    script.scenes[
+        0
+    ].narration = (
+        "Cracking the Google machine learning interview is not about memorizing PyTorch APIs."
+    )
+    resolved = agent._pronunciations(script, tmp_path)
+    assert resolved == {"API": "A P I"}
+    assert speechify_numbers(script.scenes[0].narration, resolved) == (
+        "Cracking the Google machine learning interview is not about memorizing PyTorch A P eyes."
+    )
+    assert cache.read_bytes() == before
 
 
 def test_a_map_from_older_rules_is_discarded(agent, tmp_path):

@@ -250,6 +250,54 @@ content-foundry run --run-id <id> --from-stage voiceover --dry-run
 
 ## 9. Configuration (.env groups)
 
+### Editing narration without redoing every scene
+
+New voiceovers keep the exact provider-produced audio for each scene under
+`assets/voiceover/`. The `scene_audio` entries in `voiceover.json` record their paths,
+original text, hashes, and relative word timings. Use the scene's `index` from `script.json`
+(normally zero-based), not its position in a displayed list:
+
+```powershell
+content-foundry voiceover --run-id <id> --scene 3
+content-foundry voiceover --run-id <id> --scene 3 --scene 7
+content-foundry render --run-id <id>
+```
+
+After correcting narration in `script.json`, select every changed scene. Unselected scenes
+reuse their original bytes. Changed voice settings, pronunciation in unselected scenes,
+missing clips, and mismatched scene layouts stop selective regeneration rather than
+silently regenerating other material. Ordinary `voiceover --run-id <id>` still regenerates
+all scenes. Old runs without saved scene clips still render normally; they need one full
+voiceover before selective regeneration becomes available.
+
+For an external audio correction, back up and replace the scene file named by its `scene_audio`
+entry, then run `render`. The replacement must contain the same narration and already have
+the desired pause/silence treatment. Rendering measures the new audio, rebuilds the joined
+track and timings, refreshes captions, and uses the existing visuals. It does not call TTS
+or generate images. Invalid audio leaves the previous joined narration intact. Replacement
+word timings are estimated across the measured scene duration, not forced-aligned; review
+captions after a manual replacement.
+
+The editable boundary is a **whole scene**, preserving the provider's existing sentence
+splitting and prosody. Silence compression and punctuation pauses still happen inside the
+TTS provider, exactly once. Joining uses the same opening/SFX gaps and codec path as before;
+loudness and speed processing remain in the renderer. A joined preview is still created
+during voiceover because the visuals stage needs its timing backbone. Render only rebuilds
+it when saved audio or assembly settings change, or the preview is missing.
+
+### Wit craft
+
+`SCRIPT_WIT_CRAFT_ENABLED=true` is the default. It adds topic-specific observational humor,
+economical setups, and earned callback guidance. Both the base prompt and revision feedback
+teach comedic construction instead of supplying stock punchlines to repeat across videos.
+Absurd comparisons remain encouraged; the setup and payoff should come from the current
+scene, not just swap a noun in a familiar joke. This is writing guidance, not a cross-video
+joke-history detector or a guarantee of originality.
+
+Set it to `false` to disable the extra craft section; the cleaned-up base prompt and revision
+advice still apply. It adds no model call and changes no models, scoring thresholds, factual
+checks, or length targets. Subjective improvement still needs human review.
+
 | Group | Key settings |
 |---|---|
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |

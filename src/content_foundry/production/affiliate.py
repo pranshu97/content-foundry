@@ -111,7 +111,7 @@ _PLATFORMS: tuple[_Platform, ...] = (
         ("try exponent",),
         id_attr="affiliate_exponent_id",
         # Exponent's referral param is ?ref= (NOT ?aff=).
-        id_template="https://www.tryexponent.com/?ref={id}",
+        id_template="https://www.aced.io/?ref={id}",
         ref_param="ref",
     ),
     _Platform(

@@ -225,7 +225,7 @@ picks which to show per video (no per-video product curation). Blank platforms a
   then the pipeline finds products via web search and appends your tag.
 - [ ] **AlgoExpert** (`algoexpert.io`): apply to their affiliate / student-ambassador program → paste
   your referral link → `AFFILIATE_ALGOEXPERT_URL=`.
-- [ ] **Exponent** (`tryexponent.com`): join their affiliate/partner program (their Partners page, often
+- [ ] **Exponent** (`aced.io`): join their affiliate/partner program (their Partners page, often
   via Impact) → `AFFILIATE_EXPONENT_URL=`.
 - [ ] **LeetCode**: no public affiliate program at time of writing — if you have a referral/creator
   link set `AFFILIATE_LEETCODE_URL=`, otherwise leave blank (it's skipped).

@@ -21,6 +21,15 @@ class SceneTiming(BaseModel):
     end: float
 
 
+class SceneAudio(BaseModel):
+    scene_index: int
+    path: str
+    narration: str
+    sha256: str
+    spoken_text: str = ""
+    word_timings: list[WordTiming] | None = None
+
+
 class VoiceoverAsset(BaseModel):
     schema_version: str = "1.0"
     run_id: str
@@ -32,4 +41,7 @@ class VoiceoverAsset(BaseModel):
     provider: str  # elevenlabs | openai
     word_timings: list[WordTiming] = Field(default_factory=list)
     scene_timings: list[SceneTiming] = Field(default_factory=list)
+    scene_audio: list[SceneAudio] = Field(default_factory=list)
+    synthesis_signature: str = ""
+    assembly_signature: str = ""
     provenance: Provenance

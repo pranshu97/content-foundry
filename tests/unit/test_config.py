@@ -14,6 +14,15 @@ def test_settings_singleton(settings):
     assert get_settings() is settings
 
 
+def test_wit_craft_defaults_on_and_can_be_disabled(monkeypatch):
+    monkeypatch.delenv("SCRIPT_WIT_CRAFT_ENABLED", raising=False)
+    reset_settings_cache()
+    assert get_settings().script_wit_craft_enabled is True
+    monkeypatch.setenv("SCRIPT_WIT_CRAFT_ENABLED", "false")
+    reset_settings_cache()
+    assert get_settings().script_wit_craft_enabled is False
+
+
 def test_enabled_sources_parse(settings):
     assert settings.enabled_sources_list == ["adzuna", "layoffs", "news"]
 

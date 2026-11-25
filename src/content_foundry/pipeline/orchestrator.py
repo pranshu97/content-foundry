@@ -25,6 +25,7 @@ from ..agents import (
 )
 from ..agents.judge_checks import redundancy_report
 from ..agents.research import research_key_facts
+from ..agents.voiceover import reassemble_saved
 from ..config import get_settings
 from ..errors import BudgetExhaustedError, ContentFoundryError, SchemaValidationError
 from ..logging import configure_logging, get_logger, set_run_log_file
@@ -44,6 +45,7 @@ from ..models import (
 )
 from ..notifications import CreditMonitor, build_notifier
 from ..persistence import Repository, init_db, make_engine, make_session_factory
+from ..production.captions import write_srt
 from ..providers import (
     build_broll_client,
     build_image_provider,
@@ -137,6 +139,7 @@ class Orchestrator:
         self._sfx = sfx_client
         self._run_instructions = ""  # per-run creator steer (raw --instructions)
         self._run_data = ""  # per-run creator-supplied facts (resolved --data text)
+        self._voiceover_scenes: set[int] | None = None
         self._research_focus_text = ""  # steer for research synthesis (routed or verbatim)
         self._script_directions_text = ""  # steer for script generation (routed or verbatim)
         self._research_queries: list[str] = []  # planner-derived web searches for research
@@ -168,8 +171,18 @@ class Orchestrator:
         idea: str | None = None,
         instructions: str | None = None,
         data: str | None = None,
+        voiceover_scenes: set[int] | None = None,
     ) -> RunResult:
         start = time.time()
+        if voiceover_scenes is not None and (
+            not run_id or from_stage != "voiceover" or to_stage != "voiceover"
+        ):
+            raise SchemaValidationError(
+                "Selective voiceover requires an existing run and voiceover-only stages."
+            )
+        self._voiceover_scenes = voiceover_scenes
+        if voiceover_scenes is not None:
+            force = True
         niche = niche or self.s.target_niche
         stages = stages_between(from_stage, to_stage)
         run_id = self._ensure_run(run_id, topic_seed)
@@ -928,8 +941,17 @@ class Orchestrator:
         self._emit("step", label=label)
         if stage == "voiceover":
             script = self._need(produced, "script", paths)
+            previous = (
+                self._need(produced, "voiceover", paths)
+                if self._voiceover_scenes is not None
+                else None
+            )
             vo = Voiceover(self.s, self._tts_provider(run_id), self._llm_provider()).run(
-                run_id, script, run_root=run_root
+                run_id,
+                script,
+                run_root=run_root,
+                scene_indices=self._voiceover_scenes,
+                previous=previous,
             )
             self._persist(
                 run_id,
@@ -965,6 +987,26 @@ class Orchestrator:
         elif stage == "render":
             vo = self._need(produced, "voiceover", paths)
             vis = self._need(produced, "visuals", paths)
+            if vo.scene_audio:
+                script = self._need(produced, "script", paths)
+                rebuilt = reassemble_saved(self.s, script, vo, run_root=run_root)
+                refresh_captions = rebuilt is not vo or vis.provenance.input_hashes.get(
+                    "voiceover"
+                ) != hashes.get("voiceover")
+                if rebuilt is not vo:
+                    self._persist(
+                        run_id,
+                        "voiceover",
+                        rebuilt,
+                        paths,
+                        produced,
+                        hashes,
+                        None,
+                        {"script": hashes.get("script", "")},
+                    )
+                    vo = rebuilt
+                if vis.captions_path and refresh_captions:
+                    write_srt(run_root / vis.captions_path, vo.word_timings)
             video = Renderer(self.s, self._render_backend(), self._sfx_client()).run(
                 run_id, vo, vis, run_root=run_root
             )
@@ -1343,6 +1385,7 @@ def run_pipeline(
     idea: str | None = None,
     instructions: str | None = None,
     data: str | None = None,
+    voiceover_scenes: set[int] | None = None,
     idea_chooser=None,
     orchestrator: Orchestrator | None = None,
     reporter=None,
@@ -1363,4 +1406,5 @@ def run_pipeline(
         idea=idea,
         instructions=instructions,
         data=data,
+        voiceover_scenes=voiceover_scenes,
     )

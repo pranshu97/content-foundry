@@ -166,7 +166,7 @@ def spell_initialisms(text: str, overrides: dict[str, str] | None = None) -> str
             if said:
                 return said
             said = overrides.get(letters)
-            if said:
+            if said and (not plural or said != spell_letters(letters)):
                 return _pluralise(said) if plural else said
         sounds = [ch.upper() for ch in letters]
         if plural:

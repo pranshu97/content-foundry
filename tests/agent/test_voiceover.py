@@ -7,6 +7,7 @@ import pytest
 
 from content_foundry.agents import voiceover as voiceover_mod
 from content_foundry.agents.voiceover import Voiceover
+from content_foundry.errors import TTSError
 
 
 @pytest.fixture
@@ -99,3 +100,188 @@ def test_fallback_path_keeps_timings_unpadded(settings, good_script, tmp_path, f
     asset = _run(settings, good_script, tmp_path, fakes)
     assert asset.scene_timings[0].start == 0.0
     assert asset.word_timings[0].start == 0.0
+
+
+def test_scene_audio_preserves_exact_provider_bytes(settings, good_script, tmp_path, fakes):
+    import hashlib
+
+    asset = _run(settings, good_script, tmp_path, fakes)
+    expected = [fakes.TTS().synthesize(scene.narration) for scene in good_script.scenes]
+    for saved, scene, (audio, timings) in zip(
+        asset.scene_audio, good_script.scenes, expected, strict=True
+    ):
+        assert (tmp_path / saved.path).read_bytes() == audio
+        assert saved.sha256 == hashlib.sha256(audio).hexdigest()
+        assert saved.narration == scene.narration
+        assert saved.word_timings == timings
+    assert (tmp_path / asset.audio_path).read_bytes() == b"".join(pair[0] for pair in expected)
+
+
+def test_legacy_voiceover_without_scene_audio_still_loads(settings, good_script, tmp_path, fakes):
+    from content_foundry.models import VoiceoverAsset
+
+    payload = _run(settings, good_script, tmp_path, fakes).model_dump()
+    payload.pop("scene_audio")
+    assert VoiceoverAsset.model_validate(payload).scene_audio == []
+
+
+def test_selective_revoice_only_synthesizes_selected_scene(
+    settings, good_script, tmp_path, fakes, decoded_audio
+):
+    class RecordingTTS(fakes.TTS):
+        texts: list[str] = []
+
+        def synthesize(self, text):
+            self.texts.append(text)
+            return super().synthesize(text)
+
+    provider = RecordingTTS()
+    agent = Voiceover(settings, provider)
+    original = agent.run("R", good_script, run_root=tmp_path)
+    before = {item.path: (tmp_path / item.path).read_bytes() for item in original.scene_audio}
+    selected = good_script.scenes[1]
+    selected.narration += " This is the correction."
+    provider.texts.clear()
+    updated = agent.run(
+        "R", good_script, run_root=tmp_path, previous=original, scene_indices={selected.index}
+    )
+    assert provider.texts == [selected.narration]
+    for old, new in zip(original.scene_audio, updated.scene_audio, strict=True):
+        assert (tmp_path / old.path).read_bytes() == before[old.path]
+        if old.scene_index != selected.index:
+            assert old == new
+    assert updated.scene_timings == original.scene_timings
+
+
+@pytest.mark.parametrize(
+    "problem", ["missing", "text", "settings", "legacy", "index", "hash", "path"]
+)
+def test_selective_revoice_refuses_unsafe_reuse_before_synthesis(
+    settings, good_script, tmp_path, fakes, decoded_audio, problem
+):
+    from unittest.mock import patch
+
+    provider = fakes.TTS()
+    agent = Voiceover(settings, provider)
+    original = agent.run("R", good_script, run_root=tmp_path)
+    selected = {good_script.scenes[1].index}
+    first = original.scene_audio[0]
+    if problem == "missing":
+        (tmp_path / first.path).unlink()
+    elif problem == "text":
+        good_script.scenes[0].narration += " New words."
+    elif problem == "settings":
+        settings.tts_pause_ratio = 0.8
+    elif problem == "legacy":
+        original.scene_audio = []
+    elif problem == "index":
+        selected = {9999}
+    elif problem == "hash":
+        (tmp_path / first.path).write_bytes(b"edited")
+    else:
+        first.path = "../outside.mp3"
+    before = (tmp_path / original.audio_path).read_bytes()
+    with patch.object(provider, "synthesize") as synthesize:
+        with pytest.raises(TTSError):
+            agent.run(
+                "R", good_script, run_root=tmp_path, previous=original, scene_indices=selected
+            )
+        synthesize.assert_not_called()
+    assert (tmp_path / original.audio_path).read_bytes() == before
+
+
+def test_unchanged_render_does_not_reencode(settings, good_script, tmp_path, fakes, decoded_audio):
+    from unittest.mock import patch
+
+    asset = _run(settings, good_script, tmp_path, fakes)
+    with patch.object(voiceover_mod, "_decode_concat") as decode:
+        assert (
+            voiceover_mod.reassemble_saved(settings, good_script, asset, run_root=tmp_path) is asset
+        )
+        decode.assert_not_called()
+    asset.scene_audio = []
+    assert voiceover_mod.reassemble_saved(settings, good_script, asset, run_root=tmp_path) is asset
+
+
+def test_replacement_rebuilds_timing_and_preserves_other_bytes(
+    settings, good_script, tmp_path, fakes, decoded_audio, monkeypatch
+):
+    asset = _run(settings, good_script, tmp_path, fakes)
+    before = [(tmp_path / item.path).read_bytes() for item in asset.scene_audio]
+    (tmp_path / asset.scene_audio[0].path).write_bytes(b"replacement")
+
+    def decode(chunks, *, gaps=None):
+        assert chunks == [b"replacement", *before[1:]]
+        return [4.0, *([2.0] * (len(chunks) - 1))], b"assembled"
+
+    monkeypatch.setattr(voiceover_mod, "_decode_concat", decode)
+    updated = voiceover_mod.reassemble_saved(settings, good_script, asset, run_root=tmp_path)
+    assert updated.duration_sec == pytest.approx(asset.duration_sec + 2.0)
+    assert updated.scene_timings[1].start == pytest.approx(asset.scene_timings[1].start + 2.0)
+    assert updated.scene_audio[0].word_timings is None
+    assert updated.scene_audio[1:] == asset.scene_audio[1:]
+    assert updated.provider == asset.provider
+    assert updated.voice_id == asset.voice_id
+    assert (tmp_path / updated.audio_path).read_bytes() == b"assembled"
+
+
+def test_bad_replacement_preserves_existing_narration(
+    settings, good_script, tmp_path, fakes, decoded_audio, monkeypatch
+):
+    asset = _run(settings, good_script, tmp_path, fakes)
+    before = (tmp_path / asset.audio_path).read_bytes()
+    (tmp_path / asset.scene_audio[0].path).write_bytes(b"invalid")
+    monkeypatch.setattr(voiceover_mod, "_decode_concat", lambda *args, **kwargs: None)
+    with pytest.raises(TTSError, match="could not be decoded"):
+        voiceover_mod.reassemble_saved(settings, good_script, asset, run_root=tmp_path)
+    assert (tmp_path / asset.audio_path).read_bytes() == before
+
+
+def test_real_codec_reassembly_is_byte_identical(settings, good_script, tmp_path):
+    import shutil
+    from io import BytesIO
+
+    from pydub import AudioSegment
+    from pydub.generators import Sine
+
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("Real codec regression check requires ffmpeg and ffprobe")
+
+    class SyntheticTTS:
+        def synthesize(self, text):
+            audio = AudioSegment.silent(duration=70) + Sine(440).to_audio_segment(duration=240)
+            buffer = BytesIO()
+            audio.export(buffer, format="wav")
+            return buffer.getvalue(), None
+
+    asset = Voiceover(settings, SyntheticTTS()).run("R", good_script, run_root=tmp_path)
+    original = (tmp_path / asset.audio_path).read_bytes()
+    (tmp_path / asset.audio_path).unlink()
+    rebuilt = voiceover_mod.reassemble_saved(settings, good_script, asset, run_root=tmp_path)
+    assert (tmp_path / rebuilt.audio_path).read_bytes() == original
+    assert rebuilt.scene_timings == asset.scene_timings
+    assert rebuilt.word_timings == asset.word_timings
+    assert rebuilt.duration_sec == asset.duration_sec
+
+
+def test_synthesis_failure_keeps_previous_complete_audio(
+    settings, good_script, tmp_path, fakes, decoded_audio
+):
+    from unittest.mock import patch
+
+    provider = fakes.TTS()
+    agent = Voiceover(settings, provider)
+    asset = agent.run("R", good_script, run_root=tmp_path)
+    before = (tmp_path / asset.audio_path).read_bytes()
+    with (
+        patch.object(provider, "synthesize", side_effect=TTSError("synthesis failed")),
+        pytest.raises(TTSError, match="synthesis failed"),
+    ):
+        agent.run(
+            "R",
+            good_script,
+            run_root=tmp_path,
+            previous=asset,
+            scene_indices={good_script.scenes[0].index},
+        )
+    assert (tmp_path / asset.audio_path).read_bytes() == before

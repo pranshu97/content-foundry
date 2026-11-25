@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 from io import BytesIO
 from pathlib import Path
 
+from ..errors import TTSError
 from ..logging import get_logger
 from ..models import Provenance, SceneTiming, Script, VoiceoverAsset, WordTiming
+from ..models.voiceover import SceneAudio
 
 _WORDS_PER_SEC = 2.5
 _AUDIO_REL = "assets/narration.mp3"
@@ -28,6 +31,59 @@ _TEMPLATE_TONES: dict[str, str] = {
     "problem_solution": "energetic",
     "case_study": "energetic",
 }
+
+
+def _digest(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _synthesis_signature(settings, provider, tone: str) -> str:
+    from ..providers.text_normalize import RULES_VERSION
+
+    values = {
+        key: value
+        for key, value in settings.model_dump(mode="json").items()
+        if key.startswith(("tts_", "indextts_", "elevenlabs_", "piper_"))
+    }
+    reference = Path(settings.tts_reference_clip) if settings.tts_reference_clip else None
+    values["reference_sha256"] = (
+        hashlib.sha256(reference.read_bytes()).hexdigest()
+        if reference and reference.is_file()
+        else ""
+    )
+    values.update(
+        tone=tone,
+        rules_version=RULES_VERSION,
+        provider=getattr(provider, "name", settings.tts_provider),
+        voice=getattr(provider, "voice", settings.tts_voice_id),
+        provider_class=f"{type(provider).__module__}.{type(provider).__qualname__}",
+    )
+    return _digest(values)
+
+
+def _assembly_signature(settings, scenes, scene_audio: list[SceneAudio]) -> str:
+    return _digest(
+        {
+            "version": 1,
+            "lead_in": settings.voiceover_lead_in_sec,
+            "sfx_gap": settings.sfx_gap_sec,
+            "scenes": [(scene.index, scene.narration, scene.sfx) for scene in scenes],
+            "audio": [item.model_dump(mode="json") for item in scene_audio],
+        }
+    )
+
+
+def _read_scene_audio(run_root: Path, item: SceneAudio) -> bytes:
+    target = (run_root / item.path).resolve()
+    if not target.is_relative_to((run_root / "assets" / "voiceover").resolve()):
+        raise TTSError(f"Scene {item.scene_index}: audio must be inside assets/voiceover.")
+    try:
+        audio = target.read_bytes()
+    except OSError as exc:
+        raise TTSError(f"Scene {item.scene_index}: saved audio is missing or unreadable.") from exc
+    if not audio:
+        raise TTSError(f"Scene {item.scene_index}: saved audio is empty.")
+    return audio
 
 
 def tone_for_script(template_id: str, *, override: str = "") -> str:
@@ -90,7 +146,28 @@ class Voiceover:
                 )
         return resolved
 
-    def run(self, run_id: str, script: Script, *, run_root: Path) -> VoiceoverAsset:
+    def run(
+        self,
+        run_id: str,
+        script: Script,
+        *,
+        run_root: Path,
+        scene_indices: set[int] | None = None,
+        previous: VoiceoverAsset | None = None,
+    ) -> VoiceoverAsset:
+        scenes = sorted(script.scenes, key=lambda scene: scene.index)
+        indices = {scene.index for scene in scenes}
+        if len(indices) != len(scenes):
+            raise TTSError("Scene indices must be unique.")
+        if scene_indices is not None and (not scene_indices or not scene_indices <= indices):
+            raise TTSError("Select at least one existing scene index.")
+        saved = {item.scene_index: item for item in previous.scene_audio} if previous else {}
+        if scene_indices is not None and (
+            not previous or len(saved) != len(previous.scene_audio) or set(saved) != indices
+        ):
+            raise TTSError(
+                "Selective voiceover needs saved audio for every scene; run a full voiceover first."
+            )
         # 0) Tell a cloning provider WHICH delivery to imitate before it prepares its reference.
         # Best-effort: providers without a tone (ElevenLabs/Edge/OpenAI/Piper) simply don't have the
         # hook, so this is a no-op for them.
@@ -102,16 +179,66 @@ class Voiceover:
 
         # 0b) And HOW to say this script's abbreviations. Same best-effort shape as the tone hook.
         say = getattr(self._tts, "set_pronunciations", None)
+        pronunciations = {}
         if callable(say):
-            say(self._pronunciations(script, run_root))
+            pronunciations = self._pronunciations(script, run_root)
+            say(pronunciations)
+
+        from ..providers.text_normalize import speechify_numbers
+
+        signature = _synthesis_signature(self._settings, self._tts, tone)
+        spoken = {
+            scene.index: speechify_numbers(scene.narration, pronunciations)
+            if callable(say)
+            else scene.narration
+            for scene in scenes
+        }
+        reused: dict[int, bytes] = {}
+        if scene_indices is not None:
+            if previous is None or previous.synthesis_signature != signature:
+                raise TTSError(
+                    "Voice settings changed; run a full voiceover to avoid mixing voices or processing."
+                )
+            for scene in scenes:
+                if scene.index in scene_indices:
+                    continue
+                item = saved[scene.index]
+                if item.narration != scene.narration or item.spoken_text != spoken[scene.index]:
+                    raise TTSError(
+                        f"Scene {scene.index} text or pronunciation changed; select that scene too."
+                    )
+                audio = _read_scene_audio(run_root, item)
+                if hashlib.sha256(audio).hexdigest() != item.sha256:
+                    raise TTSError(
+                        f"Scene {scene.index} audio was replaced; render it before selectively re-voicing."
+                    )
+                reused[scene.index] = audio
 
         # 1) Synthesize every scene up front, keeping each provider's raw audio + its timings/estimate.
-        scenes = sorted(script.scenes, key=lambda s: s.index)
         chunks: list[bytes] = []
         provider_timings: list[list[WordTiming] | None] = []
         estimates: list[float] = []
+        scene_audio: list[SceneAudio] = []
         for scene in scenes:
-            chunk, timings = self._tts.synthesize(scene.narration)
+            if scene.index in reused:
+                chunk, timings = reused[scene.index], saved[scene.index].word_timings
+            else:
+                chunk, timings = self._tts.synthesize(scene.narration)
+            digest = hashlib.sha256(chunk).hexdigest()
+            relative = f"assets/voiceover/scene_{scene.index}_{digest[:16]}.mp3"
+            target = run_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(chunk)
+            scene_audio.append(
+                SceneAudio(
+                    scene_index=scene.index,
+                    path=relative,
+                    narration=scene.narration,
+                    sha256=digest,
+                    spoken_text=spoken[scene.index],
+                    word_timings=timings,
+                )
+            )
             chunks.append(chunk)
             provider_timings.append(timings)
             estimates.append(
@@ -120,6 +247,24 @@ class Voiceover:
                 else _estimate(scene.narration)
             )
 
+        return self._assemble(
+            run_id, script, run_root, chunks, provider_timings, estimates, scene_audio, signature
+        )
+
+    def _assemble(
+        self,
+        run_id,
+        script,
+        run_root,
+        chunks,
+        provider_timings,
+        estimates,
+        scene_audio,
+        synthesis_signature,
+        *,
+        strict=False,
+    ) -> VoiceoverAsset:
+        scenes = sorted(script.scenes, key=lambda scene: scene.index)
         # 2) Reserve silence BEFORE a scene's narration so nothing has to play over the voice: an
         # opening beat so the video doesn't start abruptly on speech, and a clear beat for any scene
         # with a sound effect (effects are cued at the scene start, i.e. exactly on the first word,
@@ -141,6 +286,10 @@ class Voiceover:
         if decoded is not None:
             durations, audio_bytes = decoded
         else:
+            if strict:
+                raise TTSError(
+                    "Replacement audio could not be decoded; narration was not overwritten."
+                )
             durations, audio_bytes = estimates, b"".join(chunks)
             # The fallback path can't pad the audio, so it must NOT shift the timings either — doing
             # so would slide every caption and visual off the voice by the reserved gaps.
@@ -174,7 +323,9 @@ class Voiceover:
 
         audio_path = run_root / _AUDIO_REL
         audio_path.parent.mkdir(parents=True, exist_ok=True)
-        audio_path.write_bytes(audio_bytes)
+        temporary = audio_path.with_suffix(".tmp.mp3")
+        temporary.write_bytes(audio_bytes)
+        temporary.replace(audio_path)
 
         return VoiceoverAsset(
             run_id=run_id,
@@ -185,10 +336,68 @@ class Voiceover:
             provider=getattr(self._tts, "name", self._settings.tts_provider),
             word_timings=word_timings,
             scene_timings=scene_timings,
+            scene_audio=scene_audio,
+            synthesis_signature=synthesis_signature,
+            assembly_signature=_assembly_signature(self._settings, scenes, scene_audio),
             provenance=Provenance(
                 produced_by="voiceover", model=None, config_hash=self._settings.config_hash
             ),
         )
+
+
+def reassemble_saved(
+    settings, script: Script, asset: VoiceoverAsset, *, run_root: Path
+) -> VoiceoverAsset:
+    """Rebuild edited scene audio without synthesis; legacy joined tracks remain untouched."""
+    if not asset.scene_audio:
+        return asset
+    scenes = sorted(script.scenes, key=lambda scene: scene.index)
+    saved = {item.scene_index: item for item in asset.scene_audio}
+    if len(saved) != len(asset.scene_audio) or set(saved) != {scene.index for scene in scenes}:
+        raise TTSError("Scene layout changed; run a full voiceover before rendering.")
+    chunks = []
+    records = []
+    replaced = False
+    for scene in scenes:
+        item = saved[scene.index]
+        if item.narration != scene.narration:
+            raise TTSError(
+                f"Scene {scene.index} narration changed; re-voice that scene before rendering."
+            )
+        audio = _read_scene_audio(run_root, item)
+        digest = hashlib.sha256(audio).hexdigest()
+        if digest != item.sha256:
+            item = item.model_copy(update={"sha256": digest, "word_timings": None})
+            replaced = True
+        records.append(item)
+        chunks.append(audio)
+    signature = _assembly_signature(settings, scenes, records)
+    if signature == asset.assembly_signature and (run_root / asset.audio_path).is_file():
+        return asset
+    estimates = [
+        max((word.end for word in item.word_timings), default=_estimate(item.narration))
+        if item.word_timings
+        else _estimate(item.narration)
+        for item in records
+    ]
+    assembled = Voiceover(settings, None)._assemble(
+        asset.run_id,
+        script,
+        run_root,
+        chunks,
+        [item.word_timings for item in records],
+        estimates,
+        records,
+        asset.synthesis_signature,
+        strict=replaced,
+    )
+    return assembled.model_copy(
+        update={
+            "provider": asset.provider,
+            "voice_id": asset.voice_id,
+            "sample_rate": asset.sample_rate,
+        }
+    )
 
 
 def _estimate(text: str) -> float:

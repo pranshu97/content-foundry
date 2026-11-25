@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from content_foundry.agents import ScriptGenerator
 from content_foundry.safeguards.grounding import extract_stats
 from content_foundry.templates import get_template
@@ -14,6 +16,101 @@ def test_generate_good_script(settings, data_brief, fakes):
     assert script.word_count > 0
     assert script.grounded_fact_refs == [0, 1, 2]
     assert script.synthetic_disclosure is True
+
+
+def test_wit_craft_disabled_preserves_base_prompt(settings, data_brief, fakes, monkeypatch):
+    from content_foundry.agents import script_generator as generator_mod
+
+    assert settings.script_wit_craft_enabled is False
+    monkeypatch.setattr(
+        generator_mod, "render_prompt", lambda *args, **kwargs: "unchanged prompt\n"
+    )
+    result = ScriptGenerator(settings, fakes.LLM())._build_prompt(
+        data_brief, get_template("contrarian"), "", None
+    )
+    assert result == "unchanged prompt\n"
+
+
+def test_wit_craft_enabled_appends_without_changing_base_prompt(settings, data_brief, fakes):
+    provider = fakes.LLM()
+    generator = ScriptGenerator(settings, provider)
+    template = get_template("contrarian")
+    original = generator._build_prompt(data_brief, template, "", None)
+    settings.script_wit_craft_enabled = True
+    enhanced = generator._build_prompt(data_brief, template, "", None)
+    assert enhanced.startswith(original + "\n\n")
+    extra = enhanced[len(original) :]
+    for protected in (
+        "factual precision",
+        "title/opening promise",
+        "word budget",
+        "fix-list",
+        "Shorts",
+    ):
+        assert protected in extra
+    assert "judge" not in extra.lower()
+    assert provider.call_count == 0
+    script = generator.run("R", data_brief, template)
+    assert provider.call_count == 1
+    assert script.grounded_fact_refs == [0, 1, 2]
+
+
+@pytest.mark.parametrize("content_format", ["long", "short"])
+def test_default_wit_craft_reaches_generation_and_revision(
+    data_brief, fakes, monkeypatch, content_format
+):
+    from content_foundry.agents.judge import Judge
+    from content_foundry.config import get_settings, reset_settings_cache
+
+    monkeypatch.delenv("SCRIPT_WIT_CRAFT_ENABLED", raising=False)
+    monkeypatch.setenv("CONTENT_FORMAT", content_format)
+    reset_settings_cache()
+    settings = get_settings()
+    assert settings.script_wit_craft_enabled is True
+    provider = fakes.LLM()
+    generator = ScriptGenerator(settings, provider)
+    template = get_template("contrarian")
+    previous = generator.run("R", data_brief, template)
+    generator.run(
+        "R",
+        data_brief,
+        template,
+        judge_feedback=Judge._fix_for("wittiness", None),
+        previous_script=previous,
+    )
+    assert provider.call_count == 2
+    for call in provider.calls:
+        assert "## WIT CRAFT" in call["system"]
+        assert "Absurd comparisons are welcome" in call["system"]
+    assert "PREVIOUS DRAFT" in provider.calls[-1]["system"]
+    assert "keep every number exact" in provider.calls[-1]["system"]
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_wit_guidance_teaches_devices_without_stock_punchlines(
+    settings, data_brief, fakes, enabled
+):
+    from content_foundry.agents.judge import Judge
+
+    settings.script_wit_craft_enabled = enabled
+    generator = ScriptGenerator(settings, fakes.LLM())
+    feedback = Judge._fix_for("wittiness", None)
+    prompt = generator._build_prompt(data_brief, get_template("contrarian"), "", feedback)
+    for stock in (
+        "toaster",
+        "Said no one, ever",
+        "message in a bottle",
+        "emotional-support snack",
+        "model home",
+        "incident has your phone number",
+    ):
+        assert stock.lower() not in prompt.lower()
+        assert stock.lower() not in feedback.lower()
+    for device in ("SILLY / ABSURD", "VIVID ANALOGY", "RULE OF THREE", "CALLBACK"):
+        assert device in prompt
+    assert "Merely\n  swapping a noun" in prompt
+    assert "Preserve working jokes" in feedback
+    assert "every number exact" in feedback
 
 
 def test_format_context_empty_for_long_populated_for_short(monkeypatch):

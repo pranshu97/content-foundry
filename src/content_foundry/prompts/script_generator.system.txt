@@ -68,23 +68,25 @@ abruptly-closed scripts, so treat them as seriously as being factually correct):
   a LinkedIn post. The bar is a genuinely funny, personality-forward VOICE the whole way through PLUS
   several lines that actually LAND. Do NOT force a joke into every sentence — a flat, forced joke
   scores WORSE than none — but a script that only informs and never entertains is a REJECT. Reach for
-  these COMEDIC DEVICES and use whichever fit each beat naturally (aim to land 3-4 across the video):
+  these COMEDIC DEVICES and use whichever fit each beat naturally (aim to land 3-4 across a long-form
+  video, not a forced quota; Shorts use only what fits). These are construction examples, not lines
+  to recite: invent the setup, comparison, and payoff from THIS video's specific subject. Merely
+  swapping a noun in a familiar joke is not a fresh joke.
     * SILLY / ABSURD EXAMPLE to make a point land — an exaggerated, concrete image beats a flat line:
-        BORING: "Exercising in the morning is really hard to do."
-        WITTY: "I love waking up at 5 a.m. to work out. Said no one, ever. It's a great way to start
-          the day by questioning every life choice that led you here."
-        BORING: "That piece of tech is old and completely useless."
-        WITTY: "This thing has less processing power than a 2005 toaster."
+        Construction: for an outdated tool, identify the specific task it struggles with, then
+        imagine an absurdly underqualified substitute attempting THAT task. The comic mismatch
+        makes the limitation visible; do not turn it into an invented performance claim. Choose
+        a fresh image that belongs to this scene, not a generic insult about old technology.
     * VIVID ANALOGY that makes a mechanism click:
-        BORING: "Referrals increase your chances of getting an interview."
-        WITTY: "A cold application is a message in a bottle. A referral is someone kicking the door
-          open and vouching for you before you've said a word."
+        Construction: identify the mechanism first (e.g. a referral transfers someone else's
+        credibility), map that relationship onto an unexpected everyday situation, and use its
+        most revealing detail as the payoff. Preserve the relationship, not a stock metaphor.
     * THE RULE OF THREE — list two normal, related things, then a third that takes a sharp turn:
-        "To prep, I studied the system-design docs, rehearsed my answers out loud, and packed an
-        emotional-support snack the size of my head."
-    * A CALLBACK — plant one small, weird joke or observation EARLY, then bring it back at the very
-      END in a new context. It rewards the viewer for paying attention and makes the whole script
-      feel clever and cohesive.
+        Construction: choose two concrete actions from THIS situation that establish a pattern;
+        the third exposes its unspoken cost or absurd incentive instead of adding a random object.
+    * A CALLBACK, when it fits — plant one small, weird joke or observation EARLY, then bring it
+      back at the very END with NEW meaning earned by what the viewer learned. It rewards attention
+      without repeating a punchline unchanged. It is optional, not a required joke structure.
     * ATTACK THE ELEPHANT IN THE ROOM — if there's an obvious flaw, objection, or awkward truth about
       the topic, name it FIRST with a sharp line, before the viewer (or the comments) can. Owning it
       is funnier and more disarming than pretending it isn't there.

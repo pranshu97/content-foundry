@@ -11,6 +11,7 @@ from content_foundry.providers.text_normalize import (
     speechify_numbers,
     spell_designations,
     spell_initialisms,
+    spell_letters,
 )
 
 
@@ -145,6 +146,42 @@ def test_initialisms_are_spaced_not_phonetically_respelled(raw, spoken):
     acronym before it was caught -- and the same trap made MLE "E M L E".
     """
     assert spell_initialisms(raw) == spoken
+
+
+@pytest.mark.parametrize(
+    ("acronym", "plural"),
+    [
+        ("API", "A P eyes"),
+        ("KPI", "K P eyes"),
+        ("SLA", "S L ays"),
+        ("SDK", "S D kays"),
+        ("GPU", "G P yous"),
+        ("CMS", "C M esses"),
+    ],
+)
+def test_cached_letter_spellings_preserve_the_default_plural(acronym, plural):
+    singular = spell_letters(acronym)
+    overrides = {acronym: singular}
+    assert spell_initialisms(acronym, overrides) == singular
+    assert spell_initialisms(acronym + "s") == plural
+    assert spell_initialisms(acronym + "s", overrides) == plural
+    assert overrides == {acronym: singular}
+
+
+def test_explicit_plural_pronunciation_still_wins():
+    overrides = {"API": "A P I", "APIS": "application interfaces"}
+    assert spell_initialisms("APIs", overrides) == "application interfaces"
+
+
+@pytest.mark.parametrize(
+    ("raw", "overrides", "spoken"),
+    [
+        ("MAPs", {"MAP": "map"}, "maps"),
+        ("APIs", {"API": "ay pee eye"}, "ay pee eyes"),
+    ],
+)
+def test_nonletter_overrides_keep_their_plural_pronunciation(raw, overrides, spoken):
+    assert spell_initialisms(raw, overrides) == spoken
 
 
 def test_no_letter_is_rendered_as_an_invented_word():

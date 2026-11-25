@@ -49,6 +49,7 @@ _BASE_ENV = {
     "SCRIPT_TARGET_WORDS": "40",
     # Off by default in tests so the fake LLM's call sequence stays deterministic; enabled per-test.
     "BRAINSTORM_ENABLED": "false",
+    "SCRIPT_WIT_CRAFT_ENABLED": "false",
     # Off by default so the Researcher's LLM/web calls don't perturb the fake call sequence.
     "RESEARCH_ENABLED": "false",
     # Off so the Instruction Planner doesn't add an LLM call; instructions steer both stages verbatim.

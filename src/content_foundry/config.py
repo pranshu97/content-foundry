@@ -491,6 +491,7 @@ class Settings(BaseSettings):
     # when it fits naturally) and enforced (a Judge gate rejects a teased payoff that isn't delivered,
     # so it is never a bait-and-switch). Never used on Shorts. Set false to disable the nudge entirely.
     retention_open_loop_enabled: bool = True
+    script_wit_craft_enabled: bool = True
 
     # ---------- Sound effects ----------
     # Script-authored SFX cues mixed into the narration at each scene's start. Local library first,

@@ -360,7 +360,7 @@ class ScriptGenerator:
                 "every scene still stays ON the topic above:\n"
                 f"{instructions.strip()}\n\n"
             )
-        return render_prompt(
+        system = render_prompt(
             load_prompt("script_generator.system"),
             target_words=eff_words,
             scenes=eff_scenes,
@@ -382,6 +382,9 @@ class ScriptGenerator:
             research_context=self._research_context(research),
             script_schema=SCRIPT_JSON_SHAPE,
         )
+        if self._settings.script_wit_craft_enabled:
+            system += "\n\n" + load_prompt("script_wit_craft.system")
+        return system
 
     def _revision_clause(self, judge_feedback: str | None, previous_script: Script | None) -> str:
         """Build the revision block. When the previous draft is available it is embedded so the model

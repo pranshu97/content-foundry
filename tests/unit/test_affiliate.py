@@ -57,14 +57,14 @@ def test_curated_prefers_the_distinctive_match_over_niche_vocabulary(monkeypatch
         {
             "platform": "exponent",
             "name": "ML Engineer Interview Prep",
-            "url": "https://www.tryexponent.com/courses/ml-engineer",
+            "url": "https://www.aced.io/courses/ml-engineer",
             "topics": "machine learning ml faang engineer interview system design",
             "blurb": "MLE track",
         },
         {
             "platform": "exponent",
             "name": "Salary Negotiation Course",
-            "url": "https://www.tryexponent.com/courses/tech-salary-offer-negotiation",
+            "url": "https://www.aced.io/courses/tech-salary-offer-negotiation",
             "topics": "salary negotiate negotiation offer compensation faang",
             "blurb": "negotiation",
         },
@@ -90,7 +90,7 @@ def test_curated_drops_a_platform_with_only_a_weak_match(monkeypatch, tmp_path):
         {
             "platform": "exponent",
             "name": "Salary Negotiation Course",
-            "url": "https://www.tryexponent.com/courses/tech-salary-offer-negotiation",
+            "url": "https://www.aced.io/courses/tech-salary-offer-negotiation",
             "topics": "salary negotiate negotiation offer compensation faang",
             "blurb": "negotiation",
         },
@@ -137,7 +137,7 @@ def test_curated_ignores_a_video_that_only_matches_the_niche(monkeypatch, tmp_pa
         {
             "platform": "exponent",
             "name": "ML Engineer Interview Prep",
-            "url": "https://www.tryexponent.com/courses/ml-engineer",
+            "url": "https://www.aced.io/courses/ml-engineer",
             "topics": "machine learning ml faang engineer interview",
             "blurb": "MLE track",
         },
@@ -168,7 +168,7 @@ def test_curated_link_uses_each_platforms_own_referral_param(monkeypatch, tmp_pa
         {
             "platform": "exponent",
             "name": "ML Engineer Interview Prep",
-            "url": "https://www.tryexponent.com/courses/ml-engineer",
+            "url": "https://www.aced.io/courses/ml-engineer",
             "topics": "machine learning engineer mle interview",
             "blurb": "the full MLE track",
         },
@@ -199,9 +199,7 @@ def test_exponent_id_builds_the_ref_homepage_url(monkeypatch):
     from content_foundry.production.affiliate import _PLATFORM_BY_KEY, _referral_url
 
     s = _settings(monkeypatch, AFFILIATE_ENABLED="true", AFFILIATE_EXPONENT_ID="EXPAFF01")
-    assert _referral_url(s, _PLATFORM_BY_KEY["exponent"]) == (
-        "https://www.tryexponent.com/?ref=EXPAFF01"
-    )
+    assert _referral_url(s, _PLATFORM_BY_KEY["exponent"]) == ("https://www.aced.io/?ref=EXPAFF01")
 
 
 def test_educative_and_fenzo_affiliate_ids_build_urls(monkeypatch):

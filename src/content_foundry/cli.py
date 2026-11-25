@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sys
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -345,9 +345,24 @@ def judge(
 def voiceover(
     input: str | None = typer.Option(None, help="script.json"),
     run_id: str | None = typer.Option(None, "--run-id"),
+    scene: Annotated[
+        list[int] | None,
+        typer.Option(
+            "--scene", help="Re-voice only this script scene index (repeat for multiple scenes)."
+        ),
+    ] = None,
 ) -> None:
     """Stage 4 (needs an approved script)."""
-    _run(run_id=run_id, from_stage="voiceover", to_stage="voiceover", input_path=input, force=True)
+    if scene is not None and not run_id:
+        raise typer.BadParameter("--scene requires --run-id")
+    _run(
+        run_id=run_id,
+        from_stage="voiceover",
+        to_stage="voiceover",
+        input_path=input,
+        force=True,
+        voiceover_scenes=set(scene) if scene else None,
+    )
 
 
 @app.command()

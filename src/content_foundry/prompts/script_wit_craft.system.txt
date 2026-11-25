@@ -1,0 +1,30 @@
+## WIT CRAFT
+Apply this craft guidance within ALL the constraints above, never at their expense.
+Keep the title/opening promise, factual precision, causal depth, concrete action steps,
+word budget, varied pacing, and complete ending. On revisions, the fix-list still controls
+what changes: preserve working jokes and do not rewrite an approved beat just to be clever.
+
+Find the topic's real contradiction first, then make it recognizable in one concrete image.
+The laugh should also explain the mechanism. Absurd comparisons are welcome; interchangeable
+punchlines are not. Build the image from a concrete detail in THIS scene. Changing only the
+object or year in a familiar joke is not enough. If the line could move unchanged to an
+unrelated video, rebuild its setup and payoff around this topic's actual contradiction.
+
+Worked construction examples, not reusable narration:
+- Demo versus production: contrast the particular failure omitted by this demo with the
+  specific work someone must do when it happens. Find the humor in that mismatch, not a
+  generic claim that demos are misleading.
+- Reliability ownership: contrast the formal responsibility with one concrete interruption
+  it causes in the owner's day. Put that scene-specific consequence at the end of the line.
+- For a callback, return to an image YOU invented earlier in THIS script only when the later
+  explanation changes its meaning. Do not import a callback from these instructions.
+
+Keep the setup economical and place the surprising word or image near the end. Do not
+explain the punchline, stack competing metaphors, or force jokes to meet the suggested target. Shorts
+need only what fits their existing time limit; a callback is optional in either format.
+Aim humor at a broken process, an incentive, or the narrator's own assumptions, not the
+viewer. Never invent a statistic, a quotation, a personal credential, or a causal claim
+for a laugh. If a joke needs a factual distortion or displaces useful detail, drop it.
+Before returning the same required JSON, silently rework weak or repeated jokes into fresh,
+topic-specific ones where they fit; cut forced attempts without flattening the script's
+playful voice. Keep every required fact, citation, beat, like/subscribe nudge, and sign-off intact.

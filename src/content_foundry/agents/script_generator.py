@@ -23,7 +23,7 @@ SCRIPT_JSON_SHAPE = """{
   "hook": "first ~10s spoken opening that delivers the SAME hook the title and thumbnail promise (the trifecta), specific, opens a curiosity gap",
   "scenes": [
     {"index": 0, "narration": "3-6 spoken sentences that OPEN VERBATIM WITH THE hook ABOVE (the hook is literally the first thing spoken), then take ONE point deep as natural speech: the how, the why, and a concrete, witty example woven together, with NO section labels or headings and NO restating the hook in other words", "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh", "editor_note": "punch in on the key detail", "cut": "fast", "visual_source": "short report/survey name shown visually on screen (or null)", "is_comment_friction": false, "discussion_question": null},
+     "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh", "editor_note": "punch in on the key detail", "cut": "fast", "visual_source": null, "is_comment_friction": false, "discussion_question": null},
     {"index": 1, "narration": "FINAL scene: 3-6 spoken sentences that pay off the idea with your wittiest line, then one natural like/subscribe nudge, then a warm 'see you in the next one' sign-off",
      "on_screen_text": "short on-screen caption",
      "b_roll_keywords": ["subject reacting with emotion", "two people celebrating together"], "fact_ref": 1, "sfx": "pop", "editor_note": "hold on the payoff line", "cut": "hold", "visual_source": null, "is_comment_friction": false, "discussion_question": null}
@@ -257,9 +257,10 @@ def _engagement_hygiene_context(settings) -> str:
         "voice, crisp conversational rhythm, and punchy short-after-long sentence contrast. Zero "
         "essay transitions ('Moreover', 'Furthermore', 'It is worth noting').",
         "- OFFLOAD CITATIONS TO VISUAL_SOURCE: never read formal report titles aloud ('According to "
-        "the October report by...'). Keep spoken narration direct and conversational, and put the "
-        'report/benchmark name in that scene\'s "visual_source" field so the evidence card renders '
-        "it cleanly on screen.",
+        "the October report by...'). Keep spoken narration direct and conversational. Set a scene's "
+        '"visual_source" ONLY when that scene cites a real external outlet/domain from GROUNDING '
+        'FACTS; for analytical or unsourced scenes, MUST set "visual_source": null (never invent '
+        "report or matrix names).",
     ]
     if not getattr(settings, "is_short", False):
         lines.append(
@@ -725,40 +726,58 @@ class ScriptGenerator:
         return script
 
     def _stamp_sources(self, script: Script, brief: DataBrief) -> Script:
-        """HARD RULE (Ch. 8.6): a statistic is never shown without its exact source. Every scene
-        whose narration still cites a (grounded) stat gets its source surfaced in on_screen_text —
-        guaranteed in code, never left to the model."""
+        """HARD RULE (Ch. 8.6): a statistic is never shown without its exact verified source, and
+        an unverified/invented ``visual_source`` is NEVER allowed onto screen."""
+        from ..production.visual_router import is_low_tier_source
+
         seen_urls: set[str] = set()
         collected_links: list[dict[str, str]] = []
+        verified_pool: dict[str, str] = {}
+        for kf in brief.key_facts:
+            lbl = _source_label(kf.citation)
+            u = (getattr(kf.citation, "url", None) or "").strip()
+            if lbl and not is_low_tier_source(u or lbl, self._settings):
+                verified_pool[lbl.lower()] = lbl
+
         for scene in script.scenes:
             ref = scene.fact_ref
+            verified_label = ""
             if ref is not None and 0 <= ref < len(brief.key_facts):
                 cit = brief.key_facts[ref].citation
-                ref_label = _source_label(cit)
-                if ref_label and not scene.visual_source:
-                    scene.visual_source = ref_label
                 raw_url = (getattr(cit, "url", None) or "").strip()
-                if raw_url.startswith(("http://", "https://")):
-                    scene.source_url = raw_url
-                    if raw_url not in seen_urls:
-                        seen_urls.add(raw_url)
-                        collected_links.append(
-                            {
-                                "label": ref_label or _domain_from_url(raw_url) or "Source",
-                                "url": raw_url,
-                            }
-                        )
+                cand_label = _source_label(cit)
+                if not is_low_tier_source(raw_url or cand_label, self._settings):
+                    verified_label = cand_label
+                    if raw_url.startswith(("http://", "https://")):
+                        scene.source_url = raw_url
+                        if raw_url not in seen_urls:
+                            seen_urls.add(raw_url)
+                            collected_links.append(
+                                {
+                                    "label": verified_label
+                                    or _domain_from_url(raw_url)
+                                    or "Source",
+                                    "url": raw_url,
+                                }
+                            )
+                scene.visual_source = verified_label or None
+            else:
+                # Analytical or unreferenced scene: keep visual_source ONLY if it matches a verified
+                # source in the brief; strip any LLM-invented report/matrix name.
+                cur_vs = (scene.visual_source or "").strip()
+                matched = verified_pool.get(cur_vs.lower(), "") if cur_vs else ""
+                scene.visual_source = matched or None
+
             if not STAT_RE.search(scene.narration):
                 continue
-            if ref is None or not (0 <= ref < len(brief.key_facts)):
-                continue  # ungrounded stats are stripped in _repair_grounding
-            label = _source_label(brief.key_facts[ref].citation)
-            if not label:
-                continue  # the creator gave no source for this point — never invent one
+            if not verified_label:
+                continue  # creator-supplied or sourceless point — never invent a source stamp
             caption = (scene.on_screen_text or "").strip()
-            if _has_source(caption, label):
+            if _has_source(caption, verified_label):
                 continue
-            scene.on_screen_text = f"{caption} · Source: {label}" if caption else f"Source: {label}"
+            scene.on_screen_text = (
+                f"{caption} · Source: {verified_label}" if caption else f"Source: {verified_label}"
+            )
         if collected_links:
             script.source_links = collected_links
         return script
@@ -884,6 +903,8 @@ def _source_label(citation) -> str:
     if domain:
         return domain
     source = (citation.source or "").strip()
+    if key in {"research", "search", "creator", "null", "none"}:
+        return ""
     # A one-word internal key ("research") reads better capitalised, but a creator's own wording is
     # left exactly as typed so acronyms survive — .title() would turn "internal ATS export" into
     # "Internal Ats Export".

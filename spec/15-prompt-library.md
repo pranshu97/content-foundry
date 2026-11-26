@@ -2,15 +2,25 @@
 
 Prompts live as plain `.txt` files under `prompts/` and are loaded by `load_prompt(name)`. They use `{placeholder}` tokens filled at runtime. LLM stages **must request strict JSON** matching the relevant Pydantic schema. Each prompt is organized into **labeled XML-style sections** (`<role>`, `<template>`/`<grounding>`/`<sources>`, `<rules>`, `<output_format>`, …) so the model cleanly separates its instructions from the injected data; `render_prompt` fills only the named `{placeholder}` tokens and leaves every other brace (e.g. the JSON shape) untouched.
 
-> **Cost note:** only **one stage always calls an LLM** — the Script Generator (§15.2). The Judge calls an LLM **at most once** and only in `hybrid`/`llm` mode (§15.3). The **Data Fetcher** and **Visuals** stages are now fully deterministic and have **no prompts** (their old prompt files are removed; see [Ch. 7](07-agent-1-data-fetcher.md#7-agent-1-data-fetcher) and [Ch. 11](11-agent-5-visuals-thumbnail.md#11-agent-5-visuals-thumbnail)).
+> **Cost & tiering note:** the Script Generator (§15.2) and Researcher use the `HEAVY` model tier; high-frequency or mechanical passes — the Judge, Instruction Planner, Pronunciation Director, B-Roll Director, Motion-Graphics Director, Dual-Channel Scene Image Director, Storyboard Critic, and Thumbnail Refiner — run on the cheap `LIGHT` tier (`temperature=0.0–0.35`). **FakeLLM invariant:** test harness `FakeLLMProvider` routes judge responses on `"judge" in system.lower()`, so **no non-judge prompt file may ever contain the word `"judge"`** (use `"reviewer"` / `"auditor"`).
 
-### 15.1 Active prompt files
-| File | Stage | When used |
-|------|-------|-----------|
-| `script_generator.system.txt` | Agent 2 | every run (the one irreducible LLM call) |
-| `judge.system.txt` + `judge.rubric.txt` | Judge | only `JUDGE_MODE=hybrid\|llm` |
-| ~~`data_fetcher.system.txt`~~ | — | **removed** (deterministic extraction) |
-| ~~`visuals.system.txt`~~ | — | **removed** (deterministic templating) |
+### 15.1 Active prompt files (17)
+| File | Component | Tier / When used |
+|------|-----------|------------------|
+| `script_generator.system.txt` | Agent 2 (`ScriptGenerator`) | `HEAVY` · every run |
+| `script_wit_craft.system.txt` | Agent 2 appendix | `SCRIPT_WIT_CRAFT_ENABLED=true` |
+| `judge.system.txt` + `judge.rubric.txt` | Agent 3 (`Judge`) | `LIGHT` (`temp=0`) · `JUDGE_MODE=hybrid\|llm` |
+| `brainstorm.system.txt` | Agent 0 (`Brainstormer`) | `BRAINSTORM_ENABLED=true` (`--brainstorm`) |
+| `instruction_asks.system.txt` + `instruction_planner.system.txt` | Agent 1.4 (`InstructionPlanner`) | `LIGHT` · when `--instructions` supplied |
+| `research.system.txt` | Agent 1.5 (`Researcher`) | `HEAVY` · `RESEARCH_ENABLED=true` |
+| `affiliate_queries.system.txt` | Orchestrator affiliate book search | `LIGHT` · `AFFILIATE_ENABLED=true` |
+| `pronunciation.system.txt` | Agent 4.5 (`PronunciationDirector`) | `LIGHT` (`temp=0`) · `PRONUNCIATION_LLM_ENABLED=true` |
+| `broll_director.system.txt` | Agent 5.5 (`BrollDirector`) | `LIGHT` · `BROLL_DIRECTOR_ENABLED=true` |
+| `scene_image_director.system.txt` | Agent 5.7 legacy batch fallback | `LIGHT` · when `ENABLE_PROGRAMMATIC_GRAPHICS=false` |
+| `scene_image_director_dual.system.txt` | Agent 5.7 (`compose_dual`) | `LIGHT` · dual-channel anti-collapse AI stills |
+| `motion_graphics_director.system.txt` | `visual_router.author_motion_graphics_props` | `LIGHT` · batched props for the 7 dark-mode templates |
+| `storyboard_critic.system.txt` | `StoryboardCritic` | `LIGHT` (`temp=0`) · pre-render storyboard audit |
+| `thumbnail_director.system.txt` + `thumbnail_refine.system.txt` | Agent 5.6 (`ThumbnailDirector`) | `LIGHT` · draft + surgical find/replace touch-ups |
 
 ### 15.2 `script_generator.system.txt`
 ```text

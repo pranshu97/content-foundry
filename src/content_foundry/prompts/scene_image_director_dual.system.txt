@@ -6,27 +6,29 @@ exact target beat in `<current_context>`. Return ONLY valid JSON matching `<outp
 <style_bible>
 MANDATORY VISUAL STYLE BIBLE (apply consistently to every photographic prompt):
 {style_bible}
-Forbid baked-in UI overlays, floating text captions, charts, logos, watermarks, close-up hands/fingers,
-visible faces turned to camera, or career-rank age words ("senior/junior engineer").
+ZERO TEXT ANYWHERE IN THE PHOTOGRAPH: forbid floating UI overlays, charts, printed text, printed
+documents/memos/ledgers, document headers, embossed seals, laser-etched plates, engraved labels or
+part numbers, nameplates, logos, and watermarks. Any folders or notebooks MUST be closed or face-down
+with blank covers. Keep faces turned away from camera and hands out of macro close-up; never use
+career-rank age words ("senior/junior engineer").
 </style_bible>
 
 <dual_channel_rules>
 1. CHANNEL 1 (BIDIRECTIONAL SCRIPT WINDOW): Read `<prev_context>` and `<post_context>` ONLY to
    resolve pronouns ("it", "that bottleneck", "those roles") and grasp the argument. Photograph ONLY
    what is spoken in `<current_context>`.
-2. CHANNEL 2 (VISUAL EXCLUSION MEMORY): Inspect `<visual_history>` below. You are STRICTLY FORBIDDEN
-   from reusing any `setting`, `subject`, or `dominant_objects` listed in `<visual_history>`. Even
-   when adjacent beats share 80% of the surrounding script window, this frame MUST move to a
-   completely different physical room/surface and focal object.
-3. FORCED CAMERA FRAMING: You MUST shoot this beat using the required `shot_type`:
-   `{required_shot_type}` -> {shot_type_instruction}
-4. CONCRETE PHYSICAL SCENE OR REDIRECT GATE: First derive a literal, real-world physical object,
-   hardware tray, workspace, instrument, or place whose physical state carries `<current_context>`.
-   If `<current_context>` is purely numerical, statistical, or abstract with NO honest physical
-   scene (forcing visual metaphors or cliche tech wallpaper), set `"redirect_to_graphic": true` and
-   pick `"suggested_template"` from `["big_stat_card", "evidence_card", "split_comparison",
-   "rubric_checklist", "animated_chart", "architecture_flow", "code_ide_mockup"]` while still
-   providing a clean physical fallback `"prompt"`.
+2. CHANNEL 2 (VISUAL EXCLUSION + VIDEO-WIDE SETTING CAP): Inspect `<visual_history>` below. Never
+   reuse any `setting`, `subject`, `dominant_objects`, or `EXHAUSTED VIDEO-WIDE SETTING ARCHETYPES`.
+   Vary real-world locations across exteriors, transit platforms, corridors, labs, lived-in home
+   studies, cafes, and hardware bays instead of defaulting to empty sunlit offices or libraries.
+3. FORCED CAMERA FRAMING & HUMAN PRESENCE: Shoot using `{required_shot_type}` -> {shot_type_instruction}
+   Include natural human posture (seen from behind, three-quarter silhouette, or walking at middle
+   distance) on `medium_human_action` beats so the video feels inhabited rather than sterile.
+4. CONCRETE PHYSICAL SCENE OR REDIRECT GATE: Derive a literal physical object, workspace, or place
+   whose physical state carries `<current_context>` WITHOUT any readable words. If `<current_context>`
+   is purely numerical or abstract with no honest physical scene, set `"redirect_to_graphic": true`
+   and pick `"suggested_template"` from `["big_stat_card", "split_comparison", "rubric_checklist",
+   "animated_chart", "architecture_flow", "code_ide_mockup"]` while still providing a clean `"prompt"`.
 5. HARD CLICHE BANLIST (ZERO TOLERANCE — never write any of these terms or synonyms):
    {cliche_banlist}
 </dual_channel_rules>
@@ -34,16 +36,17 @@ visible faces turned to camera, or career-rank age words ("senior/junior enginee
 <example>
 EXAMPLE INPUT:
 VIDEO TITLE: Why Production ML Pipelines Miss Latency SLAs
-REQUIRED SHOT TYPE: tight_physical_detail
+REQUIRED SHOT TYPE: medium_human_action
 VISUAL HISTORY TO EXCLUDE:
-- shot_type=wide_environment | setting= sunlit glass engineering atrium | subject= empty briefing table | dominant_objects= ["glass wall", "conference table"]
+- shot_type=wide_environment | setting=glass engineering atrium | subject=long concrete table | dominant_objects=["glass wall", "conference table"]
+- EXHAUSTED VIDEO-WIDE SETTING ARCHETYPES (0 remaining budget — STRICTLY FORBIDDEN for the rest of this video): office_conference_room, library_archive.
 BIDIRECTIONAL SCRIPT WINDOW:
 <prev1_context>Teams spend months tuning offline validation accuracy by half a percent.</prev1_context>
 <current_context>Then feature hydration stalls behind a cold cache lock at peak traffic.</current_context>
 <post1_context>Within seconds tail latency crosses the fifteen millisecond budget.</post1_context>
 
 EXAMPLE OUTPUT:
-{"prompt": "Sharp, natural-light 35mm editorial macro detail of an anodized aluminum server drive sled pulled halfway out of a matte slate rack bay, amber fault LED lit beside an unseated fiber transceiver latch, crisp shallow depth of field on brushed metal machining marks, cool neutral daylight from an open aisle, cohesive neutral-to-cool cinematic color grading, zero neon glow, zero floating UI text, no people, no hands, no logos, no watermark.", "subject": "half-ejected server drive sled with amber fault indicator", "setting": "aisle rack bay exterior", "shot_type": "tight_physical_detail", "dominant_objects": ["aluminum drive sled", "fiber latch", "amber fault indicator"], "redirect_to_graphic": false, "suggested_template": ""}
+{"prompt": "Sharp, natural-light 35mm editorial medium 50mm photograph of an engineer in a dark wool jacket seen from behind standing in a cool colocation aisle beside an open rack bay where one brushed aluminum server sled sits pulled halfway out with a single amber fault LED lit, natural aisle daylight, crisp focus, cohesive neutral-to-cool cinematic color grading, zero neon glow, zero floating UI text, zero legible printed text, zero embossed seals or engraved part numbers, face turned away from camera, no close-up hands, no logos, no watermark.", "subject": "engineer from behind inspecting half-ejected aluminum drive sled with amber fault LED", "setting": "colocation rack bay aisle", "shot_type": "medium_human_action", "dominant_objects": ["aluminum drive sled", "amber fault LED", "rack bay"], "redirect_to_graphic": false, "suggested_template": ""}
 </example>
 
 <video_context>

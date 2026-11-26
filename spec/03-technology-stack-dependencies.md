@@ -6,8 +6,9 @@
 ### 3.2 Core libraries
 | Concern | Library | Why |
 |---------|---------|-----|
-| LLM — Anthropic | `anthropic` | Primary model provider (Claude) |
-| LLM — OpenAI | `openai` | Fallback provider + optional judge cross-check |
+| LLM — Google Gemini | `httpx` (REST) | Primary model-chain provider (`GoogleProvider`, best-first fallback across free/pro tiers) |
+| LLM — Anthropic | `anthropic` | Alternative primary/fallback provider (Claude) |
+| LLM — OpenAI / Local | `openai` | OpenAI + any OpenAI-compatible local server (Ollama, LM Studio, vLLM) |
 | Data validation / schemas | `pydantic>=2` | All artifacts are Pydantic models ⇒ free JSON (de)serialization + validation |
 | Settings / config | `pydantic-settings` | Typed env-var loading from `.env` |
 | HTTP client | `httpx` | Async-capable, modern, used by all data fetchers |
@@ -25,6 +26,8 @@
 | TTS narration | `elevenlabs`, `openai`, `edge-tts` (free), `piper-tts` (free offline) | Voiceover with word-level timings |
 | Voice cloning (TTS) | `chatterbox-tts` + `torch`/`torchaudio` | Free zero-shot cloning of your own voice (MIT); GPU via the CUDA `cu124` torch build |
 | Voice cloning (TTS, alt) | `indextts` (IndexTTS-2, Apache-2.0) | Free cloning with emotion disentangled from timbre. Installed in a **separate venv** and driven through a subprocess worker: it needs numpy>=2 while this package pins numpy<2 for Chatterbox/diffusers |
+| Number & year prosody | `num2words` | Expands numerals, currencies, calendar years (`2026` → `"twenty twenty six"`), and compounds cleanly for neural TTS |
+| Animated motion graphics | `playwright` (headless Chromium) | Renders all 7 deterministic 1080p30 dark-mode HTML/CSS/SVG templates directly into FFmpeg (`yuv420p` TV range) |
 | Drawn diagrams | `matplotlib` | Renders a matrix / bar comparison / ladder / pipeline shot for real instead of asking an image model to fake one. Chosen over graphviz because it exposes real text metrics, so a label can be measured and fitted rather than silently overflowing its box |
 | Thumbnail face cutout | `rembg` | Background-remove your avatar PNG for the thumbnail composite |
 | Image generation | `openai` Images / `stability-sdk` | Thumbnail + per-scene visuals |

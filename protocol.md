@@ -73,8 +73,17 @@ A **small** set of docs, each with ONE job:
 | `README` / `Tutorial` / `.env.example` | User-facing | New feature, lever, or setting |
 
 **"When a feature lands" checklist:** new source file → file-tree spec; new config → env spec +
-`.env.example`; new capability → README/Tutorial bullet; **always** add a `Reference.md ## N` entry with
-the current absolute test count; new credential/step → `Human_Tasks`.
+`.env` + `.env.example` + `src/content_foundry/data/env.example` (kept at **zero drift** and locked by
+automated tests that reject both missing env keys and unreferenced `Settings` fields); new capability →
+README/Tutorial bullet; **always** add a `Reference.md ## N` entry with the current absolute test count;
+new credential/step → `Human_Tasks`.
+
+**Verification ladder (never spend paid credits to check your own code):**
+1. Unit + integration tests (`pytest` ≥ 85% coverage + `pre-commit run` **twice**).
+2. Cheap/free local or text-tier checks (e.g. DOM/layout inspection via Playwright, tokenizer/AST checks,
+   or a text-only prompt dry-run with zero image/TTS/upload calls).
+3. Hand the operator the exact CLI command when verification requires paid image generation, long GPU
+   synthesis, or live publishing.
 
 ---
 
@@ -122,7 +131,16 @@ Quality is not a cleanup phase — it is upheld on **every** change.
 - **Inject context dynamically, keep the shipped template generic.** Use named placeholders filled at
   runtime rather than hard-coding domain specifics into the prompt.
 - **Be explicit and structured:** state the role, the task, hard rules, and the exact output format
-  (prefer strict JSON with a schema you then validate). Give **worked examples** of the quality bar.
+  (prefer strict JSON with a schema you then validate). Give **worked examples** of the quality bar —
+  and **count existing rules + audit the exemplar before adding a new rule**. An exemplar overrides
+  written prose every time: if an example demonstrates the banned pattern, fix the example or replace a
+  rule rather than piling on a ninth bullet.
+- **Put load-bearing invariants in code, not prose alone:** any rule that matters on reuse paths,
+  fallbacks, or downstream joins (e.g. stripping career-rank age words, verifying `SOURCE //` badges
+  against real brief citations, enforcing setting-archetype caps) belongs in deterministic Python +
+  tests, because saved prompts and fallback branches bypass the LLM prompt entirely.
+- **Mind live-run prompt reloads:** uncached `load_prompt()` reads `.txt` files on every call, so check
+  for an active run before editing prompt `.txt` files on disk.
 - **Constrain the failure modes you've seen:** name the exact bad behavior and forbid it (e.g., "never
   invent a number," "never drift off the chosen topic," "output only JSON").
 - **Respect model limits:** token/context budgets (lead with what must survive truncation), reasoning

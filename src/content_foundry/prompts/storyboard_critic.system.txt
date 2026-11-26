@@ -4,15 +4,16 @@ generation budget is spent. Return ONLY valid JSON matching `<output_format>`.
 </role>
 
 <audit_criteria>
-Evaluate each candidate shot in `<shots_to_audit>` on two strict bars:
+Evaluate each candidate shot in `<shots_to_audit>` on three strict bars:
 1. CONCRETE RELEVANCE TO `<current_context>`: Does the described physical photograph directly and
-   recognizably illustrate `spoken_text` on mute? Flag vague atmosphere, off-topic filler, visual
-   metaphors (padlocks, chess pieces, mazes, hourglasses), or invented text placards.
-2. VISUAL NON-REPETITION AGAINST `prior_visual_history`: Does this shot repeat the same physical
-   room/setting, focal subject, or dominant prop as any entry in `prior_visual_history`? If yes,
-   mark `passed: false` and explain what must change.
-3. CLICHE & STYLE CHECK: Reject any mention of banned cliches ({cliche_banlist}), neon glow,
-   floating UI text, close-up hands, or visible faces.
+   recognizably illustrate `spoken_text` on mute? Flag vague atmosphere, off-topic filler, or visual
+   metaphors (padlocks, chess pieces, mazes, hourglasses).
+2. VISUAL NON-REPETITION & SETTING DIVERSITY: Reject any shot that repeats a physical room/setting,
+   focal subject, or dominant prop from `prior_visual_history`, or that reuses empty sunlit offices
+   or libraries already spent earlier in the video.
+3. ZERO PHYSICAL OR FLOATING TEXT & CLICHE BAN: Reject any mention of banned cliches
+   ({cliche_banlist}), neon glow, floating UI text, printed documents/ledgers/headers, embossed
+   seals, laser-etched/engraved labels or part numbers, close-up hands, or visible faces.
 </audit_criteria>
 
 <shots_to_audit>

@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Version** | 1.0.1 |
+| **Version** | 1.1.0 |
 | **Language** | Python ≥ 3.11 |
-| **Source** | 70 modules · ~5,200 LOC |
-| **Tests** | 440 passing · `ruff` clean |
+| **Source** | 100 modules · ~26,600 LOC · 17 prompts · 295 typed settings |
+| **Tests** | 71 files · 994 passing · `ruff` + `mypy` + `no-secrets` clean |
 | **Design spec** | 26 chapters (`spec/`) |
 | **License** | MIT |
 
@@ -15,39 +15,23 @@
 
 ## Abstract
 
-Content Foundry converts **real labor-market data** into a **finished, upload-ready YouTube video**
-through seven autonomous agents. The system is built around four hard guarantees that distinguish it
-from a naive "prompt-to-video" script:
+Content Foundry converts **any topic** (grounded in live web research, creator-supplied `--data` /
+`--instructions`, and optional labor-market feeds) into a **finished, upload-ready YouTube video or
+vertical Short** through seven core stages and specialized sub-agents. The system is built around four
+hard guarantees that distinguish it from a naive "prompt-to-video" script:
 
-1. **Grounding** — every statistic in the final script traces back to a concretely fetched data point; ungrounded numbers are mechanically stripped.
-2. **Quality gating** — an automated, deterministic-first Judge scores every script against a 10-dimension rubric and blocks weak output from ever reaching production.
-3. **Resumability** — each of the seven stages persists a versioned artifact, so any run can be stopped, hand-edited, and resumed from an arbitrary stage without redoing prior work.
+1. **Grounding & verified provenance** — every statistic in the final script traces back to a fetched or creator-supplied `KeyFact` (ungrounded numbers are mechanically stripped), unverified `SOURCE //` badges are rejected, and all embedded video sources are automatically deduplicated into a `Sources:` block at the very bottom of the YouTube description.
+2. **Quality gating (script + storyboard)** — an automated, deterministic-first Judge scores every script against a 10-dimension rubric + hard gates, and a pre-render `StoryboardCritic` audits every visual shot *before* paid image tokens are spent.
+3. **Resumability & selective editing** — each stage persists a versioned artifact (plus per-scene raw TTS clips and shot specs), so any run can be stopped, hand-edited, selectively re-voiced (`voiceover --scene N`), or resumed from an arbitrary stage without redoing prior work.
 4. **Compliance by default** — synthetic-content disclosure is enforced programmatically, and nothing can auto-publish publicly without it.
 
-A fifth cross-cutting concern, **cost control**, lets the entire pipeline run **fully offline and
-free** (local LLM + offline TTS + procedural visuals) or scale up to paid cloud providers, selected
-per-stage through a uniform provider abstraction.
+A fifth cross-cutting concern, **cost control**, lets the entire pipeline run **free** (Google Gemini free-tier text chain or local Ollama + offline IndexTTS-2/Chatterbox voice cloning + local Playwright 1080p motion graphics + free stock B-roll) or pair with an isolated paid `GOOGLE_IMAGE_API_KEY` solely for bespoke photography.
 
-Recent additions extend both the free tier and the quality/retention bar. On visuals: **moment-matched
-multi-source B-roll** (a separate clip per narration beat) is now held to a **strict on-topic
-relevance bar** — any beat with no confidently-relevant stock clip falls back to a **bespoke,
-LLM-art-directed GENERATED image** (composed to avoid the mangled AI faces/hands look) rather than an
-off-topic clip, and clip selection is **deterministic** (always the most relevant, no diversity
-sampling). On the script: retention is engineered directly — the crafted **hook is now the literal
-spoken opening**, an optional, non-bait **"open loop"** teases a payoff that a deterministic Judge gate
-**guarantees is delivered**, and pacing rules fight monotony (vary scene shape, pull into the next
-scene, allow anonymized stories, curiosity captions). On monetization/growth: optional **affiliate
-resource links** (a real, searched Amazon product plus topic-matched platforms) and a **"watch next"
-comment** linking related prior uploads are posted at publish time. Plus: **free zero-shot voice
-cloning** (Chatterbox MIT, or IndexTTS-2 Apache-2.0 in its own venv) with punctuation-aware pauses and
-a tone-matched reference window, **diagrams drawn with matplotlib** where a shot is really a matrix /
-bar comparison / ladder / pipeline rather than a photograph, **sound effects** mixed under the voice
-at a predictable level, a **-14 LUFS master** so the upload isn't quiet, **camera motion** on generated
-stills so they don't sit frozen between clips, scene **crossfades**, a **warm colour grade**, a midpoint
-**Subscribe nudge**, **run-alternating voices**, and a **per-run structured log file** for debugging
-silent fallbacks.
-Narration is hardened in code (no leaked meta tokens, no spoken sources, no company first-person
-"we", no em dashes), and runs are identified by short sequential ids (`0001`, `0002`, …).
+Recent architecture upgrades raise both retention and perceived studio craft:
+- **3-Tier Visual Router & 7 Dark-Mode Animated Templates (`motion_graphics.py`, `visual_router.py`):** deterministic routing across (1) 1080p30 HTML/CSS/SVG motion graphics rendered via headless Chromium → FFmpeg (`yuv420p` TV-range parity) for `0:00–0:08` muted feed previews, `0:00–0:30` opening beats, concrete stats/comparisons/flows/code, a beat-bound ~60% Comment Friction `rubric_checklist`, and `45–60s` periodic anchors (`MAX_TEMPLATE_DURATION_SEC=8.0s`), with domain-decoupled semantic badges + explicit polarity; (2) strict cliché-filtered stock B-roll (`BROLL_RELEVANCE_THRESHOLD` + `BROLL_STYLE_BANLIST`); and (3) **dual-channel anti-collapse AI stills** (`<prev2..post2>` window + rolling exclusion history + camera shot rotation + video-wide `MAX_SETTING_ARCHETYPE_REPEATS=2` + `MIN_HUMAN_PRESENCE_RATIO=0.35` + zero floating or physical printed/engraved text).
+- **Instruction & Data Fidelity (`creator_data.py`, `instruction_planner.py`, `judge_checks.py`):** `--data` ranks creator facts first; `--instructions` enumerates atomic asks with coverage repair, promotes stated figures into `creator_supplied` `KeyFact`s, and enforces figure fidelity at the Judge.
+- **Voice Realism & Prosody (`text_normalize.py`, `tts.py`, `sound_design.py`, `render_backend.py`):** natural calendar-year and hyphen-free compound expansion (`prepare_tts_text`), decimal/abbreviation-safe single-sentence TTS chunking, `55 ms` head / `85 ms` tail safety pads with `15 ms` raised-cosine micro-fades, lossless PCM WAV studio mixing (`-14 dB` UI transition cues + vocal-carved `-30 dB` dark ambient bed), and single-pass `48 kHz` `192k` AAC encoding mastered to `-14 LUFS` (`LRA=14`).
+- **Distribution & Monetization (`affiliate.py`, `seo.py`, `end_screen.py`):** pre-generation affiliate resolution (curated catalog first, live Amazon/Educative/DesignGurus/Exponent + universal Fenzo AI second), post-`set_privacy` watch-next + affiliate top comments, Like/Subscribe nudges, and per-video `suppress_creator_credential` / `disclaimer` controls.
 
 ---
 
@@ -153,22 +137,22 @@ proceeds on the sources that succeeded), but a missing disclosure hard-blocks pu
 
 ```
 src/content_foundry/
-├── cli.py            # Typer CLI + Rich progress reporter (entry point)
-├── config.py         # pydantic-settings: ~80 typed settings, one source of truth
+├── cli.py            # Typer CLI + Rich progress reporter (18 commands)
+├── config.py         # pydantic-settings: 295 flat typed settings, zero-drift env sync
 ├── errors.py         # ContentFoundryError hierarchy
-├── logging.py        # structlog configuration
+├── logging.py        # structlog configuration + per-run JSONL sink
 ├── scheduler.py      # APScheduler cron entry point
-├── agents/           # the 7 agents + distillation + judge checks   (10 files)
-├── models/           # Pydantic artifact schemas (DataBrief, Script, …)  (11 files)
-├── providers/        # LLM / TTS / image / render / upload behind Protocols  (12 files)
-├── datasources/      # Adzuna, layoffs RSS, news, BLS fetchers  (7 files)
-├── pipeline/         # Orchestrator, run state machine, packaging  (5 files)
-├── production/       # timebox, SEO, captioning helpers  (6 files)
-├── persistence/      # SQLAlchemy models + repository  (4 files)
-├── safeguards/       # grounding, disclosure  (3 files)
-├── notifications/    # Telegram / null notifier  (5 files)
-├── templates/        # the 6 rotating structural templates  (2 files)
-└── prompts/          # externalized prompt text  (1 dir)
+├── agents/           # 7 core agents + planner, researcher, directors & storyboard critic (19 files)
+├── models/           # Pydantic artifact schemas (DataBrief, ResearchBrief, Script, …) (13 files)
+├── providers/        # Google/Anthropic/OpenAI/Local LLM, TTS, image, B-roll, FFmpeg, YouTube (17 files)
+├── datasources/      # Search (DDG/Tavily/Brave chain) + Adzuna, layoffs RSS, news, BLS (8 files)
+├── pipeline/         # Orchestrator, creator_data, topic_relevance, artifacts, packaging (7 files)
+├── production/       # motion_graphics (7 templates), visual_router, sound_design, seo, affiliate, … (15 files)
+├── persistence/      # SQLAlchemy models + repository (4 files)
+├── safeguards/       # grounding, disclosure (3 files)
+├── notifications/    # Telegram / null notifier + credit monitor (5 files)
+├── templates/        # the 6 rotating structural script templates (2 files)
+└── prompts/          # externalized XML-structured prompt templates (17 .txt files + loader)
 ```
 
 ### 4.2 Layering
@@ -304,7 +288,7 @@ Wittiness), and even that is skippable via `JUDGE_MODE`.
 | Specificity | 0.14 | — | deterministic |
 | Grounding | 0.14 | **4.0** | deterministic |
 | Insight | 0.14 | **3.5** | LLM (hybrid) |
-| Engagement | 0.10 | — | LLM (hybrid) |
+| Engagement | 0.10 | **2.5** | LLM (hybrid) |
 | Wittiness | 0.07 | **2.5** | LLM (hybrid) |
 | Ending / Sign-off | 0.07 | **3.0** | deterministic |
 | Hook & Retention | 0.10 | — | deterministic |
@@ -376,11 +360,11 @@ flowchart LR
 
 | Capability | Providers |
 |------------|-----------|
-| **LLM** | Anthropic · OpenAI · Local (OpenAI-compatible) |
-| **TTS** | ElevenLabs · OpenAI · **Edge** (free, online) · **Piper** (free, offline) · **Chatterbox** (free voice cloning, local/GPU) · **IndexTTS-2** (free voice cloning + emotion control, local/GPU, runs in its own venv) |
-| **Image** | OpenAI · Stability · Google (best-first model chain) · Pollinations (free) · **none** (procedural cards) + Pexels/Pixabay/Coverr B-roll + matplotlib-drawn diagrams |
-| **Render** | ffmpeg (with PATH auto-discovery) · MoviePy · Avatar (HeyGen/D-ID) |
-| **Publish** | YouTube Data API v3 (OAuth) |
+| **LLM** | **Google Gemini** (best-first model fallback chain) · Anthropic · OpenAI · Local (OpenAI-compatible) |
+| **TTS** | **IndexTTS-2** (free voice cloning + disentangled emotion, separate venv) · **Chatterbox** (free voice cloning, MIT) · **Edge** (free, online) · **Piper** (free, offline) · ElevenLabs · OpenAI |
+| **Visuals & Graphics** | **Playwright 7-Template Motion-Graphics Engine** (1080p30 HTML/CSS/SVG → FFmpeg) · Google Image (best-first model chain, isolated `GOOGLE_IMAGE_API_KEY`) · OpenAI · Stability · Pollinations · Pexels/Pixabay/Coverr B-roll · matplotlib diagrams |
+| **Render** | ffmpeg (`h264_nvenc`/`qsv`/`amf` → `libx264` auto-fallback, `loudnorm`, `atempo`, `zoompan`) · MoviePy (stub) · Avatar (stub) |
+| **Publish** | YouTube Data API v3 (OAuth + read-only Data-API client for outlier mining & live title sync) |
 
 ---
 
@@ -474,11 +458,11 @@ Cost is a first-class configuration axis, tunable per stage:
 
 | Metric | Value |
 |--------|-------|
-| Test files | 46 |
-| Tests | **440 passing** |
-| Coverage | **~91%** (gate: 85%) |
-| Lint | `ruff` (E, F, I, UP, B, C4, SIM) — clean |
-| Type hints | throughout; `mypy` in dev deps |
+| Test files | 71 |
+| Tests | **994 passing** |
+| Coverage | **~86%** branch + line (gate: 85%) |
+| Lint & hooks | `ruff` + `ruff-format` + `mypy` + `check_no_secrets.py` — all 4 pre-commit hooks green |
+| Config hygiene | 295 `Settings` fields strictly synced across `.env`, `.env.example`, and `data/env.example` (0 drift, 0 dead fields) |
 
 **Principles.** Tests are **hermetic** — an autouse fixture points the settings loader at a
 non-existent dotenv and injects a controlled environment, so a developer's real `.env` can never leak
@@ -523,16 +507,10 @@ A selection of decisions and hardening that shaped the current system:
 
 ## 16. Limitations & Future Work
 
-- **Per-scene source precision.** Grounding is scene-level: a scene citing two facts from two sources
-  currently surfaces the first fact's source. Per-statistic citation would require a richer
-  `SceneCue` schema.
-- **Source specificity.** News citations are labeled by category; carrying the exact outlet/domain
-  through distillation would sharpen attribution.
-- **Revision regression.** Each revision rewrites from scratch, so a weak local model can occasionally
-  regress; feeding the Judge's exact reasoning back in mitigates but does not eliminate this. A
-  keep-best-attempt strategy is a candidate improvement.
-- **Single-niche tuning.** Templates and heuristics are tuned for the careers/labor-market domain;
-  generalizing to other niches is future work.
+- **Per-scene source precision.** Grounding is scene-level (`SceneCue.fact_ref`); per-beat sub-references could further narrow multi-source scenes, though `collect_embedded_sources` already deduplicates every visually cited URL into the bottom `Sources:` block.
+- **Cloned-voice caption alignment.** Offline zero-shot cloners (`IndexTTS-2`, `Chatterbox`) return audio without native word timestamps, so long-form relies on YouTube's synced auto-CC (`CAPTIONS_ENABLED=false` default) while Shorts burn estimated cues.
+- **YouTube Studio-only controls.** End-screen cards, comment pinning, the Education "Type" metadata field, and the "Altered or synthetic content" disclosure checkbox are not exposed by the YouTube Data API v3; the pipeline emits `end_screen.json` and `package.md` checklists so Studio sign-off takes seconds.
+- **6 GB VRAM ceiling for local TTS.** On a 6 GB laptop GPU, `IndexTTS-2` runs at ~3–4× realtime after evicting `qwen_emo` to CPU and casting `semantic_model` to `fp16`.
 
 ---
 
@@ -541,16 +519,16 @@ A selection of decisions and hardening that shaped the current system:
 | Concern | Libraries |
 |---------|-----------|
 | **Config & models** | `pydantic`, `pydantic-settings` |
-| **LLM** | `anthropic`, `openai` (+ any OpenAI-compatible local server) |
-| **Data** | `httpx`, `beautifulsoup4`, `lxml`, `python-dateutil` |
+| **LLM** | Google Gemini REST (`httpx`), `anthropic`, `openai` (+ any OpenAI-compatible local server) |
+| **Data & search** | `httpx`, `ddgs` (DuckDuckGo) + Tavily/Brave REST, `lxml`, `python-dateutil` |
 | **Persistence** | `SQLAlchemy` + SQLite |
 | **CLI & scheduling** | `typer`, `rich`, `APScheduler` |
-| **TTS** | `elevenlabs`, `edge-tts`, `piper-tts`, `chatterbox-tts` (voice cloning), `indextts` (IndexTTS-2, installed in a SEPARATE venv — it needs numpy>=2 while this package pins numpy<2) |
-| **Visuals & render** | `Pillow`, `ffmpeg-python`, `moviepy`, `stability-sdk` |
+| **TTS & prosody** | `indextts` (IndexTTS-2, separate venv), `chatterbox-tts`, `edge-tts`, `piper-tts`, `elevenlabs`, `num2words` |
+| **Visuals, motion graphics & audio** | `playwright` (headless Chromium 1080p templates), `matplotlib`, `Pillow`, `ffmpeg-python`, `pydub`, `rembg` |
 | **Publishing** | `google-api-python-client`, `google-auth-oauthlib` |
 | **Reliability & logging** | `tenacity`, `structlog` |
 | **Dashboard** | `streamlit` |
-| **Dev** | `pytest`, `pytest-cov`, `pytest-mock`, `respx`, `ruff`, `mypy`, `pre-commit` |
+| **Dev & security** | `pytest`, `pytest-cov`, `pytest-mock`, `respx`, `ruff`, `mypy`, `pre-commit`, `scripts/check_no_secrets.py` |
 
 ---
 
@@ -560,10 +538,10 @@ A selection of decisions and hardening that shaped the current system:
 
 | | |
 |---|---|
-| Source modules | 72 files · ~5,288 LOC |
-| Tests | 46 files · 440 passing |
+| Source modules | 100 files · ~26,600 LOC (+ 17 prompt files) |
+| Tests | 71 files · 994 passing |
 | Design spec | 26 chapters |
-| Coverage / lint | ~91% / `ruff` clean |
+| Coverage / gate | ~86% branch+line / all 4 pre-commit hooks green |
 
 **Glossary**
 
@@ -582,3 +560,4 @@ A selection of decisions and hardening that shaped the current system:
 
 *Content Foundry is specified in 26 chapters under `spec/` and documented for operators in
 `Tutorial.md`. This report describes the system as implemented at version 1.0.0.*
+1

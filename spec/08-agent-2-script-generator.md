@@ -36,6 +36,12 @@ class SceneCue(BaseModel):
     b_roll_keywords: list[str]     # ORDERED per-beat shot descriptions for Agent 5 (one clip each)
     fact_ref: int | None           # index into DataBrief.key_facts if this scene cites data
     sfx: str | None                # optional sound-effect keyword, mixed at this scene's start
+    editor_note: str | None = None
+    cut: str | None = None
+    visual_source: str | None = None      # verified outlet/domain shown on screen (None when analytical)
+    source_url: str | None = None         # resolved HTTP URL feeding the bottom `Sources:` block
+    is_comment_friction: bool = False     # ~60% audience debate beat
+    discussion_question: str | None = None# <= 6-word question bound to `rubric_checklist`
 
 class Script(BaseModel):
     schema_version: str = "1.0"
@@ -49,6 +55,13 @@ class Script(BaseModel):
     description: str               # YouTube description draft
     tags: list[str]
     thumbnail_concept: str         # visual idea for Agent 5 (the picture only, no words)
+    thumbnail_text: str = ""       # 2-5 word Double-Barrel headline
+    open_loop: str = ""            # promised payoff enforced by `open_loop_report`
+    time_sensitive: bool = False
+    affiliate_links: list[dict] = []
+    source_links: list[dict] = []  # ordered verified {label, url} pairs for `Sources:`
+    suppress_creator_credential: bool = False # omit global CREATOR_CREDENTIAL_LINE on employer-sensitive topics
+    disclaimer: str = ""           # optional per-video disclaimer block
     word_count: int
     grounded_fact_refs: list[int]  # which DataBrief facts were actually used
     synthetic_disclosure: bool = True

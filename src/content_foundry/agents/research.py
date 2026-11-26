@@ -93,11 +93,18 @@ class Researcher:
     def __init__(self, settings, llm_provider: LLMProvider, *, search_provider=None):
         self._settings = settings
         self._llm = llm_provider
-        self._search = search_provider  # optional: fresh web search for the CHOSEN idea (idea-match)
+        self._search = (
+            search_provider  # optional: fresh web search for the CHOSEN idea (idea-match)
+        )
         self._log = get_logger(component="research")
 
     def run(
-        self, run_id: str, brief: DataBrief, *, idea: str, instructions: str = "",
+        self,
+        run_id: str,
+        brief: DataBrief,
+        *,
+        idea: str,
+        instructions: str = "",
         research_queries: list[str] | None = None,
     ) -> ResearchBrief:
         sources = self._gather_sources(brief, idea=idea, extra_queries=research_queries)
@@ -133,18 +140,23 @@ class Researcher:
                 for f in brief.key_facts
             ),
         ]
+        from ..production.visual_router import is_low_tier_source
+
         seen: set[str] = set()
         out: list[tuple[str, str]] = []
         for url, snippet in candidates:
             url = (url or "").strip()
-            if not url or url.lower() in seen:
+            if not url or url.lower() in seen or is_low_tier_source(url, self._settings):
                 continue
             seen.add(url.lower())
-            text = fetch_article_text(
-                url,
-                max_chars=self._settings.research_max_chars_per_source,
-                timeout=self._settings.research_fetch_timeout_sec,
-            ) or snippet
+            text = (
+                fetch_article_text(
+                    url,
+                    max_chars=self._settings.research_max_chars_per_source,
+                    timeout=self._settings.research_fetch_timeout_sec,
+                )
+                or snippet
+            )
             if text:
                 out.append((url, text))
             if len(out) >= limit:
@@ -233,9 +245,7 @@ class Researcher:
                 data = json.loads(extract_json(resp.text))
             if isinstance(data, dict):
                 data = data.get("points") or data.get("items") or []
-            points = [
-                self._coerce_point(d) for d in data if isinstance(d, dict) and d.get("point")
-            ]
+            points = [self._coerce_point(d) for d in data if isinstance(d, dict) and d.get("point")]
             if points:
                 self._log.info("research_points", count=len(points))
                 return points, model

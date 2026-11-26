@@ -18,7 +18,7 @@ Each dimension is scored **0–5**. The **weighted total** is the publish-qualit
 | 2 | **Specificity / Non-Generic** | 14% | — | **Deterministic** | Could not have been written without the data; names numbers, roles, tradeoffs |
 | 3 | **Factual Grounding** | 14% | `GROUNDING_MIN` (4.0) | **Deterministic** | Every stat traces to a `DataBrief` fact; zero invented numbers |
 | 4 | **Insight Score (value density)** | 14% | `INSIGHT_MIN` (3.5) | LLM* / heuristic | Contains a genuinely non-obvious insight that reframes the topic |
-| 5 | **Engagement / Retention** | 10% | — | LLM* / heuristic | Opens loops and holds attention start to finish; you can't look away |
+| 5 | **Engagement / Retention** | 10% | `ENGAGEMENT_MIN` (2.5) | LLM* / heuristic | Opens loops and holds attention start to finish; you can't look away |
 | 6 | **Wittiness / Entertainment** | 7% | `WITTINESS_MIN` (2.5) | LLM* / heuristic | Genuinely funny and lively; the wit rides on top of the substance |
 | 7 | **Hook & Retention** | 10% | — | **Deterministic** | First 10s create a curiosity gap; no slow throat-clearing |
 | 8 | **Structural Freshness** | 7% | — | **Deterministic** | Opening, arc, and phrasing differ from recent videos |

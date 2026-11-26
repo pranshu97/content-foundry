@@ -3,11 +3,9 @@
 ### 13.1 Purpose
 Upload the finished video to YouTube as a **privacy-gated draft**, attach all metadata and the thumbnail, and **guarantee the synthetic-content disclosure** is handled before anything can go public. This is the compliance backbone of the system.
 
-> **Post-publish comment (current behavior).** Right after upload the publisher posts ONE top comment (needs the `youtube.force-ssl` scope, requested when either comment feature is on): a **"watch next" list** linking the most related PRIOR channel uploads (`RECOMMEND_COMMENT_ENABLED`, the same picks as the `end_screen.json` sidecar, works on long-form + Shorts) plus, when `PUBLISH_TOP_COMMENT` is on, the subscribe/affiliate CTA. Best-effort; the API cannot pin, so pin once in Studio.
->
-> A comment can only be posted where the API is allowed to post one. A **private** video returns
-> `commentsDisabled`, so the comment is silently lost — if a video is published private for review,
-> its comment has to be re-posted after it goes unlisted/public.
+> **Post-publish comment & embedded `Sources:` provenance (current behavior).**
+> - **Comment ordering:** every upload starts `private` first, then `set_privacy` transitions it to `unlisted` (or `public` when disclosed). The top comment (`RECOMMEND_COMMENT_ENABLED` watch-next list with live YouTube titles + `PUBLISH_TOP_COMMENT` affiliate/CTA block) is posted **strictly AFTER `set_privacy`**, because YouTube rejects comments on private videos; if a video intentionally stays `private`, the doomed call is skipped cleanly (`comment_skipped_private_video`).
+> - **Bottom-of-description `Sources:` block (`production/seo.py`):** `collect_embedded_sources` + `format_sources_block` collect every verified external URL embedded visually in the video (`programmatic_graphic` `SOURCE //` pills + burned `citations.srt`, excluding `LOW_TIER_SOURCE_DOMAINS`), deduplicate in chronological scene order, and place `Sources:` as the **very last block** of the description (below hashtags). Angle brackets `<`/`>` are sanitized via `youtube_safe_text` so chapter titles never trigger HTTP 400 `invalidDescription`. Per-video `Script.suppress_creator_credential` and `Script.disclaimer` fields govern sensitive employer/topic uploads.
 
 > **Back-filling metadata (`scripts/recategorize.py`).** `videos.update` **replaces** the whole
 > snippet rather than patching it, so a naive category change wipes the description, tags and

@@ -106,6 +106,68 @@ def _highlight_code_line(line: str) -> str:
     return "".join(out)
 
 
+_PLACEHOLDER_SOURCES = frozenset(
+    {
+        "null",
+        "none",
+        "n/a",
+        "na",
+        "unknown",
+        "unspecified",
+        "creator",
+        "research",
+        "search",
+        "source",
+    }
+)
+_POS_POLARITY_RE = re.compile(
+    r"\b(?:protected|shielded|safe|retained|verified|reality|high-signal|advantage|gain|"
+    r"strong|winner|optimal|pass|hire|stay|benefit|upside|keep|valid|proven|resilient)\b",
+    re.IGNORECASE,
+)
+_NEG_POLARITY_RE = re.compile(
+    r"\b(?:targeted|exposed|trap|myth|failure|fail|reject|downlevel|cut|layoff|restructuring|"
+    r"risk|at\s+risk|broken|legacy|unverified|wrong|loss|downside|vulnerable|penalty|weak)\b",
+    re.IGNORECASE,
+)
+_NEU_POLARITY_RE = re.compile(
+    r"\b(?:neutral|mixed|hold|context|info|note|option|tier|phase|region)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_source_prop(value: Any, max_chars: int) -> str:
+    """Normalize optional ``source`` prop; placeholder tokens map to ``""`` (hides ``#source-badge``)."""
+    txt = clamp_text(value or "", min(max_chars, 72))
+    if not txt or txt.strip().lower() in _PLACEHOLDER_SOURCES:
+        return ""
+    return txt
+
+
+def _normalize_polarity(raw_polarity: Any, text: str = "", *, fallback: str = "neutral") -> str:
+    """Resolve ``"positive" | "negative" | "neutral"`` from explicit prop or semantic cues."""
+    pol = str(raw_polarity or "").strip().lower()
+    if pol in ("positive", "negative", "neutral"):
+        return pol
+    pos_hit = bool(_POS_POLARITY_RE.search(text or ""))
+    neg_hit = bool(_NEG_POLARITY_RE.search(text or ""))
+    if pos_hit and not neg_hit:
+        return "positive"
+    if neg_hit and not pos_hit:
+        return "negative"
+    if _NEU_POLARITY_RE.search(text or ""):
+        return "neutral"
+    return fallback if fallback in ("positive", "negative", "neutral") else "neutral"
+
+
+def _polarity_tone(polarity: str) -> str:
+    if polarity == "positive":
+        return "emerald"
+    if polarity == "negative":
+        return "crimson"
+    return "sky"
+
+
 # --------------------------------------------------------------------------- prop normalization
 def validate_template_props(
     template_id: str, props: dict[str, Any] | None, *, max_chars: int = 120
@@ -130,7 +192,7 @@ def validate_template_props(
                 if val.startswith("-")
                 else ("emerald" if val.startswith(("+", "$")) else "sky")
             )
-        source = clamp_text(raw.get("source") or "", min(max_chars, 72))
+        source = _clean_source_prop(raw.get("source"), max_chars)
         eyebrow = clamp_text(raw.get("eyebrow") or "KEY METRIC", 36)
         return {
             "eyebrow": eyebrow,
@@ -144,7 +206,7 @@ def validate_template_props(
 
     if template_id == "evidence_card":
         pub = clamp_text(
-            raw.get("publication") or raw.get("outlet") or "INDUSTRY BENCHMARK REPORT",
+            raw.get("publication") or raw.get("outlet") or "VERIFIED SOURCE BRIEF",
             min(max_chars, 64),
         )
         date_hdr = clamp_text(
@@ -154,7 +216,7 @@ def validate_template_props(
         excerpt = clamp_text(
             raw.get("excerpt")
             or raw.get("quote")
-            or "Verified production telemetry confirms measurable latency and retention gains.",
+            or "Verified primary data confirms measurable operational impact.",
             max_chars,
         )
         hl = clamp_text(raw.get("highlight_phrase") or raw.get("highlight") or "", max_chars)
@@ -173,7 +235,8 @@ def validate_template_props(
                 hl = " ".join(words[: min(6, len(words))])
             else:
                 hl = excerpt
-        source = clamp_text(raw.get("source") or pub, min(max_chars, 72))
+        # Strictly optional: never copy fallback `publication` into `source` when unverified.
+        source = _clean_source_prop(raw.get("source"), max_chars)
         tag = clamp_text(raw.get("tag") or "PRIMARY EVIDENCE", 32)
         return {
             "publication": pub,
@@ -186,10 +249,12 @@ def validate_template_props(
 
     if template_id == "split_comparison":
         title = clamp_text(raw.get("title") or "SIDE-BY-SIDE CONTRAST", min(max_chars, 72))
-        left_h = clamp_text(raw.get("left_header") or "BASELINE / COMMON TRAP", min(max_chars, 44))
-        right_h = clamp_text(raw.get("right_header") or "HIGH-SIGNAL APPROACH", min(max_chars, 44))
-        raw_l = raw.get("left_items") or raw.get("left") or ["Vague high-level claims"]
-        raw_r = raw.get("right_items") or raw.get("right") or ["Concrete measurable trade-offs"]
+        left_h = clamp_text(
+            raw.get("left_header") or "BASELINE / COMMON ASSUMPTION", min(max_chars, 44)
+        )
+        right_h = clamp_text(raw.get("right_header") or "ACTUAL MECHANISM", min(max_chars, 44))
+        raw_l = raw.get("left_items") or raw.get("left") or ["Conventional assumption"]
+        raw_r = raw.get("right_items") or raw.get("right") or ["Measured operational reality"]
         if isinstance(raw_l, str):
             raw_l = [raw_l]
         if isinstance(raw_r, str):
@@ -198,16 +263,36 @@ def validate_template_props(
         left_items = [clamp_text(x, item_cap) for x in list(raw_l)[:4] if str(x).strip()]
         right_items = [clamp_text(x, item_cap) for x in list(raw_r)[:4] if str(x).strip()]
         if not left_items:
-            left_items = ["Unverified assumption"]
+            left_items = ["Conventional assumption"]
         if not right_items:
-            right_items = ["Measured production result"]
-        source = clamp_text(raw.get("source") or "", min(max_chars, 72))
+            right_items = ["Measured operational reality"]
+        left_blob = f"{left_h} {' '.join(left_items)}"
+        right_blob = f"{right_h} {' '.join(right_items)}"
+        left_pol = _normalize_polarity(raw.get("left_polarity"), left_blob, fallback="")
+        right_pol = _normalize_polarity(raw.get("right_polarity"), right_blob, fallback="")
+        if not left_pol and not right_pol:
+            left_pol, right_pol = "negative", "positive"
+        elif not left_pol:
+            left_pol = (
+                "negative"
+                if right_pol == "positive"
+                else ("positive" if right_pol == "negative" else "neutral")
+            )
+        elif not right_pol:
+            right_pol = (
+                "negative"
+                if left_pol == "positive"
+                else ("positive" if left_pol == "negative" else "neutral")
+            )
+        source = _clean_source_prop(raw.get("source"), max_chars)
         return {
             "title": title,
             "left_header": left_h,
             "right_header": right_h,
             "left_items": left_items,
             "right_items": right_items,
+            "left_polarity": left_pol,
+            "right_polarity": right_pol,
             "source": source,
         }
 
@@ -215,20 +300,20 @@ def validate_template_props(
         variant = str(raw.get("variant") or "checklist").strip().lower()
         if variant not in ("checklist", "discussion_prompt"):
             variant = "checklist"
-        source = clamp_text(raw.get("source") or "", min(max_chars, 72))
+        source = _clean_source_prop(raw.get("source"), max_chars)
         if variant == "discussion_prompt":
             claim = clamp_text(
                 raw.get("claim")
                 or raw.get("title")
-                or "Most engineering loops weight system trade-offs over syntax speed.",
+                or "Key operational trade-offs separate surface claims from real incentives.",
                 max_chars,
             )
             question = clamp_words(
-                raw.get("question") or "Fair bar or broken loop?",
+                raw.get("question") or "Agree or hard disagree?",
                 max_words=6,
                 max_chars=min(max_chars, 56),
             )
-            opts_raw = raw.get("options") or ["Fair Signal", "Broken Rubric"]
+            opts_raw = raw.get("options") or ["Agree", "Disagree"]
             opts = [clamp_text(o, 36) for o in list(opts_raw)[:2] if str(o).strip()]
             return {
                 "variant": "discussion_prompt",
@@ -238,40 +323,62 @@ def validate_template_props(
                 "options": opts or ["Agree", "Disagree"],
                 "source": source,
             }
-        title = clamp_text(raw.get("title") or "EVALUATION RUBRIC", min(max_chars, 68))
+        eyebrow = clamp_text(raw.get("eyebrow") or "SIGNAL CHECKLIST", 36)
+        title = clamp_text(raw.get("title") or "KEY DECISION FACTORS", min(max_chars, 68))
         items_in = raw.get("items") or []
         norm_items: list[dict[str, str]] = []
         for entry in list(items_in)[:4]:
             if isinstance(entry, dict):
-                lbl = clamp_text(entry.get("label") or entry.get("name") or "Criterion", max_chars)
+                lbl = clamp_text(entry.get("label") or entry.get("name") or "Factor", max_chars)
                 det = clamp_text(entry.get("detail") or "", max_chars)
-                st = str(entry.get("status") or "PASS").strip().upper()
+                raw_st = str(entry.get("status") or entry.get("badge") or "").strip()
+                pol = _normalize_polarity(
+                    entry.get("polarity"),
+                    f"{raw_st} {lbl} {det}",
+                    fallback="positive",
+                )
+                default_tag = (
+                    "AT RISK"
+                    if pol == "negative"
+                    else ("KEY FACTOR" if pol == "neutral" else "VERIFIED")
+                )
+                st = clamp_words(raw_st or default_tag, 3, 22).upper()
             else:
                 lbl = clamp_text(entry, max_chars)
                 det = ""
-                st = "PASS"
-            if st not in ("PASS", "HIRE", "STRONG HIRE", "FAIL", "DOWNLEVEL", "REJECT"):
-                st = "FAIL" if any(k in st for k in ("FAIL", "NO", "DOWN", "BAD")) else "PASS"
-            tone = "crimson" if st in ("FAIL", "DOWNLEVEL", "REJECT") else "emerald"
+                pol = _normalize_polarity("", lbl, fallback="positive")
+                st = "AT RISK" if pol == "negative" else "VERIFIED"
+            tone = _polarity_tone(pol)
             if lbl:
-                norm_items.append({"label": lbl, "detail": det, "status": st, "tone": tone})
+                norm_items.append(
+                    {
+                        "label": lbl,
+                        "detail": det,
+                        "status": st,
+                        "polarity": pol,
+                        "tone": tone,
+                    }
+                )
         if len(norm_items) < 2:
             norm_items = [
                 {
-                    "label": " Production Bottleneck Identified",
-                    "detail": "Pinpoints exact latency and failure boundary",
-                    "status": "HIRE",
+                    "label": "Primary Mechanism Verified",
+                    "detail": "Direct operational driver backed by concrete evidence",
+                    "status": "VERIFIED",
+                    "polarity": "positive",
                     "tone": "emerald",
                 },
                 {
-                    "label": "Generic Boilerplate Recital",
-                    "detail": "No concrete metrics or trade-off defense",
-                    "status": "DOWNLEVEL",
+                    "label": "Surface Assumption Exposed",
+                    "detail": "Fails under real financial or structural constraints",
+                    "status": "EXPOSED",
+                    "polarity": "negative",
                     "tone": "crimson",
                 },
             ]
         return {
             "variant": "checklist",
+            "eyebrow": eyebrow,
             "title": title,
             "items": norm_items,
             "source": source,
@@ -285,7 +392,7 @@ def validate_template_props(
         y_unit = clamp_text(raw.get("y_unit") or "", 10)
         callout_label = clamp_text(raw.get("callout_label") or "", 32)
         callout_value = clamp_text(raw.get("callout_value") or "", 24)
-        source = clamp_text(raw.get("source") or "", min(max_chars, 72))
+        source = _clean_source_prop(raw.get("source"), max_chars)
 
         if "items" in raw and isinstance(raw["items"], list) and raw["items"]:
             items = [x for x in raw["items"] if isinstance(x, dict)][:6]
@@ -390,7 +497,7 @@ def validate_template_props(
                     "highlight": True,
                 },
             ]
-        source = clamp_text(raw.get("source") or "", min(max_chars, 72))
+        source = _clean_source_prop(raw.get("source"), max_chars)
         return {
             "title": title,
             "subtitle": subtitle,
@@ -440,7 +547,7 @@ def validate_template_props(
     status_tone = str(raw.get("status_tone") or "pass").strip().lower()
     if status_tone not in ("pass", "fail", "info"):
         status_tone = "fail" if "FAIL" in status_text.upper() else "pass"
-    source = clamp_text(raw.get("source") or "", min(max_chars, 72))
+    source = _clean_source_prop(raw.get("source"), max_chars)
     return {
         "filename": filename,
         "language": language,
@@ -954,37 +1061,44 @@ def build_template_html(
         )
 
     if template_id == "split_comparison":
+        pol_map = {
+            "positive": ("var(--emerald)", "&#10003;", "var(--bg-panel-elev)"),
+            "negative": ("var(--crimson)", "&#10005;", "var(--bg-panel)"),
+            "neutral": ("var(--sky)", "&#9670;", "var(--bg-panel)"),
+        }
+        l_col, l_icon, l_bg = pol_map.get(p["left_polarity"], pol_map["negative"])
+        r_col, r_icon, r_bg = pol_map.get(p["right_polarity"], pol_map["positive"])
         left_rows = "".join(
             f'<div class="cmp-item cmp-item-l" data-idx="{i}" data-fit data-min-px="17" data-check-overflow>'
-            f'<span class="cmp-icon cmp-icon-l">&#10005;</span><span>{html.escape(item)}</span></div>'
+            f'<span class="cmp-icon cmp-icon-l">{l_icon}</span><span>{html.escape(item)}</span></div>'
             for i, item in enumerate(p["left_items"])
         )
         right_rows = "".join(
             f'<div class="cmp-item cmp-item-r" data-idx="{i}" data-fit data-min-px="17" data-check-overflow>'
-            f'<span class="cmp-icon cmp-icon-r">&#10003;</span><span>{html.escape(item)}</span></div>'
+            f'<span class="cmp-icon cmp-icon-r">{r_icon}</span><span>{html.escape(item)}</span></div>'
             for i, item in enumerate(p["right_items"])
         )
-        css = """
-        .cmp-wrap { display: flex; flex-direction: column; gap: 22px; width: 100%; height: 100%; justify-content: center; }
-        .cmp-top-title { font-size: 36px; font-weight: 800; letter-spacing: -0.01em; color: var(--fg-primary); max-height: 52px; overflow: hidden; }
-        .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; width: 100%; max-height: 680px; }
-        .cmp-col { padding: 34px 38px; display: flex; flex-direction: column; gap: 18px; }
-        .cmp-col-l { border-top: 4px solid var(--crimson); }
-        .cmp-col-r { border-top: 4px solid var(--emerald); background: var(--bg-panel-elev); }
-        .cmp-hdr { font-family: var(--font-mono); font-size: 24px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); max-height: 48px; overflow: hidden; }
-        .cmp-hdr-l { color: var(--crimson); }
-        .cmp-hdr-r { color: var(--emerald); }
-        .cmp-item {
+        css = f"""
+        .cmp-wrap {{ display: flex; flex-direction: column; gap: 22px; width: 100%; height: 100%; justify-content: center; }}
+        .cmp-top-title {{ font-size: 36px; font-weight: 800; letter-spacing: -0.01em; color: var(--fg-primary); max-height: 52px; overflow: hidden; }}
+        .cmp-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 32px; width: 100%; max-height: 680px; }}
+        .cmp-col {{ padding: 34px 38px; display: flex; flex-direction: column; gap: 18px; }}
+        .cmp-col-l {{ border-top: 4px solid {l_col}; background: {l_bg}; }}
+        .cmp-col-r {{ border-top: 4px solid {r_col}; background: {r_bg}; }}
+        .cmp-hdr {{ font-family: var(--font-mono); font-size: 24px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); max-height: 48px; overflow: hidden; }}
+        .cmp-hdr-l {{ color: {l_col}; }}
+        .cmp-hdr-r {{ color: {r_col}; }}
+        .cmp-item {{
           display: flex; align-items: flex-start; gap: 14px;
           padding: 14px 16px; border-radius: 14px;
           background: rgba(15, 23, 42, 0.65);
           border: 1px solid rgba(148, 163, 184, 0.12);
           font-size: 25px; line-height: 1.32; color: var(--fg-primary);
           max-height: 112px; overflow: hidden;
-        }
-        .cmp-icon { font-family: var(--font-mono); font-weight: 800; font-size: 22px; flex-shrink: 0; margin-top: 2px; }
-        .cmp-icon-l { color: var(--crimson); }
-        .cmp-icon-r { color: var(--emerald); }
+        }}
+        .cmp-icon {{ font-family: var(--font-mono); font-weight: 800; font-size: 22px; flex-shrink: 0; margin-top: 2px; }}
+        .cmp-icon-l {{ color: {l_col}; }}
+        .cmp-icon-r {{ color: {r_col}; }}
         """
         body = f"""
         <div class="cmp-wrap" data-check-overflow>
@@ -1120,7 +1234,7 @@ def build_template_html(
         body = f"""
         <div class="rub-wrap" data-check-overflow>
           <div>
-            <div class="eyebrow" style="margin-bottom:6px">EVALUATION CHECKLIST</div>
+            <div class="eyebrow" style="margin-bottom:6px">{html.escape(p['eyebrow'])}</div>
             <div id="rub-title" class="rub-title" data-fit data-min-px="22" data-check-overflow>{html.escape(p['title'])}</div>
           </div>
           <div class="rub-list">{''.join(rows_html)}</div>

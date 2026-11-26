@@ -52,6 +52,7 @@ dependencies = [
     "playwright>=1.45",
     "ffmpeg-python>=0.2",
     "pydub>=0.25",
+    "num2words>=0.5",
     "edge-tts>=6.1",
     "anthropic>=0.39",
     "openai>=1.50",

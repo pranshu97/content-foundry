@@ -279,7 +279,9 @@ class IndexTTS2:
         precision: str = "fp16",
         emotion: str = "off",
         emo_alpha: float = 0.6,
-        edge_pad_ms: int = 40,
+        edge_pad_ms: int = 55,
+        tail_pad_ms: int = 85,
+        micro_fade_ms: int = 15,
         sentence_pause_ms: int = 300,
         silence_pad_ms: int = 150,
         max_pause_ms: int = 400,
@@ -299,6 +301,8 @@ class IndexTTS2:
         self._emotion = (emotion or "off").strip().lower()
         self._emo_alpha = emo_alpha
         self._edge_pad_ms = edge_pad_ms
+        self._tail_pad_ms = tail_pad_ms
+        self._micro_fade_ms = micro_fade_ms
         self._sentence_pause_ms = sentence_pause_ms
         self._silence_pad_ms = silence_pad_ms
         self._max_pause_ms = max_pause_ms
@@ -428,18 +432,18 @@ class IndexTTS2:
         import torch
         import torchaudio
 
-        from .text_normalize import speechify_numbers
+        from .text_normalize import prepare_tts_text
 
         if not self._reference or not Path(self._reference).exists():
             raise TTSError(
                 f"Cloning reference clip not found at TTS_REFERENCE_CLIP={self._reference!r}."
             )
-        spoken = speechify_numbers(text, self._pronunciations)
+        spoken = prepare_tts_text(text, self._pronunciations)
         vector = self._emotion_vector()
         speaker = str(Path(self._conditioning_clip()).resolve())
         pieces = []
         with tempfile.TemporaryDirectory() as td:
-            chunks = _chunk_for_tts(spoken, max_chars=400)
+            chunks = _chunk_for_tts(spoken, max_chars=250, single_sentence=True)
             for i, chunk in enumerate(chunks):
                 out = str(Path(td) / f"chunk_{i}.wav")
                 job = {
@@ -447,21 +451,24 @@ class IndexTTS2:
                     "out": out,
                     "speaker": speaker,
                     "emo_alpha": self._emo_alpha,
+                    "max_text_tokens_per_segment": 240,
                 }
                 if vector:
                     job["emo_vector"] = vector
                 self._request(job)
                 wav, rate = torchaudio.load(out)
                 self.sample_rate = int(rate)
-                # Same stitching as Chatterbox: trim the chunk edges close, then put a pause back at
-                # the length the PUNCTUATION earns, so this provider inherits the fix rather than
-                # re-growing a metronome of its own.
+                # Same stitching as Chatterbox: keep >=50ms head + 85ms tail safety pads and a 15ms
+                # micro-fade so quiet word endings ("continuously") are never clipped, then add only
+                # the remaining punctuation-earned pause.
                 piece = _trim_silence(
                     wav,
                     self.sample_rate,
                     pad_ms=self._silence_pad_ms,
                     max_pause_ms=self._max_pause_ms,
                     edge_pad_ms=self._edge_pad_ms,
+                    tail_pad_ms=self._tail_pad_ms,
+                    micro_fade_ms=self._micro_fade_ms,
                     knee_ms=self._pause_knee_ms,
                     ratio=self._pause_ratio,
                 )
@@ -469,7 +476,8 @@ class IndexTTS2:
                 if i < len(chunks) - 1:
                     gap_ms = max(
                         0,
-                        pause_after_ms(chunk, base=self._sentence_pause_ms) - 2 * self._edge_pad_ms,
+                        pause_after_ms(chunk, base=self._sentence_pause_ms)
+                        - (self._edge_pad_ms + self._tail_pad_ms),
                     )
                     gap = int(self.sample_rate * gap_ms / 1000)
                     if gap > 0:
@@ -543,7 +551,9 @@ class ChatterboxTTS:
         max_pause_ms: int = 400,
         pause_knee_ms: int = 200,
         pause_ratio: float = 0.45,
-        edge_pad_ms: int = 40,
+        edge_pad_ms: int = 55,
+        tail_pad_ms: int = 85,
+        micro_fade_ms: int = 15,
         sentence_pause_ms: int = 300,
         reference_window_sec: float = 12.0,
         tone: str = DEFAULT_TONE,
@@ -559,6 +569,8 @@ class ChatterboxTTS:
         self._pause_knee_ms = pause_knee_ms
         self._pause_ratio = pause_ratio
         self._edge_pad_ms = edge_pad_ms
+        self._tail_pad_ms = tail_pad_ms
+        self._micro_fade_ms = micro_fade_ms
         self._sentence_pause_ms = sentence_pause_ms
         self._reference_window_sec = reference_window_sec
         self._tone = tone or DEFAULT_TONE
@@ -644,7 +656,7 @@ class ChatterboxTTS:
     def synthesize(self, text: str) -> tuple[bytes, list[WordTiming] | None]:
         from pathlib import Path
 
-        from .text_normalize import speechify_numbers
+        from .text_normalize import prepare_tts_text
 
         if not self._reference or not Path(self._reference).exists():
             raise TTSError(
@@ -652,18 +664,14 @@ class ChatterboxTTS:
                 "Record a short (~15-30s) clean WAV of your voice and point this setting at it."
             )
         model = self._load()
-        # Expand numbers/currency to words so the voice says "two hundred two thousand", not a
-        # mangled "202,000" — Chatterbox's front-end mis-reads comma-grouped figures. Only the AUDIO
-        # input is normalized; the original digits stay in the script for captions/citations.
-        spoken = speechify_numbers(text, self._pronunciations)
+        spoken = prepare_tts_text(text, self._pronunciations)
         # Chatterbox generates at most ~1000 tokens (~40s) PER CALL, so a long scene voiced in one
         # shot is TRUNCATED mid-sentence and the video then cuts to the next scene before the line
-        # finishes. Split into sentence-sized chunks that each sit well inside that window, then
-        # stitch the audio back into one continuous scene.
+        # finishes. Split into protected single-sentence chunks and stitch cleanly.
         import torch
 
         reference = self._conditioning_clip()
-        chunks = _chunk_for_tts(spoken)
+        chunks = _chunk_for_tts(spoken, max_chars=250, single_sentence=True)
         pieces = []
         for i, chunk in enumerate(chunks):
             try:
@@ -677,25 +685,23 @@ class ChatterboxTTS:
                 raise TTSError(f"Chatterbox synthesis failed: {exc}") from exc
             if hasattr(wav, "dim") and wav.dim() == 1:
                 wav = wav.unsqueeze(0)
-            # Trim Chatterbox's leading/trailing silence per chunk so stitched sentences/scenes don't
-            # pile up dead air, and collapse any very long INTERNAL pause the cloner emits between two
-            # sentences in a chunk.
             piece = _trim_silence(
                 wav,
                 self.sample_rate,
                 pad_ms=self._silence_pad_ms,
                 max_pause_ms=self._max_pause_ms,
                 edge_pad_ms=self._edge_pad_ms,
+                tail_pad_ms=self._tail_pad_ms,
+                micro_fade_ms=self._micro_fade_ms,
                 knee_ms=self._pause_knee_ms,
                 ratio=self._pause_ratio,
             )
             pieces.append(piece)
-            # Then put the pause back at a length the PUNCTUATION earns. The edges above are trimmed
-            # close precisely so this explicit gap -- not the trimmer's fixed pad -- is what the
-            # listener hears, which is what stops every join sounding like the same metronome tick.
             if i < len(chunks) - 1:
                 gap_ms = max(
-                    0, pause_after_ms(chunk, base=self._sentence_pause_ms) - 2 * self._edge_pad_ms
+                    0,
+                    pause_after_ms(chunk, base=self._sentence_pause_ms)
+                    - (self._edge_pad_ms + self._tail_pad_ms),
                 )
                 gap = int(self.sample_rate * gap_ms / 1000)
                 if gap > 0:
@@ -950,11 +956,13 @@ def _keep_slices(
     pad: int,
     max_gap: int,
     edge_pad: int | None = None,
+    tail_pad: int | None = None,
     knee: int | None = None,
     ratio: float = 1.0,
 ) -> list[tuple[int, int]]:
-    """Plan which sample slices of ``[0, n)`` to KEEP so leading/trailing silence is trimmed to
-    ``edge_pad`` samples (defaulting to ``pad``) and long INTERNAL pauses are shortened.
+    """Plan which sample slices of ``[0, n)`` to KEEP so leading silence is trimmed to ``edge_pad``
+    samples, trailing silence is trimmed to ``tail_pad`` samples (defaulting to ``edge_pad``), and
+    long INTERNAL pauses are shortened.
 
     ``max_gap`` is the CEILING no internal pause may exceed (0 disables all internal work). ``knee``
     is where compression starts (defaulting to ``max_gap``, which reproduces the old hard-cap shape)
@@ -962,7 +970,8 @@ def _keep_slices(
     of a run, so the natural decay after a word and the attack before the next one are preserved.
     ``silent`` = the maximal silent ``(start, end)`` runs, sorted, non-overlapping, inside
     ``[0, n)``. Voiced samples are NEVER cut. Pure + deterministic, so it is unit-tested directly."""
-    edge = pad if edge_pad is None else edge_pad
+    head = pad if edge_pad is None else edge_pad
+    tail = head if tail_pad is None else tail_pad
     kn = max_gap if knee is None else knee
     drops: list[tuple[int, int]] = []
     for s, e in silent:
@@ -970,18 +979,18 @@ def _keep_slices(
         if lead and trail:
             continue  # the whole signal is silent -> leave it to the caller
         if lead:
-            if e - s > edge:
-                drops.append((s, e - edge))  # keep only `edge` before the first word
+            if e - s > head:
+                drops.append((s, e - head))  # keep `head` safety pad before the first word
         elif trail:
-            if e - s > edge:
-                drops.append((s + edge, e))  # keep only `edge` after the last word
+            if e - s > tail:
+                drops.append((s + tail, e))  # keep `tail` safety pad after the last word
         elif max_gap:
             gap = e - s
             target = _knee_target(gap, knee=kn, ratio=ratio, ceiling=max_gap)
             if target < gap:
                 excess = gap - target
-                head = (gap - excess) // 2
-                drops.append((s + head, s + head + excess))
+                cut_head = (gap - excess) // 2
+                drops.append((s + cut_head, s + cut_head + excess))
     keep: list[tuple[int, int]] = []
     cursor = 0
     for a, b in drops:
@@ -1038,19 +1047,19 @@ def _trim_silence(
     wav,
     sample_rate: int,
     *,
-    thresh: float = 0.015,
-    pad_ms: int = 40,
+    thresh: float = 0.008,
+    pad_ms: int = 55,
     max_pause_ms: int = 0,
     edge_pad_ms: int | None = None,
+    tail_pad_ms: int | None = None,
+    micro_fade_ms: int = 15,
     knee_ms: int | None = None,
     ratio: float = 1.0,
 ):  # pragma: no cover - needs torch + real audio
-    """Trim leading/trailing near-silence from a synthesized waveform (channels, samples), keeping an
-    ``edge_pad_ms`` pad (default ``pad_ms``), and (when ``max_pause_ms`` > 0) shorten long INTERNAL
-    pauses toward it: untouched below ``knee_ms``, the excess above scaled by ``ratio``, never longer
-    than ``max_pause_ms``. Only SILENT samples are ever removed (speech is untouched), and pauses
-    under the knee stay byte-identical. Returns the tensor unchanged when it is all silence or on any
-    error."""
+    """Trim leading/trailing near-silence from a synthesized waveform (channels, samples), keeping
+    ``edge_pad_ms`` (>=50ms head) and ``tail_pad_ms`` (85ms tail) safety pads plus a ``micro_fade_ms``
+    (15ms) raised-cosine micro-fade around every trim cut so trailing syllables ("continuously") are
+    never clipped. Shortens internal pauses above ``knee_ms`` up to ``max_pause_ms``."""
     try:
         import torch
 
@@ -1062,30 +1071,36 @@ def _trim_silence(
         if not bool(voiced.any()):
             return wav
         pad = int(sample_rate * pad_ms / 1000)
-        edge = pad if edge_pad_ms is None else int(sample_rate * edge_pad_ms / 1000)
+        head = pad if edge_pad_ms is None else int(sample_rate * edge_pad_ms / 1000)
+        tail = head if tail_pad_ms is None else int(sample_rate * tail_pad_ms / 1000)
         max_gap = int(sample_rate * max_pause_ms / 1000) if max_pause_ms else 0
         knee = int(sample_rate * knee_ms / 1000) if knee_ms else None
         keep = _keep_slices(
-            n, _silent_runs(voiced), pad=pad, max_gap=max_gap, edge_pad=edge, knee=knee, ratio=ratio
+            n,
+            _silent_runs(voiced),
+            pad=pad,
+            max_gap=max_gap,
+            edge_pad=head,
+            tail_pad=tail,
+            knee=knee,
+            ratio=ratio,
         )
         if not keep:
             return wav
-        if len(keep) == 1:
-            a, b = keep[0]
-            return wav[..., a:b]
-        fade_n = max(2, int(sample_rate * 0.006))  # 6 ms raised-cosine taper at internal cut joins
+        fade_n = max(2, int(sample_rate * max(0, micro_fade_ms) / 1000)) if micro_fade_ms > 0 else 0
         pieces = []
         last_idx = len(keep) - 1
         for idx, (a, b) in enumerate(keep):
             seg = wav[..., a:b].clone()
-            weights = taper_join_weights(
-                b - a, fade_n, fade_in=(idx > 0), fade_out=(idx < last_idx)
-            )
-            if weights and (idx > 0 or idx < last_idx):
-                w_t = torch.tensor(weights, dtype=seg.dtype, device=seg.device)
-                seg = seg * w_t
+            do_in = idx > 0 or a > 0
+            do_out = idx < last_idx or b < n
+            if fade_n > 1 and (do_in or do_out):
+                weights = taper_join_weights(b - a, fade_n, fade_in=do_in, fade_out=do_out)
+                if weights:
+                    w_t = torch.tensor(weights, dtype=seg.dtype, device=seg.device)
+                    seg = seg * w_t
             pieces.append(seg)
-        return torch.cat(pieces, dim=-1)
+        return torch.cat(pieces, dim=-1) if len(pieces) > 1 else pieces[0]
     except Exception:
         return wav
 
@@ -1145,34 +1160,93 @@ def _even_word_timings(text: str, duration: float) -> list[WordTiming]:
     return [WordTiming(word=w, start=i * step, end=(i + 1) * step) for i, w in enumerate(words)]
 
 
-def _chunk_for_tts(text: str, max_chars: int = 300) -> list[str]:
-    """Split narration into sentence-grouped chunks that each fit inside a neural TTS model's
-    per-call generation window. Chatterbox caps a single ``generate`` at ~1000 tokens (~40s) and
-    silently truncates anything longer, so a ~150-word scene must be voiced in pieces and stitched.
-    Sentences are kept whole where they fit; a lone over-long sentence is split on word boundaries."""
+def split_tts_sentences(text: str) -> list[str]:
+    """Sentence-boundary tokenizer that protects decimals (``2.15``), abbreviations (``U.S.``,
+    ``Dr.``, ``vs.``), and single-letter initials so TTS never splits inside numbers or titles."""
     import re
 
-    text = " ".join(text.split())
-    if not text:
+    cleaned = " ".join((text or "").split()).strip()
+    if not cleaned:
         return []
+    dot_tok = "\x00DOT\x00"
+    # Protect decimal points (e.g. 2.15, 0.5).
+    masked = re.sub(r"(?<=\d)\.(?=\d)", dot_tok, cleaned)
+    # Protect common abbreviations and multi-dotted initialisms (U.S., e.g., i.e., vs., Dr., Inc.).
+    masked = re.sub(
+        r"\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|Inc|Corp|Ltd|Co|Jan|Feb|Mar|Apr|Aug|Sep|Sept|Oct|Nov|Dec)\.",
+        lambda m: m.group(0)[:-1] + dot_tok,
+        masked,
+        flags=re.IGNORECASE,
+    )
+    masked = re.sub(
+        r"\b(?:[A-Za-z]\.){2,}",
+        lambda m: m.group(0).replace(".", dot_tok),
+        masked,
+    )
+    raw_parts = re.split(r"(?<=[.!?])(?:[\"')\]»”’]+)?\s+", masked)
+    return [p.replace(dot_tok, ".").strip() for p in raw_parts if p.strip()]
+
+
+def _split_long_sentence_for_tts(sentence: str, max_chars: int) -> list[str]:
+    """Break an over-long sentence at natural clause punctuation first (``;``, ``:``, ``,``) before
+    ever falling back to raw word boundaries, so phrases like ``in the United States`` stay intact."""
+    import re
+
+    if len(sentence) <= max_chars:
+        return [sentence]
+    # Split on clause punctuation keeping the punctuation attached to the left clause.
+    clauses = [c.strip() for c in re.split(r"(?<=[,;:])\s+", sentence) if c.strip()]
+    out: list[str] = []
+    cur = ""
+    for cl in clauses:
+        if len(cl) <= max_chars:
+            if cur and len(cur) + len(cl) + 1 > max_chars:
+                out.append(cur)
+                cur = cl
+            else:
+                cur = f"{cur} {cl}".strip()
+            continue
+        if cur:
+            out.append(cur)
+            cur = ""
+        word_run = ""
+        for w in cl.split():
+            if word_run and len(word_run) + len(w) + 1 > max_chars:
+                out.append(word_run)
+                word_run = w
+            else:
+                word_run = f"{word_run} {w}".strip()
+        cur = word_run
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _chunk_for_tts(text: str, max_chars: int = 300, *, single_sentence: bool = False) -> list[str]:
+    """Split narration into sentence-safe chunks that fit inside a neural TTS generation window.
+
+    Protects decimals, abbreviations, and clause boundaries. When ``single_sentence=True`` (used by
+    cloning providers), emits at most one sentence per chunk so upstream BPE tokenizers never split
+    across two sentences mid-year or mid-clause."""
+    sentences = split_tts_sentences(text)
+    if not sentences:
+        return []
+    if single_sentence:
+        out: list[str] = []
+        for sent in sentences:
+            out.extend(_split_long_sentence_for_tts(sent, max_chars))
+        return out
+
     chunks: list[str] = []
     cur = ""
-    for raw in re.findall(r"[^.!?]+[.!?]*", text):
-        sentence = raw.strip()
-        if not sentence:
-            continue
+    for sentence in sentences:
         if len(sentence) > max_chars:
             if cur:
                 chunks.append(cur)
                 cur = ""
-            word_run = ""
-            for w in sentence.split():
-                if word_run and len(word_run) + len(w) + 1 > max_chars:
-                    chunks.append(word_run)
-                    word_run = w
-                else:
-                    word_run = f"{word_run} {w}".strip()
-            cur = word_run
+            parts = _split_long_sentence_for_tts(sentence, max_chars)
+            chunks.extend(parts[:-1])
+            cur = parts[-1] if parts else ""
         elif cur and len(cur) + len(sentence) + 1 > max_chars:
             chunks.append(cur)
             cur = sentence

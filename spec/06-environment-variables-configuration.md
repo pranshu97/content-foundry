@@ -201,8 +201,34 @@ OUTPUT_DIR=output/runs
 # ---------- Ops ----------
 LOG_LEVEL=INFO                             # DEBUG|INFO|WARNING|ERROR
 LOG_FORMAT=json                            # json|console
+RUN_LOG_ENABLED=true                       # tee every run's logs to output/runs/<id>/run.log
 SCHEDULE_CRON=0 9 * * MON                  # weekly Monday 09:00 (used by scheduler)
+
+# ---------- Retention, Programmatic Motion Graphics & Storyboard Critic ----------
+ENABLE_PROGRAMMATIC_GRAPHICS=true          # 7 animated 1080p dark-mode templates via Playwright -> FFmpeg
+ENABLE_STORYBOARD_CRITIC=true              # pre-render storyboard validator + selective AI prompt repair
+PROGRAMMATIC_SFX_ENABLED=true              # subtle UI tick/whoosh synced to graphic entrances (-14 dB)
+ENABLE_AMBIENT_MUSIC=true                  # vocal-carved dark ambient studio bed (-30 dB)
+ENABLE_COMMENT_FRICTION_BEAT=true          # ~60% mark falsifiable claim + <=6-word discussion question
+TARGET_PROGRAMMATIC_RATIO=0.30             # target fraction of beats rendered as motion graphics
+MIN_PROGRAMMATIC_RATIO=0.20
+MAX_PROGRAMMATIC_RATIO=0.45
+SILENT_PREVIEW_WINDOW_SEC=8.0              # 0:00-0:08 muted feed preview hook graphic
+OPENING_PEAK_WINDOW_SEC=30.0               # 0:00-0:30 brisk opening cuts
+MAX_TEMPLATE_DURATION_SEC=8.0              # max hold (s) per programmatic template clip
+PROGRAMMATIC_ANCHOR_MIN_SEC=45.0           # periodic mid-video anchor interval (45-60s)
+PROGRAMMATIC_ANCHOR_MAX_SEC=60.0
+TPL_<ID>_{ENABLED,WEIGHT,MAX_CHARS}=...    # per-template controls across all 7 templates
+BROLL_RELEVANCE_THRESHOLD=0.78             # strict lexical/moment match score for stock B-roll
+BROLL_STYLE_BANLIST=neon,futuristic,...    # style/cliche terms blocked on stock queries & tags
+MAX_SETTING_ARCHETYPE_REPEATS=2            # video-wide cap per architectural motif (no office/library loop)
+MIN_HUMAN_PRESENCE_RATIO=0.35              # minimum AI-scene human-presence ratio
+LOW_TIER_SOURCE_DOMAINS=amazingworkplaces.co,... # excluded from research & SOURCE // badges
+CLICHE_BANLIST=...                         # banned AI/B-roll cliches + physical/printed/engraved text
+IMAGE_STYLE_BIBLE=...                      # cohesive 35mm natural-light editorial aesthetic
 ```
+
+> **Authoritative key count:** `Settings` currently defines **295 typed fields** (`config.py`), kept at **zero drift** with `.env`, `.env.example`, and `src/content_foundry/data/env.example` via automated test gates (`test_env_examples_cover_every_settings_field_with_zero_drift` and `test_every_settings_field_is_referenced_in_source`). See root `.env.example` for the complete 295-key reference.
 
 ### 6.2 `Settings` model (shape)
 `config.py` defines a `Settings(BaseSettings)` with typed, validated fields grouped to mirror the sections above. Highlights:

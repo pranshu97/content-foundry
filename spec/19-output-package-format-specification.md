@@ -3,28 +3,36 @@
 ### 19.1 Run directory layout
 ```text
 output/runs/<run_id>/
+├── run_meta.json              # persisted content_format, idea, --instructions, and --data
 ├── data_brief.json
+├── ideas.json                 # brainstormed + outlier-mined ideas & chosen pick
+├── instruction_plan.json      # Agent 1.4 routed atomic-ask plan (when --instructions used)
+├── research.json              # Agent 1.5 source-backed depth points
 ├── script.json
 ├── judge_report.json
 ├── voiceover.json
 ├── visuals.json
+├── shot_prompts.json          # per-shot {source, prompt, visual_type, template_id/props, visual_meta}
 ├── video.json
 ├── publish_result.json
-├── package.md                 # the human-facing deliverable
+├── end_screen.json            # recommended prior channel uploads for Studio end-cards
+├── package.md                 # the human-facing deliverable (includes final description + Sources:)
+├── run.log                    # structured JSON lines run log
 └── assets/
-    ├── narration.mp3           # the raw voiceover
-    ├── narration_mixed.mp3     # narration + SFX bed, the track actually rendered
+    ├── narration.mp3           # joined preview voiceover
+    ├── narration_mixed.wav     # lossless PCM studio mix (narration + SFX + -30dB ambient bed)
+    ├── voiceover/              # per-scene raw TTS clips for selective `voiceover --scene N`
     ├── thumbnail.png
-    ├── thumbnail_prompt.txt    # the exact image prompt used; edit it and re-run to redo the thumbnail
-    ├── pronunciations.json     # Agent 4.5's acronym verdicts, stamped with the spelling RULES_VERSION
+    ├── thumbnail_prompt.txt    # editable thumbnail image prompt (reused unless `--reset`)
+    ├── pronunciations.json     # Agent 4.5 acronym verdicts stamped with RULES_VERSION
     ├── captions.srt
-    ├── citations.srt           # on-screen source attributions, burned in at render
+    ├── citations.srt           # top-strip burned citations (for non-graphic stat scenes)
     ├── like_badge.png
     ├── subscribe_badge.png
     ├── video.mp4
     └── scenes/
-        ├── scene_0.png         # generated still
-        └── scene_1.mp4         # or a stock B-roll clip
+        ├── scene_0_shot_0.mp4  # 1080p30 Playwright motion graphic or stock B-roll clip
+        └── scene_1_shot_2.png  # dual-channel editorial AI still
 ```
 
 The reusable ones are the point of resuming: `assets/scenes/**` and `thumbnail_prompt.txt` mean a

@@ -117,6 +117,8 @@ def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSP
             pause_knee_ms=settings.tts_pause_knee_ms,
             pause_ratio=settings.tts_pause_ratio,
             edge_pad_ms=settings.tts_edge_pad_ms,
+            tail_pad_ms=settings.tts_tail_pad_ms,
+            micro_fade_ms=settings.tts_micro_fade_ms,
             sentence_pause_ms=settings.tts_sentence_pause_ms,
             reference_window_sec=settings.tts_reference_window_sec,
             tone="neutral" if settings.tts_tone == "auto" else settings.tts_tone,
@@ -134,6 +136,8 @@ def build_tts_provider(settings: Settings, *, run_id: str | None = None) -> TTSP
             emotion=settings.indextts_emotion,
             emo_alpha=settings.indextts_emo_alpha,
             edge_pad_ms=settings.tts_edge_pad_ms,
+            tail_pad_ms=settings.tts_tail_pad_ms,
+            micro_fade_ms=settings.tts_micro_fade_ms,
             sentence_pause_ms=settings.tts_sentence_pause_ms,
             silence_pad_ms=settings.tts_silence_pad_ms,
             max_pause_ms=settings.tts_max_pause_ms,
@@ -188,12 +192,23 @@ def build_image_provider(settings: Settings) -> ImageProvider | None:
 def build_broll_client(settings: Settings) -> BrollClient:
     clients: list[BrollClient] = []
     min_score = float(getattr(settings, "broll_relevance_threshold", 0.0) or 0.0)
+    ban_phrases = tuple(
+        dict.fromkeys(
+            [
+                *list(getattr(settings, "cliche_banlist_list", ()) or ()),
+                *list(getattr(settings, "broll_style_banlist_list", ()) or ()),
+            ]
+        )
+    )
     if settings.pexels_api_key:
         from .broll import PexelsBrollClient
 
         clients.append(
             PexelsBrollClient(
-                settings.pexels_api_key, settings.broll_pool_size, min_score=min_score
+                settings.pexels_api_key,
+                settings.broll_pool_size,
+                min_score=min_score,
+                ban_phrases=ban_phrases or None,
             )
         )
     if settings.pixabay_api_key:
@@ -201,7 +216,10 @@ def build_broll_client(settings: Settings) -> BrollClient:
 
         clients.append(
             PixabayBrollClient(
-                settings.pixabay_api_key, settings.broll_pool_size, min_score=min_score
+                settings.pixabay_api_key,
+                settings.broll_pool_size,
+                min_score=min_score,
+                ban_phrases=ban_phrases or None,
             )
         )
     if settings.coverr_api_key:
@@ -209,7 +227,10 @@ def build_broll_client(settings: Settings) -> BrollClient:
 
         clients.append(
             CoverrBrollClient(
-                settings.coverr_api_key, settings.broll_pool_size, min_score=min_score
+                settings.coverr_api_key,
+                settings.broll_pool_size,
+                min_score=min_score,
+                ban_phrases=ban_phrases or None,
             )
         )
     if not clients:

@@ -146,6 +146,9 @@ def _synthesize(tts: Any, job: dict) -> None:
         "text": job["text"],
         "output_path": job["out"],
         "verbose": False,
+        # Raise above default 120 so single-sentence chunks (~40-95 BPE tokens) never re-split
+        # mid-clause with a 200ms internal silence inside IndexTTS-2.
+        "max_text_tokens_per_segment": int(job.get("max_text_tokens_per_segment", 240)),
     }
     # Emotion is OPTIONAL and off unless asked for: a plain clone is the honest baseline to compare
     # against Chatterbox. An 8-float vector is [happy, angry, sad, afraid, disgusted, melancholic,

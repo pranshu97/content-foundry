@@ -31,8 +31,9 @@ Things a **human** must do to get this running from scratch. The agent can write
   conda activate content_foundry
   pip install -r requirements.txt
   pip install -e .            # exposes the `content-foundry` CLI
+  playwright install chromium # headless browser for the 7 animated 1080p motion-graphics templates
   ```
-  _(Just the CLI, without the full local-ML stack? `pip install content-foundry` from PyPI. The
+  _(Just the CLI, without the full local-ML stack? `pip install content-foundry` from PyPI, then `playwright install chromium`. The
   from-source install above is recommended here because it also pins the GPU voice-clone stack.)_
 - [ ] Verify the CLI: `content-foundry --help`. If it's not on PATH, call the env's script directly:
   ```powershell
@@ -59,14 +60,14 @@ Things a **human** must do to get this running from scratch. The agent can write
   ```
   List several best-first; each free model has its own quota, so more = more runway before it's exhausted. (Anthropic / OpenAI / local Ollama also work — set `PRIMARY_PROVIDER` + the matching key instead.)
 
-## 6. Visuals — images + B-roll (free)
+## 6. Visuals — motion graphics, B-roll & AI images
 
-- [ ] Thumbnail/scene images, free & no key: `IMAGE_PROVIDER=pollinations`
-- [ ] B-roll stock video (free keys — a big quality win; get **both**):
+- [ ] **Animated 1080p motion graphics (free, local, on by default):** `ENABLE_PROGRAMMATIC_GRAPHICS=true` renders all 7 dark-mode templates locally via Playwright Chromium → FFmpeg (`playwright install chromium` in step 2). Verify anytime with `python scripts/verify_templates.py`.
+- [ ] **B-roll stock video (free keys — a big quality win; get both):**
   - Pexels — [pexels.com/api](https://www.pexels.com/api/) → `PEXELS_API_KEY=`
   - Pixabay — [pixabay.com/api/docs](https://pixabay.com/api/docs/) → `PIXABAY_API_KEY=`
-
-  Two sources = a bigger, more varied clip pool. With no B-roll key the video still renders using generated title cards.
+  Two sources = a bigger, more varied clip pool. With `IMAGE_PROVIDER=none`, any beat without a qualifying B-roll clip automatically promotes to an animated Playwright motion graphic (zero ugly static slides).
+- [ ] _(opt)_ **Paid Google AI Studio images (isolated key):** Google image models (`gemini-3-pro-image`, `gemini-3.1-flash-image`, `gemini-2.5-flash-image`) require a billed AI Studio project. Set `IMAGE_PROVIDER=google` and paste the billed project's key into `GOOGLE_IMAGE_API_KEY=` — text LLM calls **never** read `GOOGLE_IMAGE_API_KEY`, so your text traffic stays on the free `GOOGLE_API_KEY` project. *(Note: Pollinations' anonymous endpoint now paywalls with `HTTP 402` after ~1 call; if it trips, the circuit-breaker fast-fails and cascades to B-roll / Playwright motion graphics.)*
 
 ## 7. Voiceover (TTS)
 
@@ -117,6 +118,7 @@ Things a **human** must do to get this running from scratch. The agent can write
   TTS_REFERENCE_CLIP=assets/voice_reference.wav
   ```
   Verify: `& C:\Users\<you>\.conda\envs\content_foundry2\python.exe -c "import indextts; print('ok')"`.
+  _(Tip: see `assets/recording_script.md` for a 4-tone Audacity recording script and microphone checklist — **never** compress or normalize your reference WAV, because the tone-window picker relies on natural dynamic range.)_
 
 ### Verified versions
 
@@ -128,8 +130,9 @@ project is known-good on (Windows 11, RTX 3060 Laptop, 6 GB VRAM):
 |---|---|---|
 | Python | 3.11.15 | 3.11.15 |
 | torch | 2.6.0+cu124 | 2.8.0+cu128 |
-| numpy | <2.0 (Chatterbox/diffusers) | 2.2.6 |
+| numpy | <2.0 (`1.26.4`, Chatterbox/diffusers) | 2.2.6 |
 | transformers | 4.44.2 (pinned) | 4.52.1 |
+| playwright | 1.45+ + headless Chromium (`playwright install chromium`) | — |
 | installed from | `requirements.txt` + cu124 index | `pip install -e D:\index-tts` + cu128 index |
 
 Also external to pip, so back them up or be ready to re-fetch:
@@ -223,17 +226,18 @@ picks which to show per video (no per-video product curation). Blank platforms a
   tag (looks like `yourname-20`) → `AMAZON_ASSOC_TAG=yourname-20`. Note: Amazon needs **3 qualifying
   sales within 180 days** to keep the account (and to unlock the Product Advertising API later); until
   then the pipeline finds products via web search and appends your tag.
-- [ ] **AlgoExpert** (`algoexpert.io`): apply to their affiliate / student-ambassador program → paste
-  your referral link → `AFFILIATE_ALGOEXPERT_URL=`.
-- [ ] **Exponent** (`aced.io`): join their affiliate/partner program (their Partners page, often
-  via Impact) → `AFFILIATE_EXPONENT_URL=`.
+- [ ] **AlgoExpert** tryexponent.com` / `aced.io`): join their affiliate/partner program → set `AFFILIATE_EXPONENT_URL=` or just your code in `AFFILIATE_EXPONENT_ID=` (uses `?ref=`, handled automatically).
 - [ ] **LeetCode**: no public affiliate program at time of writing — if you have a referral/creator
   link set `AFFILIATE_LEETCODE_URL=`, otherwise leave blank (it's skipped).
 - [ ] **Coursera** (`coursera.org`): join via the **Impact** network → generate your tracking/deep link
   → `AFFILIATE_COURSERA_URL=`.
 - [ ] **Udemy**: join Udemy Affiliate (via Impact / other networks) → `AFFILIATE_UDEMY_URL=`.
-- [ ] **Educative** (`educative.io`): join their affiliate program → `AFFILIATE_EDUCATIVE_URL=`.
+- [ ] **Educative** (`educative.io`): join their affiliate program → `AFFILIATE_EDUCATIVE_URL=` or `AFFILIATE_EDUCATIVE_ID=`.
 - [ ] **DesignGurus** (`designgurus.io`): join their affiliate program → set `AFFILIATE_DESIGNGURUS_URL=`
+  (a full referral URL) or `AFFILIATE_DESIGNGURUS_ID=` (just your affiliate id; a real Grokking course
+  link is resolved per video when the topic fits).
+- [ ] **Fenzo AI** (`fenzo.ai`, Educative's AI interactive course generator): set `AFFILIATE_FENZO_URL=` or `AFFILIATE_FENZO_ID=` (`?ref=`; universal candidate that fills remaining slots under `AFFILIATE_MAX_LINKS`).
+- [ ] _(opt)_ **Curated niche catalog (`data/affiliate_catalog.json`):** copy `data/affiliate_catalog.example.json` to `data/affiliate_catalog.json` (gitignored) and set `AFFILIATE_CURATED_CATALOG=data/affiliate_catalog.json` to match verified books/courses offline before falling back to web searcheir affiliate program → set `AFFILIATE_DESIGNGURUS_URL=`
   (a full referral URL) or `AFFILIATE_DESIGNGURUS_ID=` (just your affiliate id; a real Grokking course
   link is resolved per video when the topic fits).
 - [ ] Turn it on: `AFFILIATE_ENABLED=true` (tune `AFFILIATE_MAX_LINKS`, `AFFILIATE_IN_COMMENT`).

@@ -18,31 +18,37 @@ career-advice-channel/
 │       │
 │       ├── models/                # Pydantic artifact + domain schemas
 │       │   ├── __init__.py
+│       │   ├── provenance.py      # Provenance block + utcnow()
 │       │   ├── signals.py         # RawSignal, NormalizedSignal
-│       │   ├── data_brief.py      # DataBrief artifact
+│       │   ├── data_brief.py      # DataBrief + KeyFact (creator_supplied) + Citation
 │       │   ├── ideas.py           # MinedIdea (proven outliers) + IdeaSelection (ideas.json)
-│       │   ├── script.py          # Script artifact (+ SceneCue: narration, b_roll shots, sfx, fact_ref)
-│       │   ├── judge_report.py    # JudgeReport, RubricScore, Verdict enum
-│       │   ├── voiceover.py       # VoiceoverAsset (audio path + word timings)
-│       │   ├── visuals.py         # VisualPackage (thumbnail, scenes, captions) + VisualShot beats
+│       │   ├── research.py        # ResearchBrief + ResearchPoint + InstructionPlan
+│       │   ├── script.py          # Script + SceneCue (visual_source, source_url, is_comment_friction, ...)
+│       │   ├── judge_report.py    # JudgeReport, DimensionScore, Verdict enum
+│       │   ├── voiceover.py       # VoiceoverAsset + SceneAudioClip + WordTiming + SceneTiming
+│       │   ├── visuals.py         # VisualPackage + SceneVisual + VisualShot (template_id/props/visual_meta)
 │       │   ├── video.py           # VideoAsset (final mp4 + metadata)
 │       │   ├── publish.py         # PublishResult (video id, privacy, disclosure)
 │       │   └── run.py             # Run, Attempt, RunState enum
 │       │
 │       ├── providers/             # Vendor abstractions (LLM + media + publish)
 │       │   ├── __init__.py
-│       │   ├── base.py            # LLMProvider protocol, LLMResponse
+│       │   ├── base.py            # LLMProvider protocol, LLMResponse, extract_json
+│       │   ├── google_provider.py # Gemini REST provider (best-first GOOGLE_MODELS chain)
 │       │   ├── anthropic_provider.py
 │       │   ├── openai_provider.py
+│       │   ├── local_provider.py  # OpenAI-compatible local LLM (Ollama / LM Studio / vLLM)
 │       │   ├── fallback.py        # FallbackProvider (primary→secondary)
-│       │   ├── tts.py             # TTSProvider + ElevenLabs/OpenAI/Edge/Piper + Chatterbox & IndexTTS-2 voice-clone (CUDA)
-│       │   ├── indextts2_worker.py # persistent JSON line-protocol worker, run by the OTHER venv's python
-│       │   ├── image.py           # ImageProvider + OpenAI/Stability/Google/Pollinations impls
-│       │   ├── broll.py           # Pexels + Pixabay stock-footage clients + MultiBrollClient
+│       │   ├── tiering.py         # TaskTier (HEAVY vs LIGHT) model selector
+│       │   ├── tts.py             # TTSProvider + ElevenLabs/OpenAI/Edge/Piper + Chatterbox & IndexTTS-2
+│       │   ├── indextts2_worker.py # persistent JSON line-protocol worker in separate venv
+│       │   ├── text_normalize.py  # speechify_numbers, prepare_tts_text, acronym/designation rules
+│       │   ├── image.py           # ImageProvider + Google/OpenAI/Stability/Pollinations + fallback
+│       │   ├── broll.py           # Pexels/Pixabay/Coverr clients + cliche/relevance scoring
 │       │   ├── sfx.py             # SfxLibrary (local data/sounds) + optional Freesound download
-│       │   ├── render_backend.py  # RenderBackend + Ffmpeg/MoviePy/Avatar impls
-│       │   ├── youtube.py         # Publisher protocol + YouTubePublisher (OAuth)
-│       │   └── youtube_data.py    # YouTube Data API client (proven-idea outlier mining)
+│       │   ├── render_backend.py  # RenderBackend + FfmpegBackend (loudnorm, zoompan, reframe)
+│       │   ├── youtube.py         # Publisher protocol + YouTubePublisher + recategorized_snippet
+│       │   └── youtube_data.py    # YouTube Data API v3 read-only client (outlier mining + live titles)
 │       │
 │       ├── datasources/           # Pluggable fetchers
 │       │   ├── __init__.py
@@ -54,40 +60,63 @@ career-advice-channel/
 │       │   ├── search.py          # domain-agnostic web search (DuckDuckGo/Tavily/Brave)
 │       │   └── registry.py        # builds enabled sources from config
 │       │
-│       ├── agents/                # The seven agents (+ pre-pipeline idea discovery)
+│       ├── agents/                # The seven core agents + specialist sub-agents
 │       │   ├── __init__.py
-│       │   ├── idea_miner.py      # Pre-pipeline: proven-idea outlier mining (YouTube Data API)
+│       │   ├── brainstorm.py      # Agent 0: topic brainstorming around --idea
+│       │   ├── idea_miner.py      # Agent 0.5: proven-idea outlier mining (YouTube Data API)
 │       │   ├── data_fetcher.py    # Agent 1 (orchestrates fetch + deterministic distill)
 │       │   ├── distill.py         # deterministic KeyFact/angle extraction (no LLM)
-│       │   ├── script_generator.py# Agent 2 (the one always-on LLM call)
-│       │   ├── judge.py           # Agent 3 (quality gate; hybrid by default)
-│       │   ├── judge_checks.py    # deterministic rubric checks (grounding/compliance/fatigue/...)
-│       │   ├── voiceover.py       # Agent 4 (TTS narration)
-│       │   ├── visuals.py         # Agent 5 (deterministic prompts + thumbnail + captions)
-│       │   ├── renderer.py        # Agent 6 (assemble final mp4)
-│       │   └── publisher.py       # Agent 7 (YouTube upload)
+│       │   ├── instruction_planner.py # Agent 1.4: atomic ask enumeration + routed brief plan
+│       │   ├── research.py        # Agent 1.5: source-backed depth synthesis + low-tier domain filter
+│       │   ├── script_generator.py# Agent 2 (script authoring, grounding repair, citation stamping)
+│       │   ├── judge.py           # Agent 3 (10-dim quality gate; hybrid by default)
+│       │   ├── judge_checks.py    # deterministic rubric & hard-gate checks
+│       │   ├── voiceover.py       # Agent 4 (TTS narration + selective `--scene` re-voicing)
+│       │   ├── pronunciation.py   # Agent 4.5: batched acronym letters-vs-word classifier
+│       │   ├── visuals.py         # Agent 5 (3-tier storyboard orchestration + thumbnail + captions)
+│       │   ├── broll_director.py  # Agent 5.5: whole-script B-roll search query director
+│       │   ├── thumbnail_director.py # Agent 5.6: exemplar-driven thumbnail prompt + surgical refiner
+│       │   ├── scene_image_director.py # Agent 5.7: dual-channel anti-collapse AI scene prompt engine
+│       │   ├── storyboard_critic.py # Pre-render deterministic + LLM storyboard auditor & repair gate
+│       │   ├── renderer.py        # Agent 6 (studio audio mix + timeline + FFmpeg encode)
+│       │   └── publisher.py       # Agent 7 (YouTube upload + metadata + post-privacy comments)
 │       │
-│       ├── production/            # Render helpers (non-vendor logic)
+│       ├── production/            # Render, motion-graphics & metadata helpers
 │       │   ├── __init__.py
+│       │   ├── motion_graphics.py # TemplateRegistry + 7 dark-mode animated 1080p HTML/CSS/SVG templates
+│       │   ├── visual_router.py   # 3-tier router, override classifier, anchor controller & LLM prop author
 │       │   ├── captions.py        # build .srt/.ass from word timings
-│       │   ├── timeline.py        # map script scenes -> timed media segments (per-beat clips)
-│       │   ├── sound_design.py    # mix SFX cues onto the narration
+│       │   ├── timeline.py        # map script scenes -> word-aligned timed media segments
+│       │   ├── sound_design.py    # mix_studio_audio (scene SFX + UI ticks/whooshes + -30dB ambient bed)
 │       │   ├── diagram.py         # draw a matrix / bars / ladder / flow shot with matplotlib
 │       │   ├── motion.py          # pick + build a camera move for a generated still (zoompan)
 │       │   ├── subscribe.py       # Subscribe-nudge badge (Pillow) + overlay spec
 │       │   ├── like_nudge.py      # glowing Like badge (Pillow) + overlay spec
-│       │   ├── end_screen.py      # watch-next recommendations from local run history
-│       │   ├── affiliate.py       # resolve + render affiliate resource links
+│       │   ├── end_screen.py      # watch-next recommendations + library_context guard
+│       │   ├── affiliate.py       # curated + search-resolved affiliate resource links
 │       │   ├── overlay.py         # avatar overlay spec
-│       │   ├── seo.py             # title/description/tag optimization
+│       │   ├── seo.py             # title/chapters/hashtags + bottom `Sources:` provenance collector
 │       │   └── timebox.py         # time-context for the writer (evergreen-by-default)
 │       │
-│       ├── prompts/               # Exact prompt text (see Ch. 15)
-│       │   ├── __init__.py        # loader: load_prompt(name) -> str
-│       │   ├── script_generator.system.txt   # always used
-│       │   ├── judge.system.txt   # used only in JUDGE_MODE=hybrid|llm
-│       │   └── judge.rubric.txt
-│       │   # (data_fetcher.system.txt & visuals.system.txt removed - now deterministic)
+│       ├── prompts/               # Externalized XML-structured prompt library (17 .txt files)
+│       │   ├── __init__.py        # loader: load_prompt(name) / render_prompt(...) -> str
+│       │   ├── script_generator.system.txt
+│       │   ├── script_wit_craft.system.txt
+│       │   ├── judge.system.txt
+│       │   ├── judge.rubric.txt
+│       │   ├── brainstorm.system.txt
+│       │   ├── instruction_asks.system.txt
+│       │   ├── instruction_planner.system.txt
+│       │   ├── research.system.txt
+│       │   ├── affiliate_queries.system.txt
+│       │   ├── pronunciation.system.txt
+│       │   ├── broll_director.system.txt
+│       │   ├── scene_image_director.system.txt
+│       │   ├── scene_image_director_dual.system.txt
+│       │   ├── motion_graphics_director.system.txt
+│       │   ├── storyboard_critic.system.txt
+│       │   ├── thumbnail_director.system.txt
+│       │   └── thumbnail_refine.system.txt
 │       │
 │       ├── templates/             # The 6 structural templates (see Ch. 16)
 │       │   ├── __init__.py        # TEMPLATES registry + selection logic
@@ -96,8 +125,11 @@ career-advice-channel/
 │       ├── pipeline/
 │       │   ├── __init__.py
 │       │   ├── orchestrator.py    # run state machine, resumability, revision loop
+│       │   ├── creator_data.py    # `--data` loader + `--instructions` numeric fact extractor
+│       │   ├── topic_relevance.py # anti-drift idea concept filtration
+│       │   ├── package.py         # human-readable `package.md` builder
 │       │   ├── stages.py          # STAGE order + start-from logic
-│       │   └── artifacts.py       # load/save/validate JSON artifacts
+│       │   └── artifacts.py       # load/save/validate JSON artifacts + `run_meta.json`
 │       │
 │       ├── persistence/
 │       │   ├── __init__.py
@@ -108,7 +140,11 @@ career-advice-channel/
 │       ├── safeguards/
 │       │   ├── __init__.py
 │       │   ├── disclosure.py      # synthetic-content disclosure injector + publish gate
-│       │   └── grounding.py       # checks every claim ties to a signal
+│   ├── seed_demo.py               # insert a demo run for the dashboard
+│   ├── backup_secrets.py          # bundle/verify/restore local-only secrets & assets
+│   ├── check_no_secrets.py        # pre-commit & CI guard blocking secrets/personal identifiers
+│   ├── recategorize.py            # safe read-modify-write YouTube category backfill
+│   └── verify_templates.py        # offline DOM-layout + ffprobe verifier for all 7 motion templates
 │       │
 │       ├── notifications/         # Alerting (see Ch. 25)
 │       │   ├── __init__.py

@@ -8,14 +8,16 @@ publishing).
 
 ## 1. What it is
 
-Content Foundry turns **real labor-market data** into a **finished, upload-ready YouTube video**
+Content Foundry turns **any topic** (backed by live web research, your own `--data` / `--instructions`,
+and optional labor-market feeds) into a **finished, upload-ready YouTube video or vertical Short**
 through 7 automated stages. Every stage writes a versioned artifact to disk, so a run is fully
 **resumable** — if something fails at stage 5, you fix it and continue from stage 5; nothing earlier
 is redone.
 
-It is **grounded** (every stat traces to fetched data), **quality-gated** (an automated Judge
-scores each script and blocks weak ones), and **compliance-safe** (synthetic-content disclosure is
-enforced; nothing auto-publishes public without it).
+It is **grounded** (every stat traces to fetched or creator-supplied data, with verified sources
+collected automatically at the bottom of the YouTube description), **quality-gated** (both an
+automated 10-dimension script Judge and a pre-render `StoryboardCritic`), and **compliance-safe**
+(synthetic-content disclosure is enforced; nothing auto-publishes public without it).
 
 ---
 
@@ -35,13 +37,13 @@ flowchart LR
 
 | # | Stage name | What it does | Writes | Uses money? |
 |---|-----------|--------------|--------|-------------|
-| 1 | **fetch** | Pulls job/salary/layoff/news signals, distills grounded facts (no LLM) | `data_brief.json` | data-source keys (mostly free) |
-| 2 | **generate** | Writes the script from the brief (the one always-on LLM call); also authors optional `sfx` cues | `script.json` | LLM (or **free** local) |
-| 3 | **judge** | Scores the script on 10 dimensions; PASS / REVISE / FAIL | `judge_report.json` | LLM (hybrid) or **free** deterministic |
-| 4 | **voiceover** | Text-to-speech narration + word timings | `voiceover.json`, `assets/narration.mp3` | TTS (or **free** Edge/Piper) |
-| 5 | **visuals** | Thumbnail + per-scene visuals + captions. B-roll is a clip per narration beat held to a STRICT on-topic bar; a beat with no confidently-relevant clip gets a bespoke GENERATED image (LLM-art-directed, AI-face-avoidant) instead of an off-topic clip | `visuals.json`, `assets/thumbnail.png`, `assets/scenes/`, `assets/captions.srt` | image API (or **free** cards/Pexels) |
-| 6 | **render** | Assembles audio + visuals + captions into an mp4 (ffmpeg); mixes any `sfx` cues in under the voice at a predictable level | `video.json`, `assets/video.mp4` | free (local) |
-| 7 | **publish** | Uploads to YouTube as a Private draft (or dry-run); at publish time posts a "watch next" comment linking related prior uploads and (opt-in) affiliate resource links + disclosure | `publish_result.json` | free |
+| 1 | **fetch** | Pulls web-search signals (relevance-ranked multi-query fan-out) + optional job/layoff/news/BLS feeds; deterministically distills grounded `KeyFact`s (no LLM) | `data_brief.json` | data-source keys (free default) |
+| 2 | **generate** | Decomposes `--instructions` (Agent 1.4), synthesizes source-backed depth (Agent 1.5, filtering `LOW_TIER_SOURCE_DOMAINS`), resolves affiliate candidates, grounds `--data` + `--instructions` figures, and writes the script + ~60% Comment Friction beat + optional `sfx` cues | `script.json`, `ideas.json`, `research.json`, `instruction_plan.json` | LLM (**free** Gemini tier or local Ollama) |
+| 3 | **judge** | Scores 10 dimensions + hard gates (grounding, completeness, duplicate scenes, open-loop payoff, bio recital, creator-figure fidelity); PASS / REVISE (edits best draft in place) / FAIL | `judge_report.json` | LLM (hybrid) or **free** deterministic |
+| 4 | **voiceover** | Pronunciation classification (Agent 4.5) + sentence/year/compound-safe TTS + padded micro-fade silence trimming + per-scene saved clips (`--scene` selective re-voicing) | `voiceover.json`, `assets/narration.mp3`, `assets/voiceover/`, `assets/pronunciations.json` | TTS (or **free** Edge / Piper / local Chatterbox / IndexTTS-2 clone) |
+| 5 | **visuals** | Thumbnail (Agent 5.6 + surgical refine turns) + **3-tier Visual Router**: (1) 7 animated 1080p dark-mode HTML/CSS/SVG templates via Playwright → FFmpeg, (2) strict cliché-filtered stock B-roll, (3) dual-channel anti-collapse AI stills audited by `StoryboardCritic` *before* paid image calls | `visuals.json`, `shot_prompts.json`, `assets/thumbnail.png`, `assets/thumbnail_prompt.txt`, `assets/scenes/`, `assets/captions.srt` | image API (`GOOGLE_IMAGE_API_KEY`) or **free** B-roll + Playwright motion graphics |
+| 6 | **render** | Studio audio mix (`mix_studio_audio`: scene SFX + `-14 dB` UI transition cues + `-30 dB` dark ambient bed → lossless WAV) + camera motion on stills + `4%` B-roll reframe + Like/Subscribe badges + `-14 LUFS` `48 kHz`/`192k` AAC encode | `video.json`, `assets/narration_mixed.wav`, `assets/citations.srt`, `assets/video.mp4` | free (local FFmpeg / GPU NVENC) |
+| 7 | **publish** | Uploads Private/Unlisted draft, optimizes title/chapters/hashtags, appends deduplicated `Sources:` at the very end, sets upload-safe thumbnail with backoff, and posts "watch next" + affiliate top comment *after* privacy transition | `publish_result.json`, `end_screen.json`, `package.md` | free |
 
 Generate ⇄ Judge is a **loop**: a REVISE verdict feeds the Judge's critique back into a rewrite, up
 to `MAX_REVISIONS` times. A PASS proceeds to production; exhausting the attempts is a FAIL.
@@ -54,10 +56,11 @@ RENDERED → PUBLISHED` (plus `REVISING` during the loop and `FAILED`).
 ## 3. Quick start (100% free, offline)
 
 **Prerequisites** (one time):
-- Python 3.11+, and ffmpeg (`winget install Gyan.FFmpeg` — then **fully restart your editor**).
+- Python 3.11+, and ffmpeg (`winget install Gyan.FFmpeg.Essentials` — then **fully restart your editor**).
 - Install the CLI: `pip install content-foundry` (from PyPI), or from source for development
   (`pip install -r requirements.txt && pip install -e .`).
-- [Ollama](https://ollama.com) for a free local LLM: `ollama pull qwen2.5:7b-instruct`
+- Install headless Chromium once for animated 1080p motion graphics: `playwright install chromium`.
+- Either a free [Google AI Studio](https://aistudio.google.com/apikey) key (`PRIMARY_PROVIDER=google`) or [Ollama](https://ollama.com) for a free offline LLM (`ollama pull qwen2.5:7b-instruct`).
 - `pip install edge-tts` (free voice; already a dependency).
 
 **.env** (copy from `.env.example`, then set):
@@ -112,22 +115,32 @@ run_id 0006   state PUBLISHED   verdict PASS
 
 Every run gets its own folder:
 ```
-output/runs/<run_id>/
-├── data_brief.json        # stage 1 — the grounded facts
-├── ideas.json             # the brainstormed ideas + the exact one this run picked
-├── research.json          # Agent 1.5 — source-backed depth report (mechanisms) for the idea
-├── script.json            # stage 2 — the script (edit this to hand-tune)
-├── judge_report.json      # stage 3 — scores + the critique
-├── voiceover.json         # stage 4
-├── visuals.json           # stage 5
-├── video.json             # stage 6
-├── publish_result.json    # stage 7
-├── package.md             # human summary + the MANDATORY disclosure checklist
+outprun_meta.json           # persisted content_format, idea, --instructions, and --data
+├── data_brief.json         # stage 1 — the grounded facts
+├── ideas.json              # brainstormed + outlier-mined ideas & chosen pick
+├── instruction_plan.json   # Agent 1.4 — decomposed atomic asks & routed plan (when --instructions used)
+├── research.json           # Agent 1.5 — source-backed depth report (mechanisms) for the idea
+├── script.json             # stage 2 — the script (edit this to hand-tune)
+├── judge_report.json       # stage 3 — scores + the critique
+├── voiceover.json          # stage 4 — timings + per-scene audio hashes
+├── visuals.json            # stage 5 — routed shots, template_props & visual_meta
+├── shot_prompts.json       # generated shot prompts/specs (for manual inspection or replacement)
+├── video.json              # stage 6 — final video metadata
+├── publish_result.json     # stage 7 — YouTube video ID, privacy & disclosure state
+├── end_screen.json         # recommended prior channel uploads for Studio end-cards
+├── package.md              # human summary + description (with Sources:) + disclosure checklist
+├── run.log                 # structured JSON lines log for the entire run
 └── assets/
     ├── narration.mp3
+    ├── narration_mixed.wav # lossless PCM studio mix (narration + SFX + dark ambient bed)
+    ├── voiceover/          # per-scene raw TTS clips for selective `voiceover --scene N`
+    ├── pronunciations.json # Agent 4.5 acronym verdicts (version-stamped by RULES_VERSION)
     ├── thumbnail.png
+    ├── thumbnail_prompt.txt# editable thumbnail prompt (reused unless `--reset`)
     ├── captions.srt
-    ├── scenes/            # one image/clip per scene
+    ├── citations.srt       # top-strip burned citations (for non-graphic stat beats)
+    ├── scenes/             # per-beat .mp4 (Playwright motion graphics / B-roll) and .png (AI stills)
+    └── video.mp4           # ← the finished 1080p per scene
     └── video.mp4          # ← the finished video
 ```
 
@@ -135,25 +148,15 @@ output/runs/<run_id>/
 ```powershell
 content-foundry list                 # recent runs: run_id, state, verdict, created_at
 content-foundry list --state FAILED  # filter by state
-```
-or just look at the folder names in `output\runs\`.
-
----
-
-## 6. CLI command reference
-
-Global flags go **before** the command: `content-foundry --profile cheap --dry-run run …`
-
-| Command | Purpose |
-|---|---|
-| `run` | Full pipeline (or a slice via `--from-stage`/`--to-stage`) |
+```stops at `render` by default; pass `--publish` to upload) |
 | `fetch` | Stage 1 only → `data_brief.json` |
-| `generate --input data_brief.json` | Stage 2 only |
+| `generate --input data_brief.json` | Stage 2 only (accepts `--instructions` and `--data`) |
 | `judge --input script.json` | Stage 3 only |
-| `voiceover --run-id <id>` | Stage 4 |
-| `visuals --run-id <id>` | Stage 5 |
-| `thumbnail --run-id <id> [--prompt "..."] [--reset]` | Regenerate ONLY the thumbnail; the exact prompt is saved to `assets/thumbnail_prompt.txt` — edit it and re-run to control the look |
-| `render --run-id <id> [--backend ffmpeg]` | Stage 6 |
+| `voiceover --run-id <id> [--scene N]` | Stage 4 (pass repeatable `--scene N` to re-voice only edited scenes) |
+| `visuals --run-id <id> [--force-images] [--free-images]` | Stage 5 (keeps existing AI `.png`s & rendered `.mp4` graphics unless `--force-images`) |
+| `shots --run-id <id>` | Regenerate ONLY the AI-generated `.png` shots in place, leaving B-roll clips & thumbnail untouched |
+| `thumbnail --run-id <id> [--prompt "..."] [--reset]` | Regenerate ONLY the thumbnail; reuses `assets/thumbnail_prompt.txt` unless `--reset` or `--prompt` |
+| `render --run-id <id> [--backend ffmpeg]` | Stage 6 (reassembles edited scene clips automatically) |
 | `publish --run-id <id> [--dry-run] [--privacy private] [--mode draft]` | Stage 7 |
 | `resume --run-id <id> [--to-stage publish]` | **Continue a run from its next stage automatically** |
 | `status --run-id <id>` | State, verdict, and a table of attempts/scores |
@@ -165,18 +168,19 @@ Global flags go **before** the command: `content-foundry --profile cheap --dry-r
 | `notify-test` | Send a sample of each alert to verify your bot |
 | `schedule [--cron "0 9 * * MON"]` | Run on a schedule |
 
-Key `run` options: `--niche`, `--topic`, `--idea`, `--template`, `--format` (long\|short), `--from-stage`,
-`--to-stage`, `--run-id`, `--input`, `--force`, `--dry-run`. `--idea "resume optimization"` **focuses**
-the brainstormer on your concept — it proposes a few specific angles and (in a terminal) asks you to
-pick one, or choose `0` to type your own idea instead, before writing. `--format short` produces a
-**vertical 9:16 YouTube Short** (~50s, big burned captions) instead of the long video — the same as
-setting `CONTENT_FORMAT=short` in `.env`.
+Key `run` options: `--niche`, `--topic`, `--idea`, `--instructions`, `--data`, `--brainstorm/--no-brainstorm`,
+`--template`, `--format` (long\|short), `--from-stage`, `--to-stage`, `--publish`, `--run-id`, `--input`,
+`--force`, `--dry-run`. By default `--idea` is used **verbatim**; add `--brainstorm` to explore angles
+(+ proven YouTube outliers when `IDEA_MINING_ENABLED=true`) around it. `--instructions` steers both
+research queries and script structure while preserving any numbers you state; `--data` (literal lines or
+a `.txt` file) injects highest-priority citable facts. `--format short` produces a **vertical 9:16
+YouTube Short** (~35–50s, big burned captions), persisted in `run_meta.json` across re-runs.
 
 ---
 
 ## 7. Understanding the Judge
 
-The Judge scores 10 dimensions (0–5). Some have **hard floors** — miss a floor and it's a REVISE
+The Judge scores 10 dimensions (0–5). Five have **hard floors** — miss a floor and it's a REVISE
 no matter the total:
 
 | Dimension | Weight | Floor | How scored |
@@ -185,16 +189,27 @@ no matter the total:
 | Specificity | 14% | — | deterministic |
 | Factual Grounding | 14% | **`GROUNDING_MIN` (4.0)** | deterministic |
 | Insight | 14% | **`INSIGHT_MIN` (3.5)** | LLM (hybrid) |
-| Engagement | 10% | — | LLM (hybrid) |
+| Engagement | 10% | **`ENGAGEMENT_MIN` (2.5)** | LLM (hybrid) |
 | Wittiness | 7% | **`WITTINESS_MIN` (2.5)** | LLM (hybrid) |
 | Ending / Sign-off | 7% | **`ENDING_MIN` (3.0)** | deterministic |
 | Hook & Retention | 10% | — | deterministic |
 | Structural Freshness | 7% | — | deterministic |
 | Compliance | 3% | pass/fail | deterministic |
 
-- **PASS**: weighted total ≥ `PASS_THRESHOLD` (3.75) **and** all floors met.
-- **REVISE**: a floor missed or total too low → the Judge's critique is fed into a rewrite.
+- **PASS**: weighted total ≥ `PASS_THRESHOLD` (3.75 default; 3.9 in `.env.example`) **and** all floors + deterministic hard gates met.
+- **Hard deterministic gates (zero tokens):** completeness (`MIN_SCENES` + `MIN_SCRIPT_WORD_RATIO`), duplicate-scene 3-gram Jaccard (`MAX_SCENE_SIMILARITY`), promised open-loop delivery (`open_loop_report`), anti-verbatim bio recital (`credential_recital_report`), and creator-figure fidelity (`specified_figures_report` — rejects any draft that alters a figure from `--instructions`).
+- **REVISE**: edits the **best-scoring draft so far** in place (never starting over from scratch), up to `MAX_REVISIONS`.
 - **FAIL**: never passed within `MAX_REVISIONS` (usually a *data* problem, not writing).
+
+**Completeness gate (hard).** Independent of the score, a script is REVISEd if it's too short — fewer
+than `MIN_SCENES` (3) scenes **or** below `MIN_SCRIPT_WORD_RATIO × SCRIPT_TARGET_WORDS` words (default
+`0.5 × 900 = 450`). Every grounded statistic with a verified external source carries its source on
+screen (either inside an animated motion-graphic `SOURCE //` pill or top-strip `citations.srt`) and is
+collected into a deduplicated `Sources:` section at the very bottom of the YouTube description.
+
+**Gate relief.** A draft scoring ≥ `GATE_RELIEF_SCORE` (4.5 on the 0–5 scale) earns `GATE_RELIEF_RATIO`
+(20%) slack on the **insight**, **wittiness**, **engagement**, and **length** floors — so a near-miss
+doesn't block an otherwise-excellent script. Grounding, compliance, ending not writing).
 
 **Completeness gate (hard).** Independent of the score, a script is REVISEd if it's too short — fewer
 than `MIN_SCENES` (3) scenes **or** below `MIN_SCRIPT_WORD_RATIO × SCRIPT_TARGET_WORDS` words (default
@@ -288,18 +303,17 @@ it when saved audio or assembly settings change, or the preview is missing.
 ### Wit craft
 
 `SCRIPT_WIT_CRAFT_ENABLED=true` is the default. It adds topic-specific observational humor,
-economical setups, and earned callback guidance. Both the base prompt and revision feedback
-teach comedic construction instead of supplying stock punchlines to repeat across videos.
-Absurd comparisons remain encouraged; the setup and payoff should come from the current
-scene, not just swap a noun in a familiar joke. This is writing guidance, not a cross-video
-joke-history detector or a guarantee of originality.
-
-Set it to `false` to disable the extra craft section; the cleaned-up base prompt and revision
-advice still apply. It adds no model call and changes no models, scoring thresholds, factual
-checks, or length targets. Subjective improvement still needs human review.
-
-| Group | Key settings |
-|---|---|
+economical setups, and earned ca**google**\|anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `GOOGLE_API_KEY`, `GOOGLE_MODELS`, `GOOGLE_THINKING`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
+| **Data** | `ENABLED_SOURCES` (**search**\|adzuna\|layoffs\|news\|bls), `LOW_TIER_SOURCE_DOMAINS`, `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
+| **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave — auto-chains fallbacks), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS`, `SEARCH_QUERY_COUNT`, `SEARCH_FACETS` |
+| **Research & Planner** | `INSTRUCTION_PLANNER_ENABLED`, `RESEARCH_ENABLED`, `RESEARCH_MAX_SOURCES`, `RESEARCH_MAX_POINTS`, `RESEARCH_MAX_CHARS_PER_SOURCE`, `RESEARCH_FETCH_TIMEOUT_SEC` |
+| **Pipeline** | `MAX_REVISIONS`, `JUDGE_MODE`, `PASS_THRESHOLD`, `INSIGHT_MIN`, `ENGAGEMENT_MIN`, `WITTINESS_MIN`, `ENDING_MIN`, `GROUNDING_MIN`, `MIN_FACTS`, `MAX_FACTS`, `MIN_SCENES`, `MIN_SCRIPT_WORD_RATIO`, `GATE_RELIEF_SCORE`, `GATE_RELIEF_RATIO`, `BRAINSTORM_ENABLED`, `TARGET_NICHE`, `SCRIPT_TARGET_WORDS`, `FAIL_FAST_SCORE` |
+| **Voice** | `TTS_PROVIDER` (elevenlabs\|openai\|**edge**\|**piper**\|**chatterbox**\|**indextts**), `TTS_REFERENCE_CLIP`, `TTS_TONE`, `TTS_EDGE_PAD_MS` (`55`), `TTS_TAIL_PAD_MS` (`85`), `TTS_MICRO_FADE_MS` (`15`), `TTS_SENTENCE_PAUSE_MS`, `PRONUNCIATION_LLM_ENABLED`, `INDEXTTS_*` (separate venv), `VOICEOVER_LEAD_IN_SEC`, `SFX_GAP_SEC` |
+| **Visuals & Images** | `IMAGE_PROVIDER` (google\|openai\|stability\|pollinations\|**none**), `GOOGLE_IMAGE_API_KEY` (isolated paid key), `GOOGLE_IMAGE_MODELS`, `GOOGLE_IMAGE_USE_PAID_KEY`, `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `BROLL_RELEVANCE_THRESHOLD`, `BROLL_STYLE_BANLIST`, `VISUALS_REDO_IMAGES`, `THUMBNAIL_DIRECTOR_ENABLED`, `THUMBNAIL_REFINE_TURNS` |
+| **Motion Graphics & Critic** | `ENABLE_PROGRAMMATIC_GRAPHICS`, `ENABLE_STORYBOARD_CRITIC`, `ENABLE_COMMENT_FRICTION_BEAT`, `TARGET_PROGRAMMATIC_RATIO` (`MIN_`/`MAX_`), `SILENT_PREVIEW_WINDOW_SEC`, `OPENING_PEAK_WINDOW_SEC`, `PROGRAMMATIC_ANCHOR_MIN_SEC`/`MAX_SEC`, `MAX_TEMPLATE_DURATION_SEC` (`8.0`), `TPL_<ID>_{ENABLED,WEIGHT,MAX_CHARS}` (all 7 templates), `MAX_SETTING_ARCHETYPE_REPEATS` (`2`), `MIN_HUMAN_PRESENCE_RATIO` (`0.35`), `CLICHE_BANLIST`, `IMAGE_STYLE_BIBLE`, `CRITIC_MAX_RETRIES` |
+| **Render & Polish** | `RENDER_BACKEND`, `FFMPEG_PATH`, `VIDEO_ENCODER` (`auto` NVENC/QSV/AMF → libx264), `VIDEO_RESOLUTION`, `VIDEO_SPEED` (`1.04`), `AUDIO_LOUDNESS_LUFS` (`-14`), `IMAGE_MOTION`, `SCENE_TRANSITION`, `COLOR_WARMTH`, `SUBSCRIBE_NUDGE_ENABLED`, `LIKE_NUDGE_ENABLED`, `AVATAR_OVERLAY_ENABLED` |
+| **Studio Audio & SFX** | `SFX_ENABLED`, `SFX_DIR`, `FREESOUND_API_KEY`, `SFX_VOLUME_DB`, `PROGRAMMATIC_SFX_ENABLED`, `PROGRAMMATIC_SFX_VOLUME_DB` (`-14`), `ENABLE_AMBIENT_MUSIC`, `AMBIENT_MUSIC_VOLUME_DB` (`-30`), `AMBIENT_MUSIC_PATH` |
+| **Publish & Affiliates** | `PUBLISH_MODE`, `YOUTUBE_PRIVACY_STATUS`, `REQUIRE_MANUAL_DISCLOSURE_BEFORE_PUBLIC`, `RECOMMEND_COMMENT_ENABLED`, `END_SCREEN_ENABLED`, `AFFILIATE_ENABLED`, `AFFILIATE_CURATED_CATALOG`, `AMAZON_ASSOC_TAG`, `AFFILIATE_{EXPONENT,EDUCATIVE,DESIGNGURUS,FENZO}_*
 | **LLM** | `PRIMARY_PROVIDER` (anthropic\|openai\|**local**), `FALLBACK_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, `GENERATOR_MODEL`, `JUDGE_MODEL` |
 | **Data** | `ENABLED_SOURCES` (adzuna\|layoffs\|news\|bls\|**search**), `ADZUNA_APP_ID/KEY`, `NEWSAPI_KEY`, `LAYOFFS_FEED_URL` |
 | **Web search** | `SEARCH_PROVIDER` (**duckduckgo** no-key\|tavily\|brave), `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARCH_MAX_RESULTS`, `SEARCH_QUERY_COUNT`, `SEARCH_FACETS` (multi-query fan-out) |
@@ -365,15 +379,15 @@ approve drafts — the thin human layer. You're never in the writing loop.
 | **`ollama`/`ffmpeg` missing after reopening a terminal** | VS Code caches its environment at launch. **Quit and reopen VS Code entirely** (or reboot). The app talks to Ollama over HTTP, so it doesn't need the `ollama` CLI on PATH — only ffmpeg matters for rendering. |
 | **Run ends `FAILED` / verdict `FAIL`** | The script never cleared the Judge's floors in `MAX_REVISIONS` tries. Run `content-foundry report --run-id <id>` and read `revision_instructions` — the failing gate is named there. Usually **length** (too short), **insight**, or **grounding**. |
 | **Scored high (8+) but still `FAILED`** | The **completeness gate**: the script is too short (< `MIN_SCENES` scenes or < `MIN_SCRIPT_WORD_RATIO`×`SCRIPT_TARGET_WORDS` words). `report` shows a `LENGTH:` note. Lower `SCRIPT_TARGET_WORDS` (e.g. `350` for a 7B local model) or use a bigger model like `qwen2.5:14b`. |
-| **Score too low / insight floor** | Use a stronger model (`LOCAL_LLM_MODEL=qwen2.5:7b-instruct` beats llama3.1), lower `INSIGHT_MIN` for testing, or use `--profile cheap` (deterministic judge skips the insight LLM floor). |
-| **Score went *down* on a revision** | Each revision rewrites from scratch, so a weak model can regress. The revision prompt now feeds the Judge's exact reasoning back in to reduce this. |
+| **Score too low / insight floor** | UsRevisions edit the **best-scoring attempt so far** in place (`KEEP INTACT` + targeted fix-list) rather than starting from scratch; if a small local model still oscillates, switch to a stronger model (`gemini-2.5-flash` or `qwen2.5:14b`). |
 | **"insufficient facts" / no data** | A data source returned too little. Add real Adzuna keys, verify `LAYOFFS_FEED_URL` (try `https://layoffs.fyi/feed/`), or enable `bls` (keyless). Need ≥ `MIN_FACTS` (3). |
 | **Any niche / the feeds don't fit your topic** | Add `search` to `ENABLED_SOURCES` (e.g. `ENABLED_SOURCES=search` for search-only, or `adzuna,search`). It runs a web search on your run's topic (`--niche` + `--idea`), so it works for **any** subject — not just jobs/layoffs. Free via DuckDuckGo (no key); set `SEARCH_PROVIDER=tavily` or `brave` with a free key for a stronger index. |
 | **A data source failed** | Runs degrade gracefully — the `✓ Data brief` line shows which sources succeeded. As long as ≥3 facts come back, it proceeds. |
 | **Want to resume after a crash** | `content-foundry resume --run-id <id>` — it continues from the next stage; completed stages are reused. |
 | **Change the model and retry** | Edit `LOCAL_LLM_MODEL`, then `content-foundry run --run-id <id> --from-stage generate --dry-run`. |
 | **Want a real video but no upload** | `--dry-run`. The mp4 is at `output\runs\<id>\assets\video.mp4`. |
-| **Want better visuals** | Get a free Pexels key (`PEXELS_API_KEY`) for real B-roll, or set `IMAGE_PROVIDER=openai`/`stability` (paid) for AI images. |
+| **Want better visuals** | Keep `ENABLE_PROGRAMMATIC_GRAPHICS=true` (7 animated 1080p dark-mode templates via Playwright), add free `PEXELS_API_KEY` + `PIXABAY_API_KEY` for strict B-roll, and optionally set `IMAGE_PROVIDER=google` with an isolated `GOOGLE_IMAGE_API_KEY` for bespoke editorial AI stills. |
+| **Repetitive / off-topic B-roll** | Add `PIXABAY_API_KEY` alongside Pexels, raise `BROLL_RELEVANCE_THRESHOLD` (e.g. `0.82`), or extend `BROLL_STYLE_BANLIST`. Clips are filtered against both the cliché/style blacklist and spoken-moment overlap, **used at most once each**, and picked deterministically (top-ranked match; misses fall back to dual-channel AI stills or motion graphics)
 | **Repetitive / off-topic B-roll** | Add a free `PIXABAY_API_KEY` alongside Pexels so each scene draws from a bigger, mixed pool. Clips are pulled per keyword (per scene), **used at most once each** (never repeated anywhere — a hole is filled with a different fresh clip), and are seeded by the run id so different runs pick different clips. The LLM B-roll director (`BROLL_DIRECTOR_ENABLED`) rewrites each scene's queries to be literal and globally distinct. |
 | **Want sound effects** | Set `SFX_ENABLED=true`. The script author writes short `sfx` cues (whoosh, ding, cash register…) into scenes and the renderer mixes the matching clip from `data/sounds` in at each cue's moment. Add more clips to that folder or set `FREESOUND_API_KEY` to auto-download missing ones; tune loudness with `SFX_VOLUME_DB`. |
 | **Smoother look / branding** | `SCENE_TRANSITION=fade` crossfades between scenes (`fadewhite` = a light flash); `COLOR_WARMTH=0.25` warms the whole grade; `SUBSCRIBE_NUDGE_ENABLED=true` pops a small Subscribe badge at the midpoint. All three are render-only — apply them to an existing run with `content-foundry run --run-id <id> --from-stage render`. |

@@ -379,6 +379,10 @@ def collect_embedded_sources(
 
         if not _is_http_url(resolved_url):
             continue
+        from .visual_router import is_low_tier_source
+
+        if is_low_tier_source(resolved_url):
+            continue
         norm_key = resolved_url.rstrip("/")
         if norm_key in seen_urls:
             continue

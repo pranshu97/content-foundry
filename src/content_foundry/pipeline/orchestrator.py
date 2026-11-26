@@ -72,7 +72,7 @@ from .artifacts import (
     save_run_instructions,
     sha256_file,
 )
-from .creator_data import creator_key_facts, resolve_data
+from .creator_data import creator_key_facts, extract_instruction_facts, resolve_data
 from .package import build_package_md
 from .stages import PRODUCTION_STAGES, stages_between
 from .topic_relevance import filter_to_idea
@@ -665,11 +665,17 @@ class Orchestrator:
 
     def _augment_brief(self, brief: DataBrief, research: ResearchBrief | None) -> DataBrief:
         """Assemble the brief's CITABLE key_facts in PRIORITY order: the creator's own ``--data``
-        first, then the Researcher's idea-relevant findings, then the broad raw-search facts FILTERED
-        down to the ones that genuinely belong to the chosen idea — so the larger research volume
-        can't drag the script off topic. Used for BOTH generation and judging so their fact_refs line
-        up. Creator facts are never filtered: they were chosen by hand, so they are trusted as-is."""
+        and numeric benchmarks from ``--instructions`` first, then the Researcher's idea-relevant
+        findings, then the broad raw-search facts FILTERED down to the ones that genuinely belong
+        to the chosen idea — so the larger research volume can't drag the script off topic."""
         creator = creator_key_facts(self._run_data)
+        existing_stmts = {kf.statement.strip().lower() for kf in creator}
+        instr_facts = [
+            kf
+            for kf in extract_instruction_facts(self._run_instructions)
+            if kf.statement.strip().lower() not in existing_stmts
+        ]
+        creator = creator + instr_facts
         if not research or not research.points:
             if not creator:
                 return brief

@@ -479,13 +479,60 @@ def moment_terms(text: str) -> frozenset[str]:
     )
 
 
+DEFAULT_BROLL_CLICHES: tuple[str, ...] = (
+    "neon",
+    "futuristic",
+    "cyberpunk",
+    "hologram",
+    "holographic",
+    "stock chart",
+    "candlestick",
+    "candlesticks",
+    "trading chart",
+    "crypto chart",
+    "data stream",
+    "matrix",
+    "binary code",
+    "glowing tunnel",
+    "server tunnel",
+    "circuit board",
+    "tangled cables",
+    "hooded hacker",
+    "glowing brain",
+    "matrix rain",
+)
+
+
+def has_broll_cliche(
+    query: str,
+    meta: object = "",
+    ban_phrases: list[str] | tuple[str, ...] | None = None,
+) -> bool:
+    """True when a stock search query or clip tags/slug hits ``cliche_banlist`` / ``broll_style_banlist``."""
+    phrases = DEFAULT_BROLL_CLICHES if ban_phrases is None else tuple(ban_phrases)
+    if not phrases:
+        return False
+    meta_txt = " ".join(str(m) for m in meta) if isinstance(meta, list | tuple) else str(meta or "")
+    combined = f"{query or ''} {meta_txt}".lower()
+    combined = re.sub(r"[-_/]+", " ", combined)
+    for raw in phrases:
+        term = " ".join((raw or "").lower().split())
+        if not term:
+            continue
+        if re.search(r"\b" + re.escape(term) + r"s?\b", combined):
+            return True
+    return False
+
+
 def _clip_ok(
     query: str,
     meta,
     vocab: frozenset[str] | set[str],
     moment: frozenset[str] = frozenset(),
+    ban_phrases: list[str] | tuple[str, ...] | None = None,
 ) -> bool:
-    """Keep a candidate clip only when it is NOT an off-topic stock subject the query never asked for
+    """Keep a candidate clip only when it is NOT an off-topic stock subject the query never asked for,
+    NOT a banned neon/stock-chart/cyberpunk cliche,
     AND — when we know this video's vocabulary (``vocab``) — its tags/slug (a) actually touch that
     vocabulary, (b) name ENOUGH of THIS beat's SPECIFIC words (see ``_required_matches``), and (c) name
     something the line it will sit under actually says (``moment``). The vocab check stops
@@ -498,6 +545,8 @@ def _clip_ok(
     clip with NO tags/slug while a vocabulary IS known is unverifiable (a bare stock URL) and is
     DROPPED. Now that a rejected clip falls back to a GENERATED image, we hold clips to this much
     higher bar rather than show anything off-topic."""
+    if has_broll_cliche(query, meta, ban_phrases):
+        return False
     if _off_topic(query, meta):
         return False
     if not vocab:
@@ -558,16 +607,18 @@ def score_broll_match(
     meta,
     vocab: frozenset[str] | set[str],
     moment: frozenset[str] = frozenset(),
+    ban_phrases: list[str] | tuple[str, ...] | None = None,
 ) -> float:
     """Continuous relevance score in ``[0.0, 1.0]`` for a candidate stock B-roll clip.
 
-    Returns ``0.0`` whenever ``_clip_ok`` rejects the candidate (denylist, set-dressing-only query,
-    missing tags, insufficient specific matches, or moment mismatch). When ``vocab`` is empty (no
-    video context supplied), returns ``1.0`` for any non-off-topic clip. Otherwise blends stemmed
-    discriminating-query coverage, spoken-moment overlap, and video-vocabulary grounding so
-    ``broll_relevance_threshold`` (default ``0.78``) cleanly rejects weak filler clips.
+    Returns ``0.0`` whenever ``_clip_ok`` rejects the candidate (denylist, cliche/style banlist,
+    set-dressing-only query, missing tags, insufficient specific matches, or moment mismatch).
+    When ``vocab`` is empty (no video context supplied), returns ``1.0`` for any non-off-topic clip.
+    Otherwise blends stemmed discriminating-query coverage, spoken-moment overlap, and
+    video-vocabulary grounding so ``broll_relevance_threshold`` (default ``0.78``) cleanly rejects
+    weak filler clips.
     """
-    if not _clip_ok(query, meta, vocab, moment):
+    if not _clip_ok(query, meta, vocab, moment, ban_phrases=ban_phrases):
         return 0.0
     if not vocab:
         return 1.0
@@ -634,15 +685,19 @@ class PexelsBrollClient:
         *,
         rng: random.Random | None = None,
         min_score: float = 0.0,
+        ban_phrases: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self._api_key = api_key
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
         self._min_score = max(0.0, float(min_score))
+        self._ban_phrases = tuple(ban_phrases) if ban_phrases is not None else None
 
     def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
 
+        if has_broll_cliche(query, "", self._ban_phrases):
+            return []
         resp = httpx.get(
             self._SEARCH_URL,
             headers={"Authorization": self._api_key},
@@ -663,7 +718,7 @@ class PexelsBrollClient:
             if not files:
                 continue
             meta = _slug_words(video.get("url", ""))
-            sc = score_broll_match(query, meta, vocab, spoken)
+            sc = score_broll_match(query, meta, vocab, spoken, ban_phrases=self._ban_phrases)
             if sc > 0.0 and sc >= self._min_score:
                 scored.append((sc, idx, files[-1]["link"]))
         if self._min_score > 0.0:
@@ -689,15 +744,19 @@ class PixabayBrollClient:
         *,
         rng: random.Random | None = None,
         min_score: float = 0.0,
+        ban_phrases: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self._api_key = api_key
         self._pool_size = min(200, max(3, pool_size))  # Pixabay requires per_page in [3, 200]
         self._rng = rng or random.Random()
         self._min_score = max(0.0, float(min_score))
+        self._ban_phrases = tuple(ban_phrases) if ban_phrases is not None else None
 
     def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
 
+        if has_broll_cliche(query, "", self._ban_phrases):
+            return []
         resp = httpx.get(
             self._SEARCH_URL,
             params={
@@ -717,7 +776,9 @@ class PixabayBrollClient:
             for size in ("large", "medium", "small", "tiny"):
                 link = (renditions.get(size) or {}).get("url")
                 if link:
-                    sc = score_broll_match(query, hit.get("tags", ""), vocab, spoken)
+                    sc = score_broll_match(
+                        query, hit.get("tags", ""), vocab, spoken, ban_phrases=self._ban_phrases
+                    )
                     if sc > 0.0 and sc >= self._min_score:
                         scored.append((sc, idx, link))
                     break
@@ -745,15 +806,19 @@ class CoverrBrollClient:
         *,
         rng: random.Random | None = None,
         min_score: float = 0.0,
+        ban_phrases: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self._api_key = api_key
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
         self._min_score = max(0.0, float(min_score))
+        self._ban_phrases = tuple(ban_phrases) if ban_phrases is not None else None
 
     def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
 
+        if has_broll_cliche(query, "", self._ban_phrases):
+            return []
         resp = httpx.get(
             self._SEARCH_URL,
             params={
@@ -773,7 +838,11 @@ class CoverrBrollClient:
             link = (hit.get("urls") or {}).get("mp4")
             if link:
                 sc = score_broll_match(
-                    query, [hit.get("title", ""), hit.get("tags", "")], vocab, spoken
+                    query,
+                    [hit.get("title", ""), hit.get("tags", "")],
+                    vocab,
+                    spoken,
+                    ban_phrases=self._ban_phrases,
                 )
                 if sc > 0.0 and sc >= self._min_score:
                     scored.append((sc, idx, link))

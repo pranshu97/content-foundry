@@ -10,11 +10,8 @@ Convert the approved script's narration into a single, clean narration track **w
 > while this package pins numpy<2 for Chatterbox/diffusers; the two can never share an interpreter, so
 > `INDEXTTS_PYTHON` points at that venv and the pipeline itself still runs from the main environment.
 >
-> Long scenes are voiced in chunks and stitched, and three things shape how that sounds:
-> - **Pauses follow punctuation, not a fixed pad.** Each chunk's edges are trimmed close
->   (`TTS_EDGE_PAD_MS`) and the gap is then sized by the mark the chunk ends on
->   (`TTS_SENTENCE_PAUSE_MS` for a `.`, ×1.25 for `?`/`!`, ×0.5 for `,`, ×0.25 mid-sentence). Trimming
->   both edges to the same pad at every join is a metronome by construction, which is what it used to be.
+> Long scenes are voiced in protected **single-sentence** chunks (`_chunk_for_tts(..., max_chars=250, single_sentence=True)`, `max_text_tokens_per_segment=240`) so decimals (`2.15`), abbreviations (`U.S.`), calendar years (`2026` → `"twenty twenty six"`), and hyphenated compounds (`Rule-of-70` → `"Rule of seventy"`) never split mid-clause, and three things shape how that sounds:
+> - **Safety-padded micro-fade trimming + punctuation-sized pauses.** Each chunk keeps a `TTS_EDGE_PAD_MS` (`55 ms`) head pad and `TTS_TAIL_PAD_MS` (`85 ms`) tail pad at a gentle `0.008` amplitude threshold with `TTS_MICRO_FADE_MS` (`15 ms`) raised-cosine micro-fades so quiet trailing syllables (`"continuously"`) are never clipped, and the stitched gap is sized by the mark the chunk ends on (`TTS_SENTENCE_PAUSE_MS` for `.`, ×1.25 for `?`/`!`, ×0.5 for `,`, ×0.25 mid-sentence).
 > - **The reference clip is condensed first.** Cloning models only listen to their first few seconds, so
 >   `TTS_REFERENCE_WINDOW_SEC` selects the densest speech window instead of whatever the clip opens with
 >   (0 = use it exactly as recorded).
@@ -22,10 +19,7 @@ Convert the approved script's narration into a single, clean narration track **w
 >   best fit the script's template (contrarian → punchy, data deep-dive → authoritative, …); pitch median
 >   is deliberately *not* optimised, since that is what carries speaker identity.
 >
-> Any abnormally long INTERNAL pause the cloner emits (longer than `TTS_MAX_PAUSE_MS`, default 1 s) is
-> collapsed to the normal beat, so rare 2-3 s dead-air outliers go while every normal pause stays
-> byte-identical (0 disables). Cloned voices have even-split word timings (leave burned captions off;
-> YouTube auto-CC covers them).
+> Internal pauses above `TTS_PAUSE_KNEE_MS` (`200 ms`) are compressed by `TTS_PAUSE_RATIO` (`0.45`) up to `TTS_MAX_PAUSE_MS` (`400 ms`) with raised-cosine tapers at internal cuts. Per-scene raw audio clips are saved under `assets/voiceover/` so `content-foundry voiceover --run-id <id> --scene N` selectively re-voices only edited scenes.
 
 ### 10.2 Inputs / outputs
 - **Input:** approved `Script` artifact.

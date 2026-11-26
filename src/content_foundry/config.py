@@ -233,11 +233,12 @@ class Settings(BaseSettings):
     # How much of the excess above the knee survives; 1.0 keeps everything (a plain hard cap).
     tts_pause_ratio: float = Field(0.45, ge=0.05, le=1.0)
     # Chunks are synthesized SEPARATELY and stitched, so the gap at each join is ours to set. Trim the
-    # chunk edges close (tts_edge_pad_ms) and then insert a pause sized by the punctuation the chunk
-    # ended on: a full sentence pause after ".", more after "?", far less after a comma, and almost
-    # none where a long sentence had to be force-split mid-clause. Without this every join gets the
-    # same gap and the narration pauses on a metronome rather than on the meaning.
-    tts_edge_pad_ms: int = Field(40, ge=0, le=500)
+    # chunk edges with >=50ms head/tail safety pads (tts_edge_pad_ms / tts_tail_pad_ms) plus a 15ms
+    # micro-fade (tts_micro_fade_ms) so trailing syllables ("continuously") are never clipped, then
+    # insert a pause sized by the punctuation the chunk ended on.
+    tts_edge_pad_ms: int = Field(55, ge=0, le=500)
+    tts_tail_pad_ms: int = Field(85, ge=0, le=500)
+    tts_micro_fade_ms: int = Field(15, ge=0, le=100)
     tts_sentence_pause_ms: int = Field(300, ge=0, le=2000)
     # Chatterbox conditions on only the FIRST ~6 s (prosody) and ~10 s (timbre) of the reference clip
     # and discards the rest, so a long recording is judged purely on its opening seconds -- leading
@@ -542,6 +543,9 @@ class Settings(BaseSettings):
     # across the entire runtime so visual craft never drops off a cliff at 0:31.
     programmatic_anchor_min_sec: float = Field(45.0, ge=10.0, le=180.0)
     programmatic_anchor_max_sec: float = Field(60.0, ge=10.0, le=240.0)
+    # Hard ceiling (viewer-clock seconds) on any single programmatic template clip hold so no card
+    # sits frozen across multiple spoken beats.
+    max_template_duration_sec: float = Field(8.0, ge=2.0, le=30.0)
 
     # Per-template controls for all 7 dark-mode motion-graphics templates:
     # - *_ENABLED=false disables that template completely (router picks the next-best enabled one).
@@ -590,16 +594,34 @@ class Settings(BaseSettings):
     # Force camera framing progression (wide_environment -> medium_human_action -> tight_physical_detail)
     # across consecutive AI scenes so cuts feel deliberate rather than static slideshow drift.
     enforce_shot_type_rotation: bool = True
-    # Comma-separated visual cliches strictly forbidden in AI image prompts (enforced in prompt + critic).
+    # Video-wide cap on any architectural setting archetype (e.g. corporate_room, library_archive)
+    # so the AI scene engine cannot cycle back to empty sunlit offices/libraries every 4-5 beats.
+    max_setting_archetype_repeats: int = Field(2, ge=1, le=10)
+    # Minimum share of AI-generated scenes across a video that include real human posture/presence
+    # in-frame (from behind, silhouette/profile, middle distance) so videos never look depopulated.
+    min_human_presence_ratio: float = Field(0.35, ge=0.0, le=1.0)
+    # Comma-separated visual cliches strictly forbidden in AI image prompts and stock B-roll.
     cliche_banlist: str = (
         "circuit board,tangled cables,cables,analog monitor,CRT monitor,retro computer,"
         "glowing neon code,neon data stream,floating hologram,holographic HUD,"
-        "hooded hacker,glowing brain,matrix rain"
+        "hooded hacker,glowing brain,matrix rain,"
+        "printed text,printed document,document header,embossed seal,engraved label,laser-etched plate"
+    )
+    # Stock B-roll style blacklist enforced against both stock search queries and clip tags/slugs.
+    broll_style_banlist: str = (
+        "neon,futuristic,cyberpunk,hologram,holographic,stock chart,candlestick,candlesticks,"
+        "trading chart,crypto chart,data stream,matrix,binary code,glowing tunnel,server tunnel"
+    )
+    # Low-tier SEO aggregators / unverified blogs excluded from research and SOURCE // pills.
+    low_tier_source_domains: str = (
+        "amazingworkplaces.co,medium.com,quora.com,linkedin.com,pinterest.com,"
+        "vocal.media,hubpages.com,buzzfeed.com,boredpanda.com"
     )
     # Cohesive photographic direction injected into every AI scene image prompt.
     image_style_bible: str = (
         "Sharp, natural-light 35mm editorial photography, crisp focus, modern realistic environments, "
-        "cohesive neutral-to-cool cinematic color grading, zero neon glow, zero floating UI text"
+        "cohesive neutral-to-cool cinematic color grading, zero neon glow, zero floating UI text, "
+        "zero legible printed text, zero document headers, zero embossed seals or engraved part numbers"
     )
 
     # Script cadence, engagement, studio audio & critic retry controls:
@@ -922,6 +944,20 @@ class Settings(BaseSettings):
     def light_model(self) -> str:
         """Model for mechanical / high-volume work (JSON repair, judge scoring)."""
         return self.model_light or self.judge_model or self.generator_model
+
+    @property
+    def broll_style_banlist_list(self) -> list[str]:
+        """Lowercased banned stock B-roll style phrases parsed from ``BROLL_STYLE_BANLIST``."""
+        return [c.strip().lower() for c in self.broll_style_banlist.split(",") if c.strip()]
+
+    @property
+    def low_tier_source_domains_list(self) -> list[str]:
+        """Lowercased low-tier domains excluded from research and ``SOURCE //`` badges."""
+        return [
+            d.strip().lower().removeprefix("www.")
+            for d in self.low_tier_source_domains.split(",")
+            if d.strip()
+        ]
 
     @property
     def effective_content_year(self) -> int:

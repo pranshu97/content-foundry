@@ -21,19 +21,28 @@ from ..production.motion_graphics import validate_template_props
 from ..production.visual_router import (
     HOOK_TEMPLATES,
     SHOT_TYPE_CYCLE,
+    TEMPLATE_FAMILY_OF,
     PlannedBeat,
+    beat_supports_evidence_card,
     build_deterministic_template_props,
+    clean_verified_source,
     is_generic_broll_query,
+    is_low_tier_source,
     pick_enabled_template,
 )
 from ..prompts import load_prompt, render_prompt
 from ..providers.base import LLMProvider, extract_json
+from ..providers.broll import has_broll_cliche
 from ..providers.tiering import TaskTier, select_model
 from .scene_image_director import (
     DualPromptResult,
     build_editorial_fallback_prompt,
+    classify_setting_archetype,
     find_cliche_hits,
+    find_physical_text_leaks,
+    has_human_presence,
     scrub_cliche_phrases,
+    scrub_physical_text_cues,
 )
 
 _OPENING_FLUFF_RE = re.compile(
@@ -183,30 +192,75 @@ def validate_storyboard_deterministic(
                 f"tail anchor gap {tail_gap:.1f}s after {last_graphic_end:.1f}s exceeds {anchor_max:.1f}s"
             )
 
-    # 4. Template Props Schema & max_chars Validation
+    # 4. Template Props Schema, max_chars, Unverified Source Join & Evidence-Card Guard
     enabled_map = getattr(settings, "enabled_motion_templates", {})
+    max_tpl_dur = float(getattr(settings, "max_template_duration_sec", 8.0) or 8.0)
+    prev_graphic_tpl: str | None = None
     for b in beats:
+        if b.visual_type == "broll":
+            broll_bans = [
+                *banlist,
+                *list(getattr(settings, "broll_style_banlist_list", ()) or ()),
+            ]
+            if has_broll_cliche(b.beat_query, b.broll_url or "", broll_bans):
+                _flag_shot(b.global_index, f"broll cliche violation in query/url: {b.beat_query!r}")
+            continue
         if b.visual_type != "programmatic_graphic":
             continue
         if not b.template_id or (enabled_map and b.template_id not in enabled_map):
             _flag_shot(b.global_index, f"invalid or disabled template_id={b.template_id!r}")
             continue
+        if len(beats) >= 8 and b.viewer_duration > max_tpl_dur + 0.75:
+            timeline_issues.append(
+                f"beat {b.global_index} template hold {b.viewer_duration:.1f}s exceeds max_template_duration_sec {max_tpl_dur:.1f}s"
+            )
+        if prev_graphic_tpl and b.template_id == prev_graphic_tpl and len(enabled_map) > 1:
+            _flag_shot(b.global_index, f"back-to-back duplicate template_id={b.template_id!r}")
+        prev_graphic_tpl = b.template_id
+
         _, _, max_c = settings.template_spec(b.template_id)
         over = _props_exceed_max_chars(b.template_props, max_c)
         if over:
             _flag_shot(b.global_index, f"template_props exceed max_chars ({max_c}): {over}")
 
-    # 5 & 6. AI Image Cliche Banlist, Shot-Type Rotation & Visual History Non-Repetition
+        prop_src = str((b.template_props or {}).get("source") or "").strip()
+        verified_b_src = clean_verified_source(b.visual_source, settings)
+        if prop_src and is_low_tier_source(prop_src, settings):
+            _flag_shot(b.global_index, f"low-tier source forbidden in SOURCE badge: {prop_src!r}")
+        elif prop_src and verified_b_src and prop_src.lower() != verified_b_src.lower():
+            # Allow only when the beat actually carries a verified visual_source matching it.
+            if (
+                verified_b_src.lower() not in prop_src.lower()
+                and prop_src.lower() not in verified_b_src.lower()
+            ):
+                _flag_shot(b.global_index, f"unverified hallucinated source badge: {prop_src!r}")
+        elif prop_src and not verified_b_src and len(beats) >= 6:
+            _flag_shot(
+                b.global_index, f"unverified source badge without beat provenance: {prop_src!r}"
+            )
+
+        if b.template_id == "evidence_card" and not beat_supports_evidence_card(b, settings):
+            _flag_shot(b.global_index, "evidence_card used without verified source/quote")
+
+    # 5 & 6. AI Image Cliche Banlist, Physical Text Leakage, Video-Wide Setting Cap, Human Ratio & Rotation
+    max_arch_repeats = int(getattr(settings, "max_setting_archetype_repeats", 2))
+    min_human_ratio = float(getattr(settings, "min_human_presence_ratio", 0.35))
     ai_history: list[dict[str, Any]] = []
-    ai_idx = 0
-    for b in beats:
-        if b.visual_type != "ai_image":
-            continue
+    arch_counts: dict[str, int] = {}
+    ai_beats_list = [b for b in beats if b.visual_type == "ai_image"]
+    human_hits = 0
+    for ai_idx, b in enumerate(ai_beats_list):
         if not (b.prompt or "").strip():
             _flag_shot(b.global_index, "empty ai_image prompt")
         hits = find_cliche_hits(b.prompt, banlist)
         if hits:
             _flag_shot(b.global_index, f"cliche_banlist violation: {', '.join(hits)}")
+        phys_text_hits = find_physical_text_leaks(b.prompt)
+        if phys_text_hits:
+            _flag_shot(
+                b.global_index,
+                f"physical_text_leak violation: {', '.join(phys_text_hits)}",
+            )
 
         expected_shot = SHOT_TYPE_CYCLE[ai_idx % len(SHOT_TYPE_CYCLE)] if rotate else b.shot_type
         if rotate and b.shot_type != expected_shot:
@@ -216,27 +270,58 @@ def validate_storyboard_deterministic(
             )
 
         meta = b.visual_meta or {}
+        if has_human_presence(b.prompt, meta):
+            human_hits += 1
         if not meta.get("subject") or not meta.get("setting"):
             _flag_shot(b.global_index, "missing structured visual_meta (subject/setting)")
-        elif hist_win > 0 and ai_history:
-            recent = ai_history[-hist_win:]
+        else:
             cur_setting = str(meta.get("setting") or "").strip().lower()
             cur_subj = str(meta.get("subject") or "").strip().lower()
-            for prev in recent:
-                if cur_setting and cur_setting == str(prev.get("setting") or "").strip().lower():
-                    _flag_shot(
-                        b.global_index,
-                        f"repeats recent visual_history setting {cur_setting!r}",
-                    )
-                    break
-                if cur_subj and cur_subj == str(prev.get("subject") or "").strip().lower():
-                    _flag_shot(
-                        b.global_index,
-                        f"repeats recent visual_history subject {cur_subj!r}",
-                    )
-                    break
+            arch = str(meta.get("setting_archetype") or "") or classify_setting_archetype(
+                cur_setting, b.prompt
+            )
+            arch_counts[arch] = arch_counts.get(arch, 0) + 1
+            if arch_counts[arch] > max_arch_repeats:
+                _flag_shot(
+                    b.global_index,
+                    f"exceeds video-wide setting archetype cap ({arch!r} count={arch_counts[arch]} > {max_arch_repeats})",
+                )
+            if hist_win > 0 and ai_history:
+                recent = ai_history[-hist_win:]
+                for prev in recent:
+                    if (
+                        cur_setting
+                        and cur_setting == str(prev.get("setting") or "").strip().lower()
+                    ):
+                        _flag_shot(
+                            b.global_index,
+                            f"repeats recent visual_history setting {cur_setting!r}",
+                        )
+                        break
+                    if cur_subj and cur_subj == str(prev.get("subject") or "").strip().lower():
+                        _flag_shot(
+                            b.global_index,
+                            f"repeats recent visual_history subject {cur_subj!r}",
+                        )
+                        break
         ai_history.append(meta)
-        ai_idx += 1
+
+    if len(ai_beats_list) >= 4 and min_human_ratio > 0.0:
+        needed_humans = math.ceil(min_human_ratio * len(ai_beats_list))
+        deficit = needed_humans - human_hits
+        if deficit > 0:
+            for preferred_kind in ("medium_human_action", "wide_environment"):
+                for b in ai_beats_list:
+                    if deficit <= 0:
+                        break
+                    if b.shot_type == preferred_kind and not has_human_presence(
+                        b.prompt, b.visual_meta
+                    ):
+                        _flag_shot(
+                            b.global_index,
+                            f"human presence required to meet min_human_presence_ratio ({min_human_ratio:.2f})",
+                        )
+                        deficit -= 1
 
     return timeline_issues, shot_issues
 
@@ -373,8 +458,13 @@ class StoryboardCritic:
                     last_end = b.viewer_end
                     continue
                 if b.viewer_end - last_end > anchor_max:
+                    can_ev = beat_supports_evidence_card(b, self._settings)
+                    disallowed = () if can_ev else ("evidence_card",)
                     tid = pick_enabled_template(
-                        b.preferred_template or "evidence_card", self._settings
+                        b.preferred_template
+                        or ("evidence_card" if can_ev else "architecture_flow"),
+                        self._settings,
+                        disallowed=disallowed,
                     )
                     if tid:
                         b.visual_type = "programmatic_graphic"
@@ -385,16 +475,83 @@ class StoryboardCritic:
                         last_end = b.viewer_end
                         repairs.append(f"inserted periodic anchor on beat {b.global_index}")
 
-            # Re-validate / auto-clamp all template_props against max_chars.
-            for b in beats:
-                if b.visual_type == "programmatic_graphic":
-                    tid = b.template_id or pick_enabled_template("big_stat_card", self._settings)
-                    if tid:
-                        _, _, max_c = self._settings.template_spec(tid)
-                        b.template_id = tid
-                        b.template_props = validate_template_props(
-                            tid, b.template_props, max_chars=max_c
+            # Re-validate / auto-clamp all template_props, strip unverified/low-tier sources,
+            # prevent non-quote evidence_cards, and break back-to-back template repeats.
+            prev_tid: str | None = None
+            usage_so_far: dict[str, int] = {}
+            for idx_b, b in enumerate(beats):
+                if b.visual_type != "programmatic_graphic":
+                    continue
+                can_ev = beat_supports_evidence_card(b, self._settings)
+                disallowed = () if can_ev else ("evidence_card",)
+                tid = b.template_id or pick_enabled_template(
+                    "big_stat_card", self._settings, disallowed=disallowed
+                )
+                if tid == "evidence_card" and not can_ev:
+                    tid = pick_enabled_template(
+                        "architecture_flow",
+                        self._settings,
+                        previous_template=prev_tid,
+                        usage_counts=usage_so_far,
+                        disallowed=("evidence_card",),
+                    )
+                    b.template_props = build_deterministic_template_props(
+                        tid or "big_stat_card", b, settings=self._settings, video_title=video_title
+                    )
+                    repairs.append(
+                        f"re-routed unquoted evidence_card on beat {b.global_index} to {tid}"
+                    )
+                elif (
+                    tid
+                    and prev_tid
+                    and not b.is_comment_friction
+                    and (
+                        tid == prev_tid
+                        or (
+                            TEMPLATE_FAMILY_OF.get(tid) == "comparison_rubric"
+                            and TEMPLATE_FAMILY_OF.get(prev_tid) == "comparison_rubric"
                         )
+                    )
+                ):
+                    alt_tid = pick_enabled_template(
+                        tid,
+                        self._settings,
+                        previous_template=prev_tid,
+                        allowed_subset=HOOK_TEMPLATES if idx_b == 0 else None,
+                        usage_counts=usage_so_far,
+                        disallowed=disallowed,
+                    )
+                    if alt_tid and alt_tid != tid:
+                        tid = alt_tid
+                        b.template_props = build_deterministic_template_props(
+                            tid, b, settings=self._settings, video_title=video_title
+                        )
+                        repairs.append(
+                            f"rotated adjacent template on beat {b.global_index} to {tid}"
+                        )
+                if tid:
+                    _, _, max_c = self._settings.template_spec(tid)
+                    b.template_id = tid
+                    raw_p = dict(b.template_props or {})
+                    verified_src = clean_verified_source(b.visual_source, self._settings)
+                    cur_src = str(raw_p.get("source") or "").strip()
+                    if cur_src and is_low_tier_source(cur_src, self._settings):
+                        raw_p["source"] = ""
+                        repairs.append(f"stripped low-tier source on beat {b.global_index}")
+                    elif cur_src and not verified_src and len(beats) >= 6:
+                        raw_p["source"] = ""
+                        repairs.append(f"stripped unverified source on beat {b.global_index}")
+                    elif (
+                        cur_src
+                        and verified_src
+                        and verified_src.lower() not in cur_src.lower()
+                        and cur_src.lower() not in verified_src.lower()
+                    ):
+                        raw_p["source"] = verified_src
+                        repairs.append(f"normalized source badge on beat {b.global_index}")
+                    b.template_props = validate_template_props(tid, raw_p, max_chars=max_c)
+                    usage_so_far[tid] = usage_so_far.get(tid, 0) + 1
+                    prev_tid = tid
 
         # Normalize AI shot rotation before auditing prompts.
         if rotate:
@@ -477,20 +634,24 @@ class StoryboardCritic:
         _, residual_shot_issues = validate_storyboard_deterministic(beats, self._settings)
         banlist = list(getattr(self._settings, "cliche_banlist_list", []) or [])
         style_bible = str(getattr(self._settings, "image_style_bible", "") or "")
-        for g_id, reasons in list(residual_shot_issues.items()):
+        for g_id, reasons in sorted(residual_shot_issues.items()):
             cand = by_global.get(g_id)
             if cand is None or cand.visual_type != "ai_image":
                 continue
             prior_hist = [
                 other.visual_meta
                 for other in beats
-                if other.global_index < g_id
+                if other.global_index != g_id
                 and other.visual_type == "ai_image"
                 and other.visual_meta
             ]
             # Scrub cliches or replace with clean editorial fallback so bad prompts never ship.
             if any(
-                "repeats recent visual_history" in r or "missing structured" in r or "empty" in r
+                "repeats recent visual_history" in r
+                or "exceeds video-wide setting archetype" in r
+                or "human presence required" in r
+                or "missing structured" in r
+                or "empty" in r
                 for r in reasons
             ):
                 fb = build_editorial_fallback_prompt(
@@ -500,13 +661,15 @@ class StoryboardCritic:
                 cand.visual_meta = fb.visual_meta
                 repairs.append(f"fallback-repaired ai_image beat {g_id}")
             else:
-                cand.prompt = scrub_cliche_phrases(cand.prompt, banlist, style_bible=style_bible)
+                cand.prompt = scrub_physical_text_cues(
+                    scrub_cliche_phrases(cand.prompt, banlist, style_bible=style_bible)
+                )
                 if not cand.visual_meta or not cand.visual_meta.get("subject"):
                     fb = build_editorial_fallback_prompt(
                         cand.spoken_text, cand.shot_type, self._settings, visual_history=prior_hist
                     )
                     cand.visual_meta = fb.visual_meta
-                repairs.append(f"scrubbed cliches on ai_image beat {g_id}")
+                repairs.append(f"scrubbed cliches/text on ai_image beat {g_id}")
 
         final_t_issues, final_s_issues = validate_storyboard_deterministic(beats, self._settings)
         ok = not final_t_issues and not final_s_issues

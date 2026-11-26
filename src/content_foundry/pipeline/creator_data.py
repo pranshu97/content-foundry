@@ -47,6 +47,15 @@ _DASH_SOURCE = re.compile(
 _PIPE_SOURCE = re.compile(
     r"\s*\|\s*(?:(?:source|src|via)\b\s*[:=]?\s*)?(?P<src>[^|]+?)\s*$", re.IGNORECASE
 )
+_NUMERIC_CLAIM_RE = re.compile(
+    r"(?:\$\s*\d[\d,.]*|\b\d+(?:\.\d+)?\s*(?:%|x\b|months?\b|years?\b|weeks?\b|days?\b|"
+    r"hours?\b|billion\b|million\b|thousand\b|k\b|m\b|b\b)|\b\d{1,3}(?:,\d{3})+\b|\b\d+\.\d+\b)",
+    re.IGNORECASE,
+)
+_META_LENGTH_ASK_RE = re.compile(
+    r"\b(?:\d+\s*(?:words?|scenes?|minutes?|seconds?|bullets?|points?|questions?)\s*(?:long|script|video|total|max|minimum)?)\b",
+    re.IGNORECASE,
+)
 
 
 def resolve_data(value: str | None) -> str:
@@ -112,3 +121,52 @@ def creator_key_facts(text: str) -> list[KeyFact]:
         if len(facts) >= MAX_ITEMS:
             break
     return facts
+
+
+def extract_instruction_facts(instructions: str) -> list[KeyFact]:
+    """Promote concrete user-supplied numbers/benchmarks inside ``--instructions`` to ``KeyFact``s.
+
+    Without this schema separation, hard statistics written inside a creator's ``--instructions``
+    paragraph (e.g. ``Meta France 2.15 months per year``, ``$195B-$205B CapEx``) have no ``fact_ref``
+    in ``DataBrief`` and get stripped by ``ScriptGenerator._repair_grounding``. Marking them
+    ``creator_supplied=True`` with ``source=""`` protects them from grounding deletion while never
+    fabricating a ``SOURCE //`` badge.
+    """
+    text = (instructions or "").strip()
+    if not text:
+        return []
+    observed = utcnow()
+    out: list[KeyFact] = []
+    seen: set[str] = set()
+    raw_chunks = [
+        c.strip()
+        for line in text.splitlines()
+        for c in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[-])", _BULLET.sub("", line).strip())
+        if c.strip()
+    ]
+    for chunk in raw_chunks:
+        # Ignore pure formatting meta-directives like "Write a 1000 word script" that carry no domain stat.
+        scrubbed = _META_LENGTH_ASK_RE.sub("", chunk)
+        if not _NUMERIC_CLAIM_RE.search(scrubbed):
+            continue
+        statement, source = split_source(chunk)
+        statement = statement[:MAX_CHARS].strip()
+        key = statement.lower()
+        if not statement or key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            KeyFact(
+                statement=statement,
+                creator_supplied=True,
+                citation=Citation(
+                    source=source,
+                    url=source if source.lower().startswith(("http://", "https://")) else None,
+                    observed_at=observed,
+                    snippet=statement,
+                ),
+            )
+        )
+        if len(out) >= MAX_ITEMS:
+            break
+    return out

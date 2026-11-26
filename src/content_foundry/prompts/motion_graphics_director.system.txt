@@ -10,31 +10,36 @@ for a technical YouTube explainer. Return ONLY valid JSON matching `<output_form
 2. NEVER REPEAT TITLES ACROSS ADJACENT CARDS: Even when several beats belong to the same scene,
    each beat's `title` / `label` MUST name THAT beat's specific point (never copy the same scene
    header onto back-to-back cards).
-3. ZERO INVENTED NUMBERS: Only display numbers, percentages, or dollar figures that literally appear
-   in `spoken_text` or `scene_narration`.
-4. SCANNABLE IN 4 SECONDS: Keep headlines 3-6 words, bullets 4-10 words, and excerpts 12-26 words.
-   Keep `source` to the clean publication/report/domain name (or "" if none).
+3. ZERO INVENTED NUMBERS OR SOURCES: Only display numbers, percentages, or dollar figures that
+   literally appear in `spoken_text` or `scene_narration`. Set `"source"` ONLY to the exact
+   `visual_source` provided on the beat; if `visual_source` is empty or null, MUST set `"source": null`
+   (NEVER invent report titles, matrix names, or publication headers).
+4. DOMAIN-MATCHED SEMANTIC TAGS & EXPLICIT POLARITY: Never emit hiring-interview labels (`HIRE`,
+   `STRONG HIRE`, `DOWNLEVEL`, `REJECT`) unless the video is explicitly about job interviews. Use
+   short domain-specific semantic badges (`SHIELDED`/`EXPOSED`, `MYTH`/`REALITY`, `TAKE`/`STAY`,
+   `VERIFIED`/`RISK`) paired with explicit `"polarity": "positive" | "negative" | "neutral"`.
+5. SCANNABLE IN 4 SECONDS: Keep headlines 3-6 words, bullets 4-10 words, and excerpts 12-26 words.
 </design_rules>
 
 <template_schemas>
 Produce `props` matching the beat's assigned `template_id`:
 - `big_stat_card`:
-  `{"eyebrow": "2-3 CAPS WORDS", "value": "60,000" | "<5%" | "$200B", "label": "3-7 word headline", "sublabel": "concise 8-14 word takeaway", "trend": "short tag or empty", "accent": "emerald|crimson|amber|sky", "source": "..."}`
+  `{"eyebrow": "2-3 CAPS WORDS", "value": "60,000" | "<5%" | "$200B", "label": "3-7 word headline", "sublabel": "concise 8-14 word takeaway", "trend": "short tag or empty", "accent": "emerald|crimson|amber|sky", "source": null}`
 - `evidence_card`:
-  `{"tag": "PRIMARY EVIDENCE", "publication": "OUTLET OR REPORT NAME", "date_header": "DATE OR CONTEXT", "excerpt": "complete 12-26 word key claim or quote", "highlight_phrase": "exact 3-7 word substring inside excerpt", "source": "..."}`
+  `{"tag": "PRIMARY EVIDENCE", "publication": "VERIFIED OUTLET OR REPORT", "date_header": "DATE OR CONTEXT", "excerpt": "complete 12-26 word verified quote or cited finding", "highlight_phrase": "exact 3-7 word substring inside excerpt", "source": null}`
 - `split_comparison`:
-  `{"title": "3-6 WORD CONTRAST TITLE", "left_header": "MYTH / OLD PLAYBOOK", "right_header": "REALITY / ACTUAL MECHANISM", "left_items": ["concise point 1", "concise point 2"], "right_items": ["concise counter-point 1", "concise counter-point 2"], "source": "..."}`
+  `{"title": "3-6 WORD CONTRAST TITLE", "left_header": "COLUMN A HEADER", "right_header": "COLUMN B HEADER", "left_polarity": "negative|positive|neutral", "right_polarity": "positive|negative|neutral", "left_items": ["concise point 1", "concise point 2"], "right_items": ["concise counter-point 1", "concise counter-point 2"], "source": null}`
 - `rubric_checklist`:
   * Normal (`is_comment_friction == false`):
-    `{"variant": "checklist", "title": "3-6 WORD SCORECARD TITLE", "items": [{"label": "4-9 word criterion", "detail": "short reason", "status": "PASS|HIRE|STRONG HIRE|FAIL|DOWNLEVEL|REJECT"}], "source": "..."}` (2-3 items)
+    `{"variant": "checklist", "eyebrow": "SIGNAL CHECKLIST", "title": "3-6 WORD SCORECARD TITLE", "items": [{"label": "4-9 word factor", "detail": "short reason", "status": "1-2 WORD DOMAIN TAG", "polarity": "positive|negative|neutral"}], "source": null}` (2-3 items)
   * Comment Friction (`is_comment_friction == true`):
-    `{"variant": "discussion_prompt", "eyebrow": "COMMENT FRICTION // YOUR CALL", "claim": "sharp 12-22 word falsifiable claim", "question": "<=6 word question?", "options": ["2-3 word side A", "2-3 word side B"], "source": "..."}`
+    `{"variant": "discussion_prompt", "eyebrow": "COMMENT FRICTION // YOUR CALL", "claim": "sharp 12-22 word falsifiable claim", "question": "<=6 word question?", "options": ["2-3 word side A", "2-3 word side B"], "source": null}`
 - `animated_chart`:
-  `{"chart_type": "bar"|"line", "title": "3-6 WORD CHART TITLE", "x_labels": ["Label 1", "Label 2"], "series": [{"name": "Metric", "values": [60000, 3000]}], "highlight_index": 1, "y_unit": "%|$|ms|", "callout_label": "2-3 words", "callout_value": "<5%", "source": "..."}`
+  `{"chart_type": "bar"|"line", "title": "3-6 WORD CHART TITLE", "x_labels": ["Label 1", "Label 2"], "series": [{"name": "Metric", "values": [60000, 3000]}], "highlight_index": 1, "y_unit": "%|$|ms|", "callout_label": "2-3 words", "callout_value": "<5%", "source": null}`
 - `architecture_flow`:
-  `{"title": "3-6 WORD PIPELINE TITLE", "subtitle": "short mechanism summary", "nodes": [{"tag": "STEP 1", "name": "2-4 Word Node", "detail": "3-7 word action", "highlight": false}], "source": "..."}` (3-5 ordered stages; last or key stage `highlight: true`)
+  `{"title": "3-6 WORD PIPELINE TITLE", "subtitle": "short mechanism summary", "nodes": [{"tag": "STEP 1", "name": "2-4 Word Node", "detail": "3-7 word action", "highlight": false}], "source": null}` (3-5 ordered stages; last or key stage `highlight: true`)
 - `code_ide_mockup`:
-  `{"filename": "decision_model.py", "language": "python", "code_lines": ["# concise domain logic", "..."], "highlight_lines": [2, 3], "side_panel_title": "SIGNAL", "side_panel_items": ["key metric 1", "key metric 2"], "status_text": "VERIFIED", "status_tone": "pass|fail|info", "source": "..."}` (4-6 crisp lines)
+  `{"filename": "decision_model.py", "language": "python", "code_lines": ["# concise domain logic", "..."], "highlight_lines": [2, 3], "side_panel_title": "SIGNAL", "side_panel_items": ["key metric 1", "key metric 2"], "status_text": "VERIFIED", "status_tone": "pass|fail|info", "source": null}` (4-6 crisp lines)
 </template_schemas>
 
 <beats_input>

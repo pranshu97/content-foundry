@@ -33,6 +33,36 @@ SHOT_TYPE_CYCLE: tuple[str, ...] = (
 
 HOOK_TEMPLATES: tuple[str, ...] = ("big_stat_card", "evidence_card", "split_comparison")
 
+TEMPLATE_FAMILY_OF: dict[str, str] = {
+    "split_comparison": "comparison_rubric",
+    "rubric_checklist": "comparison_rubric",
+    "big_stat_card": "quantitative",
+    "animated_chart": "quantitative",
+    "evidence_card": "evidence",
+    "architecture_flow": "system_logic",
+    "code_ide_mockup": "system_logic",
+}
+
+_FAKE_SOURCE_TOKENS = frozenset(
+    {
+        "null",
+        "none",
+        "n/a",
+        "na",
+        "unknown",
+        "unspecified",
+        "creator",
+        "research",
+        "search",
+        "source",
+    }
+)
+_QUESTION_CUE_RE = re.compile(
+    r"\b(?:would\s+you|do\s+you|what\s+would|should\s+you|which\s+side|agree\s+or|"
+    r"drop\s+your|let\s+me\s+know|in\s+the\s+comments)\b",
+    re.IGNORECASE,
+)
+
 _STAT_TOKEN_RE = re.compile(
     r"(?:[+-]?\$\d+(?:,\d{3})*(?:\.\d+)?[KMBkmb+]?)"
     r"|(?:[+-]?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:%|x\b|ms\b|s\b|sec\b|hrs?\b|k\b|m\b|b\b|million\b|billion\b))",
@@ -147,20 +177,61 @@ def is_generic_broll_query(query: str, spoken_text: str = "") -> bool:
     return False
 
 
+def is_low_tier_source(source_or_url: str, settings: Any = None) -> bool:
+    """True when ``source_or_url`` matches ``low_tier_source_domains`` (e.g. ``amazingworkplaces.co``)."""
+    low = (source_or_url or "").strip().lower()
+    if not low:
+        return False
+    domains = list(getattr(settings, "low_tier_source_domains_list", None) or ())
+    if not domains:
+        domains = ["amazingworkplaces.co"]
+    for dom in domains:
+        d = dom.strip().lower().removeprefix("www.")
+        if not d:
+            continue
+        if low == d or low.endswith("." + d) or f"://{d}" in low or f".{d}/" in low or d in low:
+            return True
+    return False
+
+
+def clean_verified_source(source: str | None, settings: Any = None) -> str:
+    """Return a clean, non-placeholder, non-low-tier source string, or ``""`` when unverified."""
+    txt = " ".join(str(source or "").split()).strip()
+    if not txt or txt.lower() in _FAKE_SOURCE_TOKENS:
+        return ""
+    if is_low_tier_source(txt, settings):
+        return ""
+    return txt
+
+
+def beat_supports_evidence_card(beat: PlannedBeat, settings: Any = None) -> bool:
+    """``evidence_card`` is reserved strictly for beats backed by a verified source or direct quote.
+
+    Prevents routing unverified analytical narration into quotation marks (narrator quoting itself).
+    """
+    src = clean_verified_source(beat.visual_source, settings)
+    if not src:
+        return False
+    has_quote = '"' in (beat.spoken_text or "") or "\u201c" in (beat.spoken_text or "")
+    has_cite = bool(_CITATION_HINT_RE.search(beat.spoken_text or ""))
+    has_stat = bool(
+        _STAT_TOKEN_RE.search(beat.spoken_text or "")
+        or _SPELLED_STAT_RE.search(beat.spoken_text or "")
+    )
+    return bool(has_quote or beat.fact_ref is not None or has_cite or has_stat)
+
+
 def classify_beat_override(beat: PlannedBeat, settings: Any) -> tuple[bool, str]:
     """Return ``(override_to_graphic, preferred_template_id)`` for ``beat``."""
     text = f"{beat.spoken_text} {beat.on_screen_text}".strip()
-    if (
-        beat.is_comment_friction
-        and beat.shot_index == 0
-        and getattr(settings, "enable_comment_friction_beat", True)
-    ):
+    if beat.is_comment_friction and getattr(settings, "enable_comment_friction_beat", True):
         return True, "rubric_checklist"
 
     stats = _STAT_TOKEN_RE.findall(text)
     spelled = _SPELLED_STAT_RE.findall(text)
     nums = _PLAIN_NUM_RE.findall(text)
     has_stat = bool(stats or spelled)
+    can_ev = beat_supports_evidence_card(beat, settings)
 
     if _CODE_HINT_RE.search(beat.spoken_text):
         return True, "code_ide_mockup"
@@ -172,8 +243,8 @@ def classify_beat_override(beat: PlannedBeat, settings: Any) -> tuple[bool, str]
         return True, "split_comparison"
     if len(stats) >= 2 or (has_stat and len(nums) >= 2):
         return True, "animated_chart"
-    if (beat.visual_source and beat.shot_index == 0 and has_stat) or (
-        _CITATION_HINT_RE.search(beat.spoken_text) and (has_stat or beat.visual_source)
+    if can_ev and (
+        (beat.shot_index == 0 and has_stat) or _CITATION_HINT_RE.search(beat.spoken_text)
     ):
         return True, "evidence_card"
     if has_stat:
@@ -188,6 +259,8 @@ def pick_enabled_template(
     previous_template: str | None = None,
     allowed_subset: tuple[str, ...] | None = None,
     usage_counts: dict[str, int] | None = None,
+    disallowed: tuple[str, ...] = (),
+    forbid_family_repeat: bool = True,
 ) -> str | None:
     """Choose the highest-scoring enabled template honoring ``tpl_<id>_enabled`` and ``tpl_<id>_weight``."""
     enabled_map: dict[str, tuple[float, int]] = getattr(
@@ -196,38 +269,79 @@ def pick_enabled_template(
     if not enabled_map:
         return None
 
-    candidates = [tid for tid in enabled_map if allowed_subset is None or tid in allowed_subset]
+    candidates = [
+        tid
+        for tid in enabled_map
+        if (allowed_subset is None or tid in allowed_subset) and tid not in disallowed
+    ]
     if not candidates:
-        candidates = list(enabled_map.keys())
+        candidates = [tid for tid in enabled_map if tid not in disallowed] or list(
+            enabled_map.keys()
+        )
+
+    # Hard-forbid immediate repeat of the exact same template whenever another candidate exists.
+    if previous_template and len(candidates) > 1:
+        non_repeat = [tid for tid in candidates if tid != previous_template]
+        if non_repeat:
+            candidates = non_repeat
+
+    # Forbid comparison/rubric family ping-pong (split_comparison <-> rubric_checklist) when peers exist.
+    prev_family = TEMPLATE_FAMILY_OF.get(previous_template or "", "")
+    if (
+        forbid_family_repeat
+        and prev_family == "comparison_rubric"
+        and len(candidates) > 1
+        and allowed_subset != ("rubric_checklist",)
+    ):
+        diff_family = [tid for tid in candidates if TEMPLATE_FAMILY_OF.get(tid) != prev_family]
+        if diff_family:
+            candidates = diff_family
 
     # Compatibility fallback ranking per preferred template so disabling one picks a sensible peer.
     fallbacks: dict[str, tuple[str, ...]] = {
-        "big_stat_card": ("big_stat_card", "animated_chart", "evidence_card", "split_comparison"),
-        "evidence_card": ("evidence_card", "big_stat_card", "rubric_checklist", "split_comparison"),
+        "big_stat_card": (
+            "big_stat_card",
+            "animated_chart",
+            "architecture_flow",
+            "split_comparison",
+        ),
+        "evidence_card": (
+            "evidence_card",
+            "big_stat_card",
+            "architecture_flow",
+            "split_comparison",
+        ),
         "split_comparison": (
             "split_comparison",
-            "rubric_checklist",
             "architecture_flow",
+            "animated_chart",
             "big_stat_card",
+            "rubric_checklist",
         ),
         "rubric_checklist": (
             "rubric_checklist",
-            "split_comparison",
-            "evidence_card",
+            "architecture_flow",
             "big_stat_card",
+            "animated_chart",
+            "split_comparison",
         ),
-        "animated_chart": ("animated_chart", "big_stat_card", "split_comparison", "evidence_card"),
-        "architecture_flow": (
+        "animated_chart": (
+            "animated_chart",
+            "big_stat_card",
             "architecture_flow",
             "split_comparison",
+        ),
+        "architecture_flow": (
+            "architecture_flow",
             "code_ide_mockup",
-            "rubric_checklist",
+            "big_stat_card",
+            "split_comparison",
         ),
         "code_ide_mockup": (
             "code_ide_mockup",
             "architecture_flow",
+            "big_stat_card",
             "split_comparison",
-            "rubric_checklist",
         ),
     }
     order = fallbacks.get(preferred, MOTION_TEMPLATE_IDS)
@@ -243,13 +357,8 @@ def pick_enabled_template(
             affinity = max(0.8, 1.7 - 0.25 * order.index(tid))
         else:
             affinity = 0.75
-        repeat_penalty = (
-            0.38
-            if (previous_template and tid == previous_template and len(candidates) > 1)
-            else 1.0
-        )
-        diversity_bonus = 1.0 / (1.0 + 0.18 * counts.get(tid, 0))
-        score = weight * affinity * repeat_penalty * diversity_bonus
+        diversity_bonus = 1.0 / (1.0 + 0.22 * counts.get(tid, 0))
+        score = weight * affinity * diversity_bonus
         if score > best_score:
             best_score = score
             best_tid = tid
@@ -290,9 +399,16 @@ def build_deterministic_template_props(
         _, _, max_chars = settings.template_spec(template_id)
 
     raw_slice = " ".join(beat.spoken_text.split()).strip()
-    line = _nearest_complete_sentence(beat.scene_narration, raw_slice) or raw_slice
+    # Use the beat's own clause when it already carries a full thought (>=6 words) so sibling beats
+    # inside the same scene never snap back to the identical scene sentence.
+    line = (
+        raw_slice
+        if len(raw_slice.split()) >= 6
+        else (_nearest_complete_sentence(beat.scene_narration, raw_slice) or raw_slice)
+    )
     clean_callout = re.sub(r"\s*·?\s*Source:.*$", "", beat.on_screen_text or "", flags=re.I).strip()
-    src = beat.visual_source or citation_label(beat.on_screen_text or "")
+    raw_src = beat.visual_source or citation_label(beat.on_screen_text or "")
+    src = clean_verified_source(raw_src, settings)
 
     # Unique per-beat title so multiple cards in one scene never repeat the exact same header.
     beat_headline = (
@@ -333,7 +449,7 @@ def build_deterministic_template_props(
         )
 
     if template_id == "evidence_card":
-        pub = (src or clean_callout or "TECHNICAL BENCHMARK BRIEF").upper()
+        pub = (src or clean_callout or "VERIFIED SOURCE BRIEF").upper()
         return validate_template_props(
             "evidence_card",
             {
@@ -341,7 +457,7 @@ def build_deterministic_template_props(
                 "date_header": "PRIMARY RECORD",
                 "excerpt": line or clean_callout or video_title,
                 "highlight_phrase": stats[0] if stats else clamp_words(line, 5, 48),
-                "source": src or pub,
+                "source": src,
             },
             max_chars=max_chars,
         )
@@ -357,16 +473,14 @@ def build_deterministic_template_props(
             left_txt, right_txt = parts[0].strip(" ,;:-"), parts[1].strip(" ,;:-")
         else:
             clauses = [c.strip() for c in re.split(r"[.;:]|,\s+", line) if c.strip()]
-            left_txt = clauses[0] if clauses else "Conventional Default"
-            right_txt = (
-                clauses[1] if len(clauses) > 1 else (clean_callout or "High-Signal Execution")
-            )
+            left_txt = clauses[0] if clauses else "Conventional Assumption"
+            right_txt = clauses[1] if len(clauses) > 1 else (clean_callout or "Actual Mechanism")
         return validate_template_props(
             "split_comparison",
             {
                 "title": beat_headline or clamp_words(video_title or "DECISION CONTRAST", 6, 64),
-                "left_header": "COMMON FAILURE MODE",
-                "right_header": "HIGH-SIGNAL EXECUTION",
+                "left_header": "COMMON ASSUMPTION",
+                "right_header": "ACTUAL MECHANISM",
                 "left_items": [left_txt],
                 "right_items": [right_txt],
                 "source": src,
@@ -382,40 +496,46 @@ def build_deterministic_template_props(
                     "variant": "discussion_prompt",
                     "eyebrow": "COMMENT FRICTION // DROP YOUR TAKE",
                     "claim": line,
-                    "question": beat.discussion_question or "Fair bar or broken loop?",
-                    "options": ["Fair Signal", "Broken Bar"],
+                    "question": beat.discussion_question or "Agree or hard disagree?",
+                    "options": ["Agree", "Disagree"],
                     "source": src,
                 },
                 max_chars=max_chars,
             )
         clauses = [c.strip() for c in re.split(r"[.;]|,\s+(?:and|but|while)\s+", line) if c.strip()]
         items = []
-        for idx, cl in enumerate(clauses[:3]):
+        for cl in clauses[:3]:
             neg = bool(
                 re.search(
-                    r"\b(fail|reject|downlevel|mistake|never|wrong|miss|trap|slow)\b", cl, re.I
+                    r"\b(fail|reject|downlevel|mistake|never|wrong|miss|trap|slow|cut|risk|exposed)\b",
+                    cl,
+                    re.I,
                 )
             )
             items.append(
                 {
                     "label": clamp_words(cl, 7, max_chars),
                     "detail": "",
-                    "status": "DOWNLEVEL" if neg else ("HIRE" if idx == 0 else "PASS"),
+                    "status": "AT RISK" if neg else "VERIFIED",
+                    "polarity": "negative" if neg else "positive",
                 }
             )
         if len(items) == 1:
+            first_neg = items[0]["polarity"] == "negative"
             items.append(
                 {
-                    "label": clean_callout or "Unverified surface-level answer",
+                    "label": clean_callout or "Surface-level default assumption",
                     "detail": "",
-                    "status": "FAIL" if items[0]["status"] != "DOWNLEVEL" else "PASS",
+                    "status": "VERIFIED" if first_neg else "AT RISK",
+                    "polarity": "positive" if first_neg else "negative",
                 }
             )
         return validate_template_props(
             "rubric_checklist",
             {
                 "variant": "checklist",
-                "title": beat_headline or "EVALUATION SIGNAL",
+                "eyebrow": "SIGNAL CHECKLIST",
+                "title": beat_headline or "KEY DECISION FACTORS",
                 "items": items,
                 "source": src,
             },
@@ -560,6 +680,104 @@ def build_deterministic_template_props(
     )
 
 
+def _distinct_narrative_units(narration: str) -> list[str]:
+    """Break ``narration`` into distinct spoken sentences (or major clauses on very long sentences)."""
+    full = " ".join((narration or "").split()).strip()
+    if not full:
+        return []
+    raw_sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[])", full) if s.strip()
+    ]
+    if not raw_sentences:
+        raw_sentences = [full]
+    units: list[str] = []
+    for sent in raw_sentences:
+        if len(sent.split()) > 26:
+            clauses = [
+                c.strip()
+                for c in re.split(
+                    r"(?<=[;:])\s+|,\s+(?=(?:while|but|whereas|yet|instead|allowing|forcing)\b)",
+                    sent,
+                )
+                if len(c.strip().split()) >= 5
+            ]
+            if len(clauses) >= 2:
+                units.extend(clauses)
+                continue
+        units.append(sent)
+    return units
+
+
+def sentence_aligned_windows(narration: str, count: int, fallback_fn: Any) -> list[str]:
+    """Slice ``narration`` into ``count`` windows aligned to sentence/clause boundaries first."""
+    if count <= 0:
+        return []
+    units = _distinct_narrative_units(narration)
+    if not units or count > len(units):
+        return list(fallback_fn(narration, count))
+    if count == len(units):
+        return units
+    # Group consecutive sentences proportionally by word weight so no sentence is torn in half.
+    total_w = max(1, sum(len(u.split()) for u in units))
+    out: list[str] = []
+    idx = 0
+    for slot in range(count):
+        rem_slots = count - slot
+        rem_units = len(units) - idx
+        if rem_slots == 1 or rem_units <= 1:
+            out.append(" ".join(units[idx:]).strip())
+            idx = len(units)
+            break
+        target_w = total_w / count
+        bucket: list[str] = []
+        cur_w = 0
+        while idx < len(units) and (len(units) - idx) >= rem_slots:
+            u = units[idx]
+            uw = len(u.split())
+            if bucket and cur_w + uw > target_w * 1.25:
+                break
+            bucket.append(u)
+            cur_w += uw
+            idx += 1
+            if (len(units) - idx) < (rem_slots - 1):
+                break
+        if not bucket and idx < len(units):
+            bucket.append(units[idx])
+            idx += 1
+        out.append(" ".join(bucket).strip())
+    while len(out) < count:
+        out.append(units[-1])
+    return out[:count]
+
+
+def _pick_comment_friction_shot_index(windows: list[str], discussion_question: str = "") -> int:
+    """Return the shot index within a scene whose spoken slice actually asks the friction question."""
+    if not windows:
+        return 0
+    q_words = {
+        w.lower()
+        for w in re.findall(r"[a-zA-Z]{4,}", discussion_question or "")
+        if w.lower() not in {"this", "that", "your", "with", "from", "have", "what", "would"}
+    }
+    best_j = -1
+    best_score = 0.0
+    for j, win_text in enumerate(windows):
+        txt = win_text or ""
+        score = 0.0
+        if "?" in txt:
+            score += 4.0
+        if _QUESTION_CUE_RE.search(txt):
+            score += 2.5
+        if q_words:
+            w_set = {w.lower() for w in re.findall(r"[a-zA-Z]{4,}", txt)}
+            score += 1.2 * len(q_words & w_set)
+        # Ties break toward the LATER window where the question lands at the end of the scene.
+        if score > 0.0 and score >= best_score:
+            best_score = score
+            best_j = j
+    return best_j if best_j >= 0 else (len(windows) - 1 if len(windows) > 1 else 0)
+
+
 def build_planned_beats(
     script: Any,
     voiceover: Any,
@@ -574,6 +792,8 @@ def build_planned_beats(
     open_min = float(getattr(settings, "opening_beat_min_sec", 3.0))
     open_max = float(getattr(settings, "opening_beat_max_sec", 5.0))
     open_mid = max(1.5, 0.5 * (open_min + open_max))
+    max_tpl_dur = max(2.5, float(getattr(settings, "max_template_duration_sec", 8.0) or 8.0))
+    prog_on = bool(getattr(settings, "enable_programmatic_graphics", True))
 
     timing_by_scene = {
         st.scene_index: st for st in (getattr(voiceover, "scene_timings", None) or [])
@@ -596,23 +816,34 @@ def build_planned_beats(
         a_dur = max(0.2, a_end - a_start)
         v_start = a_start / speed
         v_end = a_end / speed
+        v_dur = max(0.2, v_end - v_start)
 
         raw_beats = [k.strip() for k in (scene.b_roll_keywords or []) if k and k.strip()]
+        units = _distinct_narrative_units(scene.narration or "")
+        hold_floor = (
+            math.ceil(v_dur / max_tpl_dur)
+            if (prog_on and not getattr(settings, "is_short", False))
+            else 1
+        )
+
         if v_start < open_peak and not getattr(settings, "is_short", False):
-            # Opening peak window: brisk cuts inside 0:00-0:30, normal readable cadence beyond 0:30.
+            # Opening peak window: brisk cuts capped by distinct narrative units so we never chop
+            # one sentence into duplicate comparison cards, while still honoring max_template_duration_sec.
             in_peak = max(0.0, min(v_end, open_peak) - v_start)
             past_peak = max(0.0, v_end - max(v_start, open_peak))
-            peak_shots = round(in_peak / max(open_mid, 4.5))
-            tail_shots = round(past_peak / 9.0) if past_peak > 2.0 else 0
-            n_shots = max(1, min(12, peak_shots + tail_shots))
+            desired_peak = round(in_peak / max(open_mid, 4.5))
+            tail_shots = round(past_peak / max(max_tpl_dur, 7.5)) if past_peak > 2.0 else 0
+            unit_cap = max(len(units), hold_floor, 1)
+            n_shots = max(hold_floor, min(12, unit_cap, max(1, desired_peak + tail_shots)))
         else:
             pace = cut_pace_fn(getattr(scene, "cut", None))
+            pace_cap = max(1, int(a_dur // (2.0 * pace)) or 1)
             n_shots = max(
                 1,
-                min(max(len(raw_beats), 1), int(a_dur // (2.0 * pace)) or 1, 20),
+                min(max(len(raw_beats), hold_floor, 1), pace_cap, 20),
             )
 
-        windows = narration_windows_fn(scene.narration, n_shots)
+        windows = sentence_aligned_windows(scene.narration or "", n_shots, narration_windows_fn)
         # Pad or trim beat search queries so every window has a corresponding beat hint.
         padded_queries: list[str] = []
         for j in range(n_shots):
@@ -627,39 +858,69 @@ def build_planned_beats(
         spoken_starts = [w.start for w in word_timings if a_start <= w.start < a_end]
         beat_a_durs = _shot_durations(dummy_shots, spoken_starts, a_start, a_end)
 
-        vis_src = (getattr(scene, "visual_source", None) or "").strip() or source_only(
+        raw_vsrc = (getattr(scene, "visual_source", None) or "").strip() or source_only(
             scene.on_screen_text or ""
         ).replace("Source:", "").strip()
+        vis_src = clean_verified_source(raw_vsrc, settings)
         is_cf = bool(getattr(scene, "is_comment_friction", False))
         disc_q = (getattr(scene, "discussion_question", None) or "").strip()
+        cf_shot_idx = _pick_comment_friction_shot_index(windows, disc_q) if is_cf else -1
 
+        # Sub-split any individual beat whose viewer hold exceeds max_template_duration_sec so no
+        # motion graphic ever freezes across two long spoken beats.
         cur_a = a_start
+        shot_counter = 0
         for j in range(n_shots):
             bd_a = float(beat_a_durs[j])
-            nxt_a = cur_a + bd_a
-            planned.append(
-                PlannedBeat(
-                    global_index=g_idx,
-                    scene_index=scene.index,
-                    shot_index=j,
-                    audio_start=round(cur_a, 4),
-                    audio_end=round(nxt_a, 4),
-                    audio_duration=round(bd_a, 4),
-                    viewer_start=round(cur_a / speed, 4),
-                    scene_narration=scene.narration or "",
-                    viewer_end=round(nxt_a / speed, 4),
-                    viewer_duration=round(bd_a / speed, 4),
-                    spoken_text=windows[j],
-                    beat_query=padded_queries[j],
-                    on_screen_text=scene.on_screen_text or "",
-                    visual_source=vis_src,
-                    is_comment_friction=is_cf and j == 0,
-                    discussion_question=disc_q if j == 0 else "",
-                    fact_ref=scene.fact_ref,
-                )
+            bd_v = bd_a / speed
+            sub_count = (
+                math.ceil(bd_v / max_tpl_dur)
+                if (prog_on and bd_v > max_tpl_dur + 0.35 and len(windows[j].split()) >= 8)
+                else 1
             )
-            cur_a = nxt_a
-            g_idx += 1
+            sub_windows = (
+                sentence_aligned_windows(windows[j], sub_count, narration_windows_fn)
+                if sub_count > 1
+                else [windows[j]]
+            )
+            sub_cf_idx = (
+                _pick_comment_friction_shot_index(sub_windows, disc_q)
+                if (is_cf and j == cf_shot_idx and sub_count > 1)
+                else 0
+            )
+            sub_dur_a = bd_a / sub_count
+            for s_i, sub_txt in enumerate(sub_windows):
+                nxt_a = (
+                    cur_a + sub_dur_a if s_i < sub_count - 1 else (cur_a + bd_a - s_i * sub_dur_a)
+                )
+                actual_da = max(0.05, nxt_a - cur_a)
+                beat_is_cf = bool(is_cf and j == cf_shot_idx and s_i == sub_cf_idx)
+                planned.append(
+                    PlannedBeat(
+                        global_index=g_idx,
+                        scene_index=scene.index,
+                        shot_index=shot_counter,
+                        audio_start=round(cur_a, 4),
+                        audio_end=round(nxt_a, 4),
+                        audio_duration=round(actual_da, 4),
+                        viewer_start=round(cur_a / speed, 4),
+                        scene_narration=scene.narration or "",
+                        viewer_end=round(nxt_a / speed, 4),
+                        viewer_duration=round(actual_da / speed, 4),
+                        spoken_text=sub_txt,
+                        beat_query=padded_queries[j]
+                        if s_i == 0
+                        else clamp_words(sub_txt, 4, 48) or padded_queries[j],
+                        on_screen_text=scene.on_screen_text or "",
+                        visual_source=vis_src,
+                        is_comment_friction=beat_is_cf,
+                        discussion_question=disc_q if beat_is_cf else "",
+                        fact_ref=scene.fact_ref,
+                    )
+                )
+                cur_a = nxt_a
+                shot_counter += 1
+                g_idx += 1
 
     return planned
 
@@ -797,7 +1058,12 @@ def route_visual_storyboard(
                     target_b = beats[best_i]
                     target_b.visual_type = "programmatic_graphic"
                     target_b.anchor_reason = target_b.anchor_reason or "periodic_anchor"
-                    target_b.preferred_template = target_b.preferred_template or "evidence_card"
+                    default_anchor_tpl = (
+                        "evidence_card"
+                        if beat_supports_evidence_card(target_b, settings)
+                        else "architecture_flow"
+                    )
+                    target_b.preferred_template = target_b.preferred_template or default_anchor_tpl
                     locked_graphic.add(best_i)
                     last_anchor_end = target_b.viewer_end
 
@@ -878,15 +1144,26 @@ def route_visual_storyboard(
             b.template_id = None
             b.template_props = None
             continue
+        can_ev = beat_supports_evidence_card(b, settings)
+        disallowed = () if can_ev else ("evidence_card",)
         subset = HOOK_TEMPLATES if idx == 0 else None
         if b.is_comment_friction:
             subset = ("rubric_checklist",)
+            disallowed = ()
+        pref = b.preferred_template or "big_stat_card"
+        if pref == "evidence_card" and not can_ev:
+            pref = (
+                "big_stat_card"
+                if _STAT_TOKEN_RE.search(b.spoken_text or "")
+                else "architecture_flow"
+            )
         tid = pick_enabled_template(
-            b.preferred_template or "big_stat_card",
+            pref,
             settings,
             previous_template=prev_tpl,
             allowed_subset=subset,
             usage_counts=usage,
+            disallowed=disallowed,
         )
         if tid is None:
             b.visual_type = "broll" if b.broll_url else "ai_image"
@@ -1009,8 +1286,10 @@ def author_motion_graphics_props(
                         "variant": "discussion_prompt",
                         "question": raw_props.get("question") or target_b.discussion_question,
                     }
-                if target_b.visual_source and not raw_props.get("source"):
-                    raw_props = {**raw_props, "source": target_b.visual_source}
+                # Deterministic provenance lock: `source` may ONLY show a verified beat source,
+                # never an LLM-invented report/matrix name on analytical beats.
+                verified_src = clean_verified_source(target_b.visual_source, settings)
+                raw_props = {**raw_props, "source": verified_src}
                 max_c = 120
                 if hasattr(settings, "template_spec"):
                     _, _, max_c = settings.template_spec(tid)

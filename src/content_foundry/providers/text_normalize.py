@@ -22,6 +22,11 @@ _CURRENCY = re.compile(
 )
 _PERCENT = re.compile(r"(?P<num>\d[\d,]*(?:\.\d+)?)\s?%")
 _TIMES = re.compile(r"\b(?P<num>\d[\d,]*(?:\.\d+)?)x\b")
+# Calendar years 1950-1999, 2001-2009, and 2010-2099 (excluding comma-grouped counts, $ amounts, %, x).
+_YEAR = re.compile(
+    r"(?<![$,.\d])\b(?P<year>19[5-9]\d|200[1-9]|20[1-9]\d)\b(?![,.\d]|\s*(?:%|x\b|ms\b|kb\b|mb\b|gb\b|tb\b|mhz\b|ghz\b))",
+    re.IGNORECASE,
+)
 _PLAIN = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 # A number glued to a UNIT. Without this the plain-number pass expands only the digits and leaves the
@@ -214,6 +219,20 @@ def spell_letters(acronym: str) -> str:
     return " ".join(ch.upper() for ch in (acronym or ""))
 
 
+def _year_to_words(year_str: str) -> str:
+    """Expand a 4-digit calendar year naturally (``2026`` -> ``twenty twenty-six``)."""
+    from num2words import num2words
+
+    y = int(year_str)
+    hi, lo = divmod(y, 100)
+    hi_w = num2words(hi)
+    if lo == 0:
+        return f"{hi_w} hundred" if hi < 20 else num2words(y)
+    if lo < 10:
+        return f"{hi_w} oh {num2words(lo)}"
+    return f"{hi_w} {num2words(lo)}"
+
+
 def _to_words(numstr: str) -> str:
     """A bare number string (``"202,000"`` / ``"1.5"``) to English words, or unchanged on failure."""
     from num2words import num2words
@@ -329,6 +348,7 @@ def speechify_numbers(text: str, overrides: dict[str, str] | None = None) -> str
     #   * BEFORE _PLAIN, because a designation is the one pattern with a letter GLUED to its digits,
     #     so the plain pass would rewrite only the number and leave "Lfive" behind.
     text = spell_designations(text)
+    text = _YEAR.sub(lambda m: _year_to_words(m["year"]), text)
     text = _PLAIN.sub(plain, text)
     # Pure-letter acronyms LAST, once every digit in the line is already a word. Order matters both
     # ways here:
@@ -339,3 +359,22 @@ def speechify_numbers(text: str, overrides: dict[str, str] | None = None) -> str
     # Nothing above emits capitals (num2words and the letter tables are all lowercase), so this pass
     # only ever sees acronyms the writer actually typed.
     return spell_initialisms(text, overrides)
+
+
+_INTRA_WORD_HYPHEN_RE = re.compile(r"(?<=[A-Za-z0-9])-(?=[A-Za-z0-9])")
+
+
+def prepare_tts_text(text: str, overrides: dict[str, str] | None = None) -> str:
+    """Normalize numbers, years, hyphenated compounds, and acronyms into clean TTS-safe prose.
+
+    Replaces intra-word hyphens (``Rule-of-70``, ``60,000-person``, ``one-person``, ``twenty-six``)
+    with spaces while keeping negative signs (``-5%``) intact. IndexTTS-2's internal BPE splitter
+    treats any ``-`` token as a segment-split candidate and inserts a 200ms pause across it, which
+    previously sliced ``twenty-six`` into ``twenty. [pause] six`` and ``Rule-of-70`` mid-compound.
+    """
+    if not text:
+        return text
+    dehyphenated = _INTRA_WORD_HYPHEN_RE.sub(" ", text)
+    spoken = speechify_numbers(dehyphenated, overrides)
+    spoken = _INTRA_WORD_HYPHEN_RE.sub(" ", spoken)
+    return re.sub(r"\s{2,}", " ", spoken).strip()

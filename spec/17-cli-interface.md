@@ -5,14 +5,16 @@ A `typer` app (`cli.py`, exposed as `content-foundry`). All commands are thin wr
 ### 17.1 Commands
 | Command | Purpose | Key options |
 |---------|---------|-------------|
-| `content-foundry run` | Run the pipeline; by default stops at **render** (a finished, unpublished video) | `--niche`, `--topic`, `--template`, `--from-stage`, `--to-stage`, `--publish`, `--input`, `--run-id`, `--force`, `--dry-run` |
+| `content-foundry run` | Run the pipeline; stops at **render** by default (pass `--publish` to upload) | `--niche`, `--topic`, `--idea`, `--instructions`, `--data`, `--brainstorm/--no-brainstorm`, `--format {long\|short}`, `--template`, `--from-stage`, `--to-stage`, `--publish`, `--input`, `--run-id`, `--force`, `--dry-run` |
 | `content-foundry fetch` | Stage 1 only → `data_brief.json` | `--niche`, `--topic`, `--run-id` |
-| `content-foundry generate` | Stage 2 only (needs a brief) | `--input data_brief.json`, `--template`, `--run-id` |
+| `content-foundry generate` | Stage 2 only (needs a brief) | `--input data_brief.json`, `--instructions`, `--data`, `--template`, `--run-id` |
 | `content-foundry judge` | Stage 3 only (needs a script) | `--input script.json`, `--run-id` |
-| `content-foundry voiceover` | Stage 4 (needs approved script) | `--input script.json`, `--run-id` |
-| `content-foundry visuals` | Stage 5 | `--run-id` (uses run artifacts) |
+| `content-foundry voiceover` | Stage 4 (selective scene re-voicing supported) | `--input script.json`, `--run-id`, `--scene N` (repeatable) |
+| `content-foundry visuals` | Stage 5 (keeps existing `.png`/`.mp4` shots unless `--force-images`) | `--run-id`, `--force-images`, `--free-images` |
+| `content-foundry shots` | Regenerate ONLY AI-generated `.png` shots in place (B-roll & thumbnail untouched) | `--run-id` |
+| `content-foundry thumbnail` | Regenerate ONLY the thumbnail (`assets/thumbnail_prompt.txt` reused unless `--reset`) | `--run-id`, `--prompt`, `--reset` |
 | `content-foundry render` | Stage 6 | `--run-id`, `--backend` |
-| `content-foundry publish` | Stage 7 | `--run-id`, `--privacy`, `--mode {draft|auto}`, `--dry-run` |
+| `content-foundry publish` | Stage 7 | `--run-id`, `--privacy`, `--mode {draft\|auto}`, `--dry-run` |
 | `content-foundry resume` | Continue a run from its next stage | `--run-id`, `--to-stage` |
 | `content-foundry status` | Show a run's state, attempts, verdict | `--run-id` |
 | `content-foundry list` | List recent runs (table) | `--limit`, `--state` |

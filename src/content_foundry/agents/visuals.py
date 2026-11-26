@@ -864,6 +864,7 @@ class Visuals:
         from ..production.visual_router import (
             PlannedBeat,
             author_motion_graphics_props,
+            beat_supports_evidence_card,
             build_deterministic_template_props,
             build_planned_beats,
             classify_beat_override,
@@ -971,8 +972,11 @@ class Visuals:
                     self._log.warning("compose_dual_failed", beat=b.global_index, error=str(exc))
 
             if res is not None and res.redirect_to_graphic:
+                can_ev = beat_supports_evidence_card(b, self._settings)
                 tid = pick_enabled_template(
-                    res.suggested_template or "evidence_card", self._settings
+                    res.suggested_template or ("evidence_card" if can_ev else "architecture_flow"),
+                    self._settings,
+                    disallowed=() if can_ev else ("evidence_card",),
                 )
                 if tid:
                     b.visual_type = "programmatic_graphic"
@@ -1042,11 +1046,11 @@ class Visuals:
 
         resolved_shots: dict[int, VisualShot] = {}
         fallback_tpl_cycle = (
-            "evidence_card",
-            "split_comparison",
-            "rubric_checklist",
             "architecture_flow",
+            "split_comparison",
             "big_stat_card",
+            "rubric_checklist",
+            "animated_chart",
         )
         tpl_usage: dict[str, int] = {}
         for b in beats:
@@ -1156,6 +1160,7 @@ class Visuals:
 
             # 2) Promote to an animated 1080p30 Playwright motion graphic instead of a static slide!
             _, inferred_pref = classify_beat_override(b, self._settings)
+            can_ev = beat_supports_evidence_card(b, self._settings)
             pref_tid = inferred_pref or fallback_tpl_cycle[fb_counter % len(fallback_tpl_cycle)]
             fb_counter += 1
             tid = pick_enabled_template(
@@ -1163,6 +1168,7 @@ class Visuals:
                 self._settings,
                 previous_template=last_promoted_tpl,
                 usage_counts=tpl_usage,
+                disallowed=() if can_ev else ("evidence_card",),
             )
             if tid is not None:
                 b.visual_type = "programmatic_graphic"

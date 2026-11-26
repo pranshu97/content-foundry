@@ -28,14 +28,218 @@ SHOT_TYPE_INSTRUCTIONS: dict[str, str] = {
         "space, depth, and natural light geometry; no macro close-ups."
     ),
     "medium_human_action": (
-        "Medium 50mm workspace/action shot framed on physical tools, posture from a distance or "
-        "cropped so no face or close-up fingers fill the frame."
+        "Medium 50mm candid editorial shot featuring one or two real people in frame seen from "
+        "behind, in three-quarter profile, or walking/working at middle distance (faces turned "
+        "away from camera and hands out of macro close-up so anatomy stays natural)."
     ),
     "tight_physical_detail": (
         "Tight 85mm-100mm macro still-life detail focused on a concrete physical object, hardware "
-        "surface, instrument, or tactile artifact state with shallow depth of field."
+        "surface, instrument, or tactile artifact state with shallow depth of field and zero text."
     ),
 }
+
+SETTING_ARCHETYPE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "library_archive",
+        re.compile(
+            r"\b(?:library|libraries|archive|archives|reading\s+room|bookshelf|bookshelves|bookcase|stacks)\b",
+            re.I,
+        ),
+    ),
+    (
+        "office_conference_room",
+        re.compile(
+            r"\b(?:conference\s+room|boardroom|briefing\s+room|meeting\s+room|empty\s+office|"
+            r"corner\s+office|executive\s+office|open-plan\s+office|corporate\s+room|glass\s+atrium)\b",
+            re.I,
+        ),
+    ),
+    (
+        "server_datacenter",
+        re.compile(
+            r"\b(?:server\s+aisle|server\s+room|data\s+center|datacenter|rack\s+bay|colocation)\b",
+            re.I,
+        ),
+    ),
+    (
+        "corridor_lobby",
+        re.compile(
+            r"\b(?:corridor|hallway|lobby|walkway|turnstile|elevator\s+bank|foyer)\b",
+            re.I,
+        ),
+    ),
+    (
+        "workshop_lab_bench",
+        re.compile(
+            r"\b(?:test\s+bench|hardware\s+lab|verification\s+lab|workshop|loading\s+bay|warehouse|bench)\b",
+            re.I,
+        ),
+    ),
+    (
+        "exterior_campus_street",
+        re.compile(
+            r"\b(?:exterior|courtyard|campus|plaza|rooftop|sidewalk|street|bridge|park\s+path|facade)\b",
+            re.I,
+        ),
+    ),
+    (
+        "transit_commute",
+        re.compile(
+            r"\b(?:train\s+platform|station|rail\s+car|ferry|terminal|parking\s+deck|crosswalk)\b",
+            re.I,
+        ),
+    ),
+    (
+        "home_cafe_studio",
+        re.compile(
+            r"\b(?:apartment|home\s+study|kitchen\s+table|coffee\s+shop|cafe|cafeteria|lounge|studio)\b",
+            re.I,
+        ),
+    ),
+)
+
+_HUMAN_POS_RE = re.compile(
+    r"\b(?:person|people|engineer|engineers|worker|workers|colleague|colleagues|commuter|"
+    r"commuters|figure|figures|silhouette|silhouetted|man|woman|pedestrian|pedestrians|"
+    r"seated\s+from\s+behind|seen\s+from\s+behind|walking\s+away|three-quarter\s+profile)\b",
+    re.I,
+)
+_HUMAN_NEG_RE = re.compile(
+    r"\b(?:no\s+people|no\s+person|nobody|unoccupied|empty\s+room|depopulated|without\s+people)\b",
+    re.I,
+)
+_PHYSICAL_TEXT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("printed text", re.compile(r"\bprinted\s+(?:text|words|lettering|numbers|figures)\b", re.I)),
+    (
+        "printed document",
+        re.compile(
+            r"\bprinted\s+(?:document|documents|page|pages|sheet|sheets|memo|ledger|report|form|contract)s?\b",
+            re.I,
+        ),
+    ),
+    (
+        "document header",
+        re.compile(r"\b(?:document\s+header|letterhead|typed\s+header|typed\s+page)s?\b", re.I),
+    ),
+    (
+        "embossed seal",
+        re.compile(r"\bembossed\s+(?:seal|stamp|crest|lettering|text|logo)s?\b", re.I),
+    ),
+    (
+        "engraved/etched text",
+        re.compile(
+            r"\b(?:laser-etched|etched|engraved)\s+(?:plate|label|placard|nameplate|part\s+number|serial\s+number|text|lettering|words)s?\b",
+            re.I,
+        ),
+    ),
+    (
+        "quoted in-scene lettering",
+        re.compile(
+            r"\b(?:reading|titled|labeled|labelled|stamped|inscribed|marked)\s+[\"'][^\"']{2,48}[\"']",
+            re.I,
+        ),
+    ),
+)
+
+
+def classify_setting_archetype(setting: str, prompt: str = "") -> str:
+    """Map a scene's setting/prompt into a canonical video-wide architectural motif bucket."""
+    blob = f"{setting or ''} {prompt or ''}"
+    for name, pat in SETTING_ARCHETYPE_PATTERNS:
+        if pat.search(blob):
+            return name
+    low = (setting or "").strip().lower()
+    return low[:32] if low else "other_environment"
+
+
+def setting_archetype_counts(history: list[dict[str, Any]]) -> dict[str, int]:
+    """Count occurrences of each canonical setting archetype across the entire video so far."""
+    counts: dict[str, int] = {}
+    for item in history or []:
+        arch = str(item.get("setting_archetype") or "") or classify_setting_archetype(
+            str(item.get("setting") or ""), str(item.get("subject") or "")
+        )
+        counts[arch] = counts.get(arch, 0) + 1
+    return counts
+
+
+def has_human_presence(prompt: str, meta: dict[str, Any] | None = None) -> bool:
+    """True when a prompt/metadata depicts at least one human figure without negating people."""
+    if (
+        isinstance(meta, dict)
+        and isinstance(meta.get("has_human"), bool)
+        and meta["has_human"]
+        and not _HUMAN_NEG_RE.search(prompt or "")
+    ):
+        return True
+    txt = f"{prompt or ''} {(meta or {}).get('subject', '')}"
+    if _HUMAN_NEG_RE.search(prompt or ""):
+        return False
+    return bool(_HUMAN_POS_RE.search(txt))
+
+
+def find_physical_text_leaks(prompt: str) -> list[str]:
+    """Detect prompts asking the image model to render printed/embossed/engraved/quoted lettering."""
+    if not prompt:
+        return []
+    # Strip negative-constraint clauses ("zero legible printed text", "no printed documents") first
+    # so the style bible's own bans never false-trigger the detector!
+    scrubbed_neg = re.sub(
+        r"\b(?:zero|no|without|forbid|never)\s+(?:legible\s+|floating\s+|visible\s+|readable\s+)*"
+        r"(?:ui\s+text|printed\s+\w+|document\s+headers?|embossed\s+\w+|engraved\s+[\w\s]{1,24}|laser-etched\s+\w+)",
+        " ",
+        prompt,
+        flags=re.I,
+    )
+    hits: list[str] = []
+    for label, pat in _PHYSICAL_TEXT_PATTERNS:
+        if pat.search(scrubbed_neg):
+            hits.append(label)
+    return hits
+
+
+def scrub_physical_text_cues(prompt: str) -> str:
+    """Deterministically rewrite physical/printed/engraved text requests into blank/closed surfaces."""
+    if not prompt:
+        return ""
+    out = prompt
+    out = re.sub(
+        r"\b(?:reading|titled|labeled|labelled|stamped|inscribed|marked)\s+[\"'][^\"']{1,60}[\"']",
+        "with clean unlabelled surfaces",
+        out,
+        flags=re.I,
+    )
+    out = re.sub(
+        r"\bprinted\s+(?:document|documents|page|pages|sheet|sheets|memo|ledger|report|form|contract)s?\b",
+        "closed unlabelled archival folders",
+        out,
+        flags=re.I,
+    )
+    out = re.sub(
+        r"\bprinted\s+(?:text|words|lettering|numbers|figures)\b",
+        "clean matte texture",
+        out,
+        flags=re.I,
+    )
+    out = re.sub(
+        r"\b(?:document\s+header|letterhead|typed\s+header|typed\s+page)s?\b",
+        "clean unlabelled cover",
+        out,
+        flags=re.I,
+    )
+    out = re.sub(
+        r"\bembossed\s+(?:seal|stamp|crest|lettering|text|logo)s?\b",
+        "smooth matte finish",
+        out,
+        flags=re.I,
+    )
+    out = re.sub(
+        r"\b(?:laser-etched|etched|engraved)\s+(?:plate|label|placard|nameplate|part\s+number|serial\s+number|text|lettering|words)s?\b",
+        "brushed unlabelled metal surface",
+        out,
+        flags=re.I,
+    )
+    return re.sub(r"\s{2,}", " ", out).strip()
 
 
 @dataclass(frozen=True)
@@ -73,21 +277,34 @@ def build_bidirectional_window(
     return "\n".join(parts)
 
 
-def format_visual_history(history: list[dict[str, Any]], *, window_size: int = 3) -> str:
-    """Render the last ``window_size`` AI scene metadata records for Channel 2 exclusion."""
-    if window_size <= 0 or not history:
+def format_visual_history(
+    history: list[dict[str, Any]],
+    *,
+    window_size: int = 3,
+    max_archetype_repeats: int = 2,
+) -> str:
+    """Render rolling ``window_size`` AI scenes PLUS video-wide exhausted setting archetypes."""
+    if not history:
         return "  (none yet — first AI image scene)"
-    recent = history[-window_size:]
     lines: list[str] = []
-    for item in recent:
-        st = str(item.get("shot_type") or "unknown")
-        setting = str(item.get("setting") or "unspecified")
-        subj = str(item.get("subject") or "unspecified")
-        objs = list(item.get("dominant_objects") or [])
+    if window_size > 0:
+        for item in history[-window_size:]:
+            st = str(item.get("shot_type") or "unknown")
+            setting = str(item.get("setting") or "unspecified")
+            subj = str(item.get("subject") or "unspecified")
+            objs = list(item.get("dominant_objects") or [])
+            lines.append(
+                f"  - shot_type={st} | setting={setting} | subject={subj} | dominant_objects={json.dumps(objs)}"
+            )
+    counts = setting_archetype_counts(history)
+    exhausted = sorted(k for k, c in counts.items() if c >= max(1, max_archetype_repeats))
+    if exhausted:
         lines.append(
-            f"  - shot_type={st} | setting={setting} | subject={subj} | dominant_objects={json.dumps(objs)}"
+            "  - EXHAUSTED VIDEO-WIDE SETTING ARCHETYPES (0 remaining budget — STRICTLY FORBIDDEN "
+            f"for the rest of this video): {', '.join(exhausted)}. Choose a fresh archetype such "
+            "as exterior_campus_street, transit_commute, workshop_lab_bench, corridor_lobby, or home_cafe_studio."
         )
-    return "\n".join(lines)
+    return "\n".join(lines) or "  (none yet)"
 
 
 def find_cliche_hits(prompt: str, banlist: list[str]) -> list[str]:
@@ -161,7 +378,7 @@ _PHYSICAL_ANCHORS = frozenset(
 def infer_visual_meta(
     prompt: str, shot_type: str, raw_meta: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Extract normalized ``{subject, setting, shot_type, dominant_objects}`` metadata."""
+    """Extract normalized ``{subject, setting, setting_archetype, has_human, shot_type, dominant_objects}`` metadata."""
     raw = raw_meta or {}
     subj = str(raw.get("subject") or "").strip()
     setting = str(raw.get("setting") or "").strip()
@@ -178,9 +395,13 @@ def infer_visual_meta(
         subj = composition_signature(prompt)[:72] or "editorial artifact"
     if not setting:
         setting = " ".join(objs[:2]) if objs else "modern workspace"
+    arch = classify_setting_archetype(setting, prompt)
+    human = has_human_presence(prompt, raw)
     return {
         "subject": subj,
         "setting": setting,
+        "setting_archetype": arch,
+        "has_human": human,
         "shot_type": shot_type or str(raw.get("shot_type") or "wide_environment"),
         "dominant_objects": objs[:4],
     }
@@ -301,14 +522,6 @@ class SceneImageDirector:
         niche: str = "",
         critic_feedback: str = "",
     ) -> DualPromptResult | None:
-        """Dual-channel anti-collapse scene prompt generator for a single AI-image beat.
-
-        Combines:
-          - Channel 1: Bidirectional script context window (``<prev2>``..``<current>``..``<post2>``)
-          - Channel 2: Rolling ``visual_history`` exclusion memory (last ``N`` AI scenes)
-          - Forced shot-type camera framing progression
-          - Metaphor/conceptual redirect gate + ``cliche_banlist`` + ``image_style_bible``
-        """
         if not all_lines or not (0 <= target_index < len(all_lines)):
             return None
         target_line = all_lines[target_index].strip()
@@ -318,6 +531,8 @@ class SceneImageDirector:
         before = int(getattr(self._settings, "script_context_window_before", 2))
         after = int(getattr(self._settings, "script_context_window_after", 2))
         hist_win = int(getattr(self._settings, "visual_history_window_size", 3))
+        max_arch = int(getattr(self._settings, "max_setting_archetype_repeats", 2))
+        min_human = float(getattr(self._settings, "min_human_presence_ratio", 0.35))
         style_bible = str(getattr(self._settings, "image_style_bible", "") or "").strip()
         banlist = list(getattr(self._settings, "cliche_banlist_list", []) or [])
 
@@ -326,16 +541,29 @@ class SceneImageDirector:
             if required_shot_type in SHOT_TYPE_INSTRUCTIONS
             else "wide_environment"
         )
+        hist_list = list(visual_history or [])
+        human_so_far = sum(1 for h in hist_list if h.get("has_human"))
+        need_human = shot_key == "medium_human_action" or (
+            len(hist_list) >= 2 and (human_so_far / max(1, len(hist_list) + 1)) < min_human
+        )
+        shot_instr = SHOT_TYPE_INSTRUCTIONS[shot_key]
+        if need_human and shot_key != "tight_physical_detail":
+            shot_instr += (
+                " MANDATORY HUMAN PRESENCE ON THIS BEAT: include 1-2 real people seen from behind, "
+                "walking at middle distance, or in three-quarter silhouette (do NOT output an empty depopulated room)."
+            )
         window_block = build_bidirectional_window(
             all_lines, target_index, before=before, after=after
         )
-        history_block = format_visual_history(visual_history or [], window_size=hist_win)
+        history_block = format_visual_history(
+            hist_list, window_size=hist_win, max_archetype_repeats=max_arch
+        )
 
         system = render_prompt(
             load_prompt("scene_image_director_dual.system"),
             style_bible=style_bible or "Sharp 35mm natural-light editorial photography",
             required_shot_type=shot_key,
-            shot_type_instruction=SHOT_TYPE_INSTRUCTIONS[shot_key],
+            shot_type_instruction=shot_instr,
             cliche_banlist=", ".join(banlist) if banlist else "(none)",
             title=title or "",
             description=description or "",
@@ -372,7 +600,7 @@ class SceneImageDirector:
 
         from .thumbnail_director import strip_career_rank
 
-        cleaned_prompt = strip_career_rank(raw_prompt)
+        cleaned_prompt = scrub_physical_text_cues(strip_career_rank(raw_prompt))
         redirect = bool(parsed.get("redirect_to_graphic", False))
         suggested = str(parsed.get("suggested_template") or "").strip()
         if suggested not in MOTION_TEMPLATE_IDS:
@@ -389,9 +617,9 @@ class SceneImageDirector:
 
 _FALLBACK_SETTINGS_POOL: tuple[tuple[str, str, list[str]], ...] = (
     (
-        "daylit architectural briefing room",
-        "empty long concrete table with closed dossier folder",
-        ["concrete table", "closed folder", "architectural glass"],
+        "exterior glass campus courtyard",
+        "two engineers seen from behind walking past wet slate planters",
+        ["slate planters", "campus walkway", "overcast daylight"],
     ),
     (
         "industrial hardware test bench",
@@ -400,18 +628,43 @@ _FALLBACK_SETTINGS_POOL: tuple[tuple[str, str, list[str]], ...] = (
     ),
     (
         "quiet engineering corridor",
-        "frosted glass whiteboard wall with hand-drawn block arrows",
-        ["frosted glass", "marker tray", "corridor light"],
+        "solitary engineer seen from behind walking past frosted glass panels",
+        ["frosted glass", "corridor floor", "architectural light"],
     ),
     (
-        " sunlit studio desk corner",
-        "deactivated access badge beside closed matte notebook",
-        ["access badge", "matte notebook", "desk lamp"],
+        "home study oak desk by rain-streaked window",
+        "closed matte laptop beside ceramic mug and unlabelled notebook",
+        ["closed laptop", "ceramic mug", "window light"],
     ),
     (
         "cool server aisle walkway",
-        "anodized drive bay latch with status indicator",
+        "anodized drive bay latch with amber status LED",
         ["drive bay", "anodized latch", "aisle floor"],
+    ),
+    (
+        "commuter rail station platform at morning light",
+        "commuters in winter coats seen from behind waiting beside steel canopy",
+        ["platform canopy", "steel bench", "morning light"],
+    ),
+    (
+        "daylit architectural briefing room",
+        "long concrete table with closed unlabelled folders",
+        ["concrete table", "closed folder", "architectural glass"],
+    ),
+    (
+        "campus cafe mezzanine",
+        "two colleagues in silhouette seated across a small round timber table",
+        ["timber table", "mezzanine rail", "natural window light"],
+    ),
+    (
+        "hardware verification lab",
+        "oscilloscope chassis and unlabelled aluminum heatsink on ESD mat",
+        ["heatsink", "ESD mat", "lab bench"],
+    ),
+    (
+        "downtown pedestrian plaza outside glass tower",
+        "workers seen from behind crossing damp stone pavers in cool daylight",
+        ["stone pavers", "tower entrance", "morning shadow"],
     ),
 )
 
@@ -424,25 +677,49 @@ def build_editorial_fallback_prompt(
     visual_history: list[dict[str, Any]] | None = None,
 ) -> DualPromptResult:
     """Deterministic, cliche-free, shot-type-matched editorial prompt when no LLM is used."""
-    used_settings = {str(h.get("setting") or "").lower() for h in (visual_history or [])}
-    picked = _FALLBACK_SETTINGS_POOL[0]
+    hist_list = list(visual_history or [])
+    used_settings = {str(h.get("setting") or "").strip().lower() for h in hist_list}
+    arch_counts = setting_archetype_counts(hist_list)
+    max_arch = int(getattr(settings, "max_setting_archetype_repeats", 2))
+    min_human = float(getattr(settings, "min_human_presence_ratio", 0.35))
+    shot_key = shot_type if shot_type in SHOT_TYPE_INSTRUCTIONS else "wide_environment"
+    humans_so_far = sum(1 for h in hist_list if h.get("has_human"))
+    below_human_floor = shot_key != "tight_physical_detail" and (
+        (humans_so_far / max(1, len(hist_list) + 1)) < min_human
+    )
+    want_human = shot_key == "medium_human_action" or below_human_floor
+
+    picked = _FALLBACK_SETTINGS_POOL[len(hist_list) % len(_FALLBACK_SETTINGS_POOL)]
     for candidate in _FALLBACK_SETTINGS_POOL:
-        if candidate[0].strip().lower() not in used_settings:
-            picked = candidate
-            break
+        c_set, c_subj, _ = candidate
+        if c_set.strip().lower() in used_settings:
+            continue
+        c_arch = classify_setting_archetype(c_set, c_subj)
+        if arch_counts.get(c_arch, 0) >= max_arch:
+            continue
+        if want_human and not has_human_presence(c_subj):
+            continue
+        if shot_key == "tight_physical_detail" and has_human_presence(c_subj):
+            continue
+        picked = candidate
+        break
 
     setting, base_subj, dom_objs = picked
-    shot_key = shot_type if shot_type in SHOT_TYPE_INSTRUCTIONS else "wide_environment"
+    has_person = has_human_presence(base_subj)
+    if want_human and not has_person:
+        base_subj = f"an engineer seen from behind beside {base_subj}"
+        has_person = True
+
     camera_lead = {
         "wide_environment": "Wide 28mm architectural establishing photograph",
-        "medium_human_action": "Medium 50mm eye-level workspace photograph, no people or hands in frame",
+        "medium_human_action": "Medium 50mm candid editorial photograph with figures seen from behind",
         "tight_physical_detail": "Tight 90mm macro physical-detail photograph with shallow depth of field",
     }[shot_key]
     style_bible = str(
         getattr(
             settings,
             "image_style_bible",
-            "Sharp, natural-light 35mm editorial photography, crisp focus, zero neon glow, zero floating UI text",
+            "Sharp, natural-light 35mm editorial photography, crisp focus, zero neon glow, zero floating UI text, zero legible printed text",
         )
         or ""
     ).strip()
@@ -453,15 +730,24 @@ def build_editorial_fallback_prompt(
         if w.lower()
         not in {"that", "this", "with", "from", "have", "your", "they", "their", "into", "when"}
     ][:3]
-    topic_anchor = f" evoke context of {' '.join(salient)}," if salient else ""
-    raw_prompt = (
-        f"{camera_lead} inside a {setting}, focusing on {base_subj},{topic_anchor} "
-        f"{style_bible.rstrip('. ')}. No visible faces, no hands, no paragraphs of text, no logos, no watermark."
+    topic_anchor = f" evoking {' '.join(salient)}," if salient else ""
+    people_guard = (
+        "Faces turned away from camera, no close-up hands, zero legible printed text, no logos, no watermark."
+        if has_person
+        else "No visible faces, no hands, zero legible printed text, no logos, no watermark."
     )
-    clean_prompt = scrub_cliche_phrases(raw_prompt, banlist, style_bible=style_bible)
+    raw_prompt = (
+        f"{camera_lead} at a {setting.strip()}, focusing on {base_subj},{topic_anchor} "
+        f"{style_bible.rstrip('. ')}. {people_guard}"
+    )
+    clean_prompt = scrub_physical_text_cues(
+        scrub_cliche_phrases(raw_prompt, banlist, style_bible=style_bible)
+    )
     meta = {
         "subject": base_subj,
         "setting": setting.strip(),
+        "setting_archetype": classify_setting_archetype(setting, clean_prompt),
+        "has_human": has_person,
         "shot_type": shot_key,
         "dominant_objects": list(dom_objs),
     }

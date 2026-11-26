@@ -38,5 +38,6 @@
 23. [Deployment Instructions](23-deployment-instructions.md)
 24. [Sample Output Examples](24-sample-output-examples.md)
 25. [Notifications & Alerting](25-notifications-alerting.md)
+26. [YouTube Shorts Support](26-shorts-support.md)
 
 ---

@@ -416,17 +416,32 @@ def write_shot_prompts(scene_visuals: list[SceneVisual], run_root: Path) -> int:
     prior = _read_shot_prompts(run_root)
     for scene in scene_visuals:
         for j, shot in enumerate(scene.shots or []):
-            if shot.prompt:
+            is_prog = getattr(shot, "visual_type", "") == "programmatic_graphic" and bool(
+                getattr(shot, "template_id", None)
+            )
+            if shot.prompt or is_prog:
                 key = f"scene_{scene.scene_index}_shot_{j}"
                 source = shot.source or ""
                 if source == "reused":
                     source = prior.get(key, {}).get("source") or "reused"
-                entry: dict[str, object] = {"source": source, "prompt": shot.prompt}
+                entry: dict[str, object] = {
+                    "source": source,
+                    "prompt": shot.prompt or "",
+                }
                 # Carry the chart's own spec through, including across a reuse pass, so a redraw
                 # never has to go back to the model for content it already decided.
                 spec = shot.diagram or prior.get(key, {}).get("diagram")
                 if spec:
                     entry["diagram"] = spec
+                if is_prog:
+                    entry["visual_type"] = "programmatic_graphic"
+                    entry["template_id"] = shot.template_id
+                    if shot.template_props:
+                        entry["template_props"] = shot.template_props
+                elif getattr(shot, "shot_type", ""):
+                    entry["shot_type"] = shot.shot_type
+                    if getattr(shot, "visual_meta", None):
+                        entry["visual_meta"] = shot.visual_meta
                 out[key] = entry
     if not out:
         return 0
@@ -470,6 +485,15 @@ def _read_shot_prompts(run_root: Path) -> dict[str, dict[str, Any]]:
             }
             if isinstance(value.get("diagram"), dict):
                 entry["diagram"] = value["diagram"]
+            if isinstance(value.get("template_id"), str):
+                entry["template_id"] = value["template_id"]
+                entry["visual_type"] = "programmatic_graphic"
+                if isinstance(value.get("template_props"), dict):
+                    entry["template_props"] = value["template_props"]
+            if isinstance(value.get("shot_type"), str):
+                entry["shot_type"] = value["shot_type"]
+            if isinstance(value.get("visual_meta"), dict):
+                entry["visual_meta"] = value["visual_meta"]
             out[key] = entry
     return out
 
@@ -510,7 +534,7 @@ class Visuals:
         # shot index -> diagram spec for the CURRENT scene, refreshed on every _shot_image_prompts
         # call. Initialised here so _build_shots is safe even when the director never runs.
         self._shot_diagrams: dict[int, dict] = {}
-        self._existing_prompts: dict[str, dict[str, str]] = {}  # prior shot_prompts.json, for reuse
+        self._existing_prompts: dict[str, dict[str, Any]] = {}  # prior shot_prompts.json, for reuse
         self._log = get_logger(component="visuals")
 
     def run(
@@ -544,12 +568,19 @@ class Visuals:
         # takes the MOST relevant clip (deterministic — no diversity sampling; misses fall back to a
         # generated image).
         picker = _BrollPicker()
-        for scene in sorted(script.scenes, key=lambda s: s.index):
-            scene_visuals.append(
-                self._build_scene_visual(
-                    scene, run_root, duration=durations.get(scene.index, 3.0), picker=picker
-                )
+        if getattr(self._settings, "enable_programmatic_graphics", False) and getattr(
+            self._settings, "enabled_motion_templates", None
+        ):
+            scene_visuals = self._build_programmatic_storyboard(
+                script, voiceover, run_root, durations=durations, picker=picker
             )
+        else:
+            for scene in sorted(script.scenes, key=lambda s: s.index):
+                scene_visuals.append(
+                    self._build_scene_visual(
+                        scene, run_root, duration=durations.get(scene.index, 3.0), picker=picker
+                    )
+                )
 
         # Captions from word timings.
         captions_path = run_root / _CAPTIONS_REL
@@ -818,11 +849,480 @@ class Visuals:
             for r, src, q, p, d in found
         ]
 
+    def _build_programmatic_storyboard(
+        self,
+        script: Script,
+        voiceover: VoiceoverAsset,
+        run_root: Path,
+        *,
+        durations: dict[int, float],
+        picker: _BrollPicker,
+    ) -> list[SceneVisual]:
+        """Full 3-tier visual router + dual-channel anti-collapse prompts + StoryboardCritic gate
+        + LLM motion-graphics prop authoring + Playwright rendering (with zero-slide fallback)."""
+        from ..production.motion_graphics import TemplateRegistry
+        from ..production.visual_router import (
+            PlannedBeat,
+            author_motion_graphics_props,
+            build_deterministic_template_props,
+            build_planned_beats,
+            classify_beat_override,
+            pick_enabled_template,
+            route_visual_storyboard,
+        )
+        from .scene_image_director import (
+            DualPromptResult,
+            SceneImageDirector,
+            build_editorial_fallback_prompt,
+            infer_visual_meta,
+        )
+        from .storyboard_critic import StoryboardCritic
+
+        broll_enabled = bool(self._broll and getattr(self._broll, "enabled", False))
+
+        def _lookup_broll(
+            beat: PlannedBeat, *, ultra_strict: bool = False
+        ) -> tuple[str | None, float]:
+            if not broll_enabled:
+                return (None, 0.0)
+            cands = self._broll_candidates([beat.beat_query], moment=beat.spoken_text)
+            picked = picker.pick(cands)
+            if not picked:
+                return (None, 0.0)
+            base_thresh = float(getattr(self._settings, "broll_relevance_threshold", 0.78))
+            score = max(base_thresh, 0.88 if ultra_strict else 0.82)
+            return (picked, score)
+
+        def _try_fallback_broll(beat: PlannedBeat) -> tuple[str, bytes] | None:
+            """When AI image generation is off or failing, try concrete physical stock B-roll first."""
+            if not broll_enabled:
+                return None
+            meta = beat.visual_meta or {}
+            dom = " ".join(
+                str(x) for x in (meta.get("dominant_objects") or [])[:2] if str(x).strip()
+            )
+            queries = [
+                q for q in (beat.beat_query, str(meta.get("setting") or ""), dom) if q and q.strip()
+            ]
+            cands = self._broll_candidates(queries, moment="")
+            url = picker.pick(cands)
+            if not url:
+                return None
+            data = self._download_clip(url)
+            return (url, data) if data is not None else None
+
+        beats = build_planned_beats(
+            script,
+            voiceover,
+            self._settings,
+            narration_windows_fn=narration_windows,
+            cut_pace_fn=_cut_pace,
+        )
+        route_visual_storyboard(
+            beats,
+            self._settings,
+            broll_Lookup_fn=_lookup_broll,
+            video_title=self._video_title,
+        )
+
+        all_lines = [b.spoken_text for b in beats]
+        reuse = not self._settings.visuals_redo_images
+        director = (
+            SceneImageDirector(self._settings, self._llm)
+            if (self._llm is not None and self._settings.scene_image_director_enabled)
+            else None
+        )
+
+        # Populate dual-channel AI prompts (or reuse saved real images) BEFORE critic & image calls.
+        visual_history: list[dict[str, Any]] = []
+        reused_keys: set[tuple[int, int]] = set()
+        for b in beats:
+            if b.visual_type != "ai_image":
+                continue
+            key = f"scene_{b.scene_index}_shot_{b.shot_index}"
+            saved_entry = self._existing_prompts.get(key) or {}
+            # Never treat a prior outage fallback 'card' as a real image worth reusing.
+            if (
+                reuse
+                and saved_entry.get("source") != "card"
+                and (run_root / f"assets/scenes/{key}.png").exists()
+            ):
+                reused_keys.add((b.scene_index, b.shot_index))
+                b.prompt = str(saved_entry.get("prompt") or "")
+                b.visual_meta = infer_visual_meta(
+                    b.prompt, b.shot_type, saved_entry.get("visual_meta")
+                )
+                visual_history.append(b.visual_meta)
+                continue
+
+            res: DualPromptResult | None = None
+            if director is not None:
+                try:
+                    res = director.compose_dual(
+                        all_lines=all_lines,
+                        target_index=b.global_index,
+                        required_shot_type=b.shot_type,
+                        visual_history=visual_history,
+                        title=self._video_title,
+                        description=self._video_description,
+                        niche=getattr(self._settings, "target_niche", "") or "",
+                    )
+                except Exception as exc:
+                    self._log.warning("compose_dual_failed", beat=b.global_index, error=str(exc))
+
+            if res is not None and res.redirect_to_graphic:
+                tid = pick_enabled_template(
+                    res.suggested_template or "evidence_card", self._settings
+                )
+                if tid:
+                    b.visual_type = "programmatic_graphic"
+                    b.override_to_graphic = True
+                    b.template_id = tid
+                    b.template_props = build_deterministic_template_props(
+                        tid, b, settings=self._settings, video_title=self._video_title
+                    )
+                    b.shot_type = ""
+                    continue
+
+            if res is None:
+                res = build_editorial_fallback_prompt(
+                    b.spoken_text,
+                    b.shot_type,
+                    self._settings,
+                    visual_history=visual_history,
+                )
+            b.prompt = res.prompt
+            b.visual_meta = res.visual_meta
+            visual_history.append(b.visual_meta)
+
+        # Pre-render StoryboardCritic validation + selective regeneration gate.
+        def _regen_shot(
+            failing_beat: PlannedBeat,
+            reason: str,
+            prior_history: list[dict[str, Any]],
+        ) -> DualPromptResult | None:
+            if (failing_beat.scene_index, failing_beat.shot_index) in reused_keys:
+                return None
+            if director is not None:
+                try:
+                    return director.compose_dual(
+                        all_lines=all_lines,
+                        target_index=failing_beat.global_index,
+                        required_shot_type=failing_beat.shot_type,
+                        visual_history=prior_history,
+                        title=self._video_title,
+                        description=self._video_description,
+                        niche=getattr(self._settings, "target_niche", "") or "",
+                        critic_feedback=reason,
+                    )
+                except Exception as exc:
+                    self._log.warning(
+                        "critic_regen_failed", beat=failing_beat.global_index, error=str(exc)
+                    )
+            return build_editorial_fallback_prompt(
+                failing_beat.spoken_text,
+                failing_beat.shot_type,
+                self._settings,
+                visual_history=prior_history,
+            )
+
+        if getattr(self._settings, "enable_storyboard_critic", True):
+            critic = StoryboardCritic(self._settings, self._llm)
+            report = critic.audit_and_repair(
+                beats,
+                regenerate_shot_fn=_regen_shot,
+                video_title=self._video_title,
+            )
+            self._log.info(
+                "storyboard_critic_complete",
+                ok=report.ok,
+                retries=report.retries_used,
+                repairs=len(report.repairs_applied),
+            )
+
+        resolved_shots: dict[int, VisualShot] = {}
+        fallback_tpl_cycle = (
+            "evidence_card",
+            "split_comparison",
+            "rubric_checklist",
+            "architecture_flow",
+            "big_stat_card",
+        )
+        tpl_usage: dict[str, int] = {}
+        for b in beats:
+            if b.visual_type == "programmatic_graphic" and b.template_id:
+                tpl_usage[b.template_id] = tpl_usage.get(b.template_id, 0) + 1
+        last_promoted_tpl: str | None = None
+        fb_counter = 0
+
+        # Pass A: Resolve B-roll & AI images first so any unavailable/402/429 image slot can cleanly
+        # fall back to real moving stock B-roll or promote into the LLM-authored Playwright graphic batch!
+        for b in beats:
+            if b.visual_type == "programmatic_graphic":
+                continue
+            stem_rel = f"assets/scenes/scene_{b.scene_index}_shot_{b.shot_index}"
+            stem_abs = run_root / stem_rel
+
+            if b.visual_type == "broll" and b.broll_url:
+                _drop_stale_shot_files(stem_abs)
+                clip_bytes = self._download_clip(b.broll_url)
+                if clip_bytes is not None:
+                    rel_mp4 = f"{stem_rel}.mp4"
+                    (run_root / rel_mp4).write_bytes(clip_bytes)
+                    resolved_shots[b.global_index] = VisualShot(
+                        path=rel_mp4,
+                        duration_sec=b.audio_duration,
+                        source=_broll_source(b.broll_url),
+                        query=b.beat_query,
+                        prompt="",
+                        visual_type="broll",
+                    )
+                    continue
+                self._log.warning("broll_clip_abandoned", scene=b.scene_index, shot=b.shot_index)
+                fb = build_editorial_fallback_prompt(
+                    b.spoken_text, "wide_environment", self._settings
+                )
+                b.visual_type = "ai_image"
+                b.prompt = b.prompt or fb.prompt
+                b.visual_meta = b.visual_meta or fb.visual_meta
+
+            # Editorial AI image (or reused real PNG)
+            rel_png = f"{stem_rel}.png"
+            if (b.scene_index, b.shot_index) in reused_keys and (run_root / rel_png).exists():
+                resolved_shots[b.global_index] = VisualShot(
+                    path=rel_png,
+                    duration_sec=b.audio_duration,
+                    source="reused",
+                    query=b.beat_query,
+                    prompt=b.prompt,
+                    visual_type="ai_image",
+                    shot_type=b.shot_type,
+                    visual_meta=b.visual_meta or None,
+                )
+                continue
+
+            if not b.prompt:
+                fb = build_editorial_fallback_prompt(
+                    b.spoken_text, b.shot_type or "wide_environment", self._settings
+                )
+                b.prompt = fb.prompt
+                b.visual_meta = fb.visual_meta
+
+            if self._image is not None:
+                try:
+                    img_bytes = self._image.generate(
+                        b.prompt, size=self._settings.effective_resolution
+                    )
+                    _drop_stale_shot_files(stem_abs)
+                    (run_root / rel_png).parent.mkdir(parents=True, exist_ok=True)
+                    (run_root / rel_png).write_bytes(img_bytes)
+                    img_src = getattr(self._image, "name", self._settings.image_provider)
+                    resolved_shots[b.global_index] = VisualShot(
+                        path=rel_png,
+                        duration_sec=b.audio_duration,
+                        source=img_src,
+                        query=b.beat_query,
+                        prompt=b.prompt,
+                        visual_type="ai_image",
+                        shot_type=b.shot_type,
+                        visual_meta=b.visual_meta or None,
+                    )
+                    continue
+                except Exception as exc:
+                    self._log.warning(
+                        "scene_shot_image_failed",
+                        scene=b.scene_index,
+                        shot=b.shot_index,
+                        error=str(exc),
+                    )
+
+            # Image provider is None (free test mode) or failed (e.g. 402/429):
+            # 1) Try real moving stock B-roll first ($0 cost).
+            fb_broll = _try_fallback_broll(b)
+            if fb_broll is not None:
+                fb_url, fb_bytes = fb_broll
+                _drop_stale_shot_files(stem_abs)
+                rel_mp4 = f"{stem_rel}.mp4"
+                (run_root / rel_mp4).write_bytes(fb_bytes)
+                resolved_shots[b.global_index] = VisualShot(
+                    path=rel_mp4,
+                    duration_sec=b.audio_duration,
+                    source=_broll_source(fb_url),
+                    query=b.beat_query,
+                    prompt="",
+                    visual_type="broll",
+                )
+                continue
+
+            # 2) Promote to an animated 1080p30 Playwright motion graphic instead of a static slide!
+            _, inferred_pref = classify_beat_override(b, self._settings)
+            pref_tid = inferred_pref or fallback_tpl_cycle[fb_counter % len(fallback_tpl_cycle)]
+            fb_counter += 1
+            tid = pick_enabled_template(
+                pref_tid,
+                self._settings,
+                previous_template=last_promoted_tpl,
+                usage_counts=tpl_usage,
+            )
+            if tid is not None:
+                b.visual_type = "programmatic_graphic"
+                b.template_id = tid
+                b.template_props = build_deterministic_template_props(
+                    tid, b, settings=self._settings, video_title=self._video_title
+                )
+                tpl_usage[tid] = tpl_usage.get(tid, 0) + 1
+                last_promoted_tpl = tid
+                continue
+
+            # 3) Ultimate fallback only if all 7 templates were manually disabled in .env.
+            _drop_stale_shot_files(stem_abs)
+            _write_card(
+                b.spoken_text or b.on_screen_text, self._settings.resolution_wh, run_root / rel_png
+            )
+            resolved_shots[b.global_index] = VisualShot(
+                path=rel_png,
+                duration_sec=b.audio_duration,
+                source="card",
+                query=b.beat_query,
+                prompt=b.prompt,
+                visual_type="ai_image",
+                shot_type=b.shot_type,
+                visual_meta=b.visual_meta or None,
+            )
+
+        # Pass B: Batch-author executive LLM template_props across all active programmatic graphics
+        # (both planned + fallback-promoted), then render crisp 1080p30 .mp4 clips via Chromium.
+        reused_graphic_indices: set[int] = set()
+        for b in beats:
+            if b.visual_type == "programmatic_graphic" and b.template_id:
+                rel_mp4 = f"assets/scenes/scene_{b.scene_index}_shot_{b.shot_index}.mp4"
+                if reuse and (run_root / rel_mp4).exists():
+                    reused_graphic_indices.add(b.global_index)
+
+        enriched = author_motion_graphics_props(
+            beats,
+            self._settings,
+            self._llm,
+            video_title=self._video_title,
+            niche=getattr(self._settings, "target_niche", "") or "",
+            skip_indices=reused_graphic_indices,
+        )
+        if enriched:
+            self._log.info("motion_graphics_props_authored", count=enriched)
+
+        width, height = self._settings.resolution_wh
+        reg = TemplateRegistry(
+            width=width,
+            height=height,
+            fps=self._settings.video_fps,
+            ffmpeg_path=self._settings.ffmpeg_path,
+            video_encoder=self._settings.video_encoder,
+            settings=self._settings,
+        )
+        for b in beats:
+            if b.global_index in resolved_shots:
+                continue
+            stem_rel = f"assets/scenes/scene_{b.scene_index}_shot_{b.shot_index}"
+            stem_abs = run_root / stem_rel
+            rel_mp4 = f"{stem_rel}.mp4"
+            if b.global_index in reused_graphic_indices:
+                saved_key = f"scene_{b.scene_index}_shot_{b.shot_index}"
+                prior_props = (self._existing_prompts.get(saved_key) or {}).get("template_props")
+                resolved_shots[b.global_index] = VisualShot(
+                    path=rel_mp4,
+                    duration_sec=b.audio_duration,
+                    source="reused",
+                    query=b.beat_query,
+                    prompt="",
+                    visual_type="programmatic_graphic",
+                    override_to_graphic=b.override_to_graphic,
+                    template_id=b.template_id,
+                    template_props=prior_props
+                    if isinstance(prior_props, dict)
+                    else b.template_props,
+                )
+                continue
+            _drop_stale_shot_files(stem_abs)
+            try:
+                assert b.template_id is not None
+                reg.render_template(
+                    b.template_id,
+                    b.template_props,
+                    b.audio_duration,
+                    run_root / rel_mp4,
+                )
+                resolved_shots[b.global_index] = VisualShot(
+                    path=rel_mp4,
+                    duration_sec=b.audio_duration,
+                    source="programmatic_graphic",
+                    query=b.beat_query,
+                    prompt="",
+                    visual_type="programmatic_graphic",
+                    override_to_graphic=b.override_to_graphic,
+                    template_id=b.template_id,
+                    template_props=b.template_props,
+                )
+            except Exception as exc:
+                self._log.warning(
+                    "programmatic_template_render_failed",
+                    scene=b.scene_index,
+                    shot=b.shot_index,
+                    template=b.template_id,
+                    error=str(exc),
+                )
+                rel_png = f"{stem_rel}.png"
+                _write_card(
+                    b.spoken_text or b.on_screen_text,
+                    self._settings.resolution_wh,
+                    run_root / rel_png,
+                )
+                resolved_shots[b.global_index] = VisualShot(
+                    path=rel_png,
+                    duration_sec=b.audio_duration,
+                    source="card",
+                    query=b.beat_query,
+                    prompt=b.prompt,
+                    visual_type="ai_image",
+                )
+
+        shots_by_scene: dict[int, list[VisualShot]] = {}
+        for b in beats:
+            sh = resolved_shots.get(b.global_index)
+            if sh is not None:
+                shots_by_scene.setdefault(b.scene_index, []).append(sh)
+
+        out_scenes: list[SceneVisual] = []
+        for scene in sorted(script.scenes, key=lambda s: s.index):
+            sc_shots = shots_by_scene.get(scene.index, [])
+            dur = round(durations.get(scene.index, 3.0), 3)
+            if sc_shots:
+                out_scenes.append(
+                    SceneVisual(
+                        scene_index=scene.index,
+                        kind="broll",
+                        path=sc_shots[0].path,
+                        source=sc_shots[0].source,
+                        prompt_or_query=", ".join(
+                            (scene.b_roll_keywords or [sc_shots[0].query])[:_MAX_SHOTS_PER_SCENE]
+                        ),
+                        on_screen_text=scene.on_screen_text,
+                        sfx=scene.sfx,
+                        duration_sec=dur,
+                        shots=sc_shots,
+                    )
+                )
+            else:
+                out_scenes.append(
+                    self._build_scene_visual(scene, run_root, duration=dur, picker=picker)
+                )
+        return out_scenes
+
     def _shot_image_prompts(self, scene, shots: list[tuple[int, str]]) -> dict[int, str]:
         """Witty, richly descriptive image prompts for the shots that got NO stock B-roll — one LLM
         call for the whole scene. ``shots`` pairs each shot's index with the words spoken while it is
         on screen. Empty dict when off / no LLM / on any failure, so the caller uses its deterministic
         template."""
+        self._shot_diagrams = {}
         if not shots or self._llm is None or not self._settings.scene_image_director_enabled:
             return {}
         try:
@@ -1147,7 +1647,7 @@ def _write_card(
     elif punchy:
         img = _thumbnail_fallback_bg(size_wh)  # no AI image -> a DESIGNED thumbnail, never empty
     else:
-        img = _gradient_bg(size_wh)
+        img = _thumbnail_fallback_bg(size_wh)  # designed obsidian backdrop with glows + dot-grid
 
     occupied = 0.0
     if avatar_path is not None:
@@ -1162,32 +1662,71 @@ def _write_card(
         img.save(target, format="PNG")
         return
 
-    draw = ImageDraw.Draw(img)
-    margin = int(width * 0.08)
-    bar_w = max(6, width // 200)
-    gap = int(width * 0.025)
-    font = _load_font(int(height * 0.09))
-    lines = _wrap_to_width(draw, text or "", font, width - 2 * margin - bar_w - gap)
+    # Editorial dark-mode fallback card: strip inline '· Source: ...' into a clean bottom-left pill
+    # badge and draw inside a sleek obsidian glass panel (zero harsh cartoon black stroke).
+    raw_txt = (text or "").strip()
+    src_match = re.search(r"(?:·|\|)?\s*source:\s*(.+)$", raw_txt, flags=re.IGNORECASE)
+    src_badge = src_match.group(1).strip() if src_match else ""
+    headline_txt = re.sub(r"\s*(?:·|\|)?\s*source:\s*.+$", "", raw_txt, flags=re.IGNORECASE).strip()
 
-    line_h = _line_height(draw, font)
-    block_h = line_h * len(lines)
-    y0 = max(margin, (height - block_h) // 2)
-    x_text = margin + bar_w + gap
+    overlay = Image.new("RGBA", size_wh, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    pad_x = int(width * 0.07)
+    card_top = int(height * 0.18)
+    card_bot = int(height * 0.78)
+    radius = max(8, int(min(width, height) * 0.022))
+    odraw.rounded_rectangle(
+        [pad_x, card_top, width - pad_x, card_bot],
+        radius=radius,
+        fill=(13, 19, 33, 224),
+        outline=(148, 163, 184, 58),
+        width=max(1, width // 960),
+    )
+    odraw.rounded_rectangle(
+        [pad_x, card_top, width - pad_x, card_top + max(3, height // 240)],
+        radius=2,
+        fill=(56, 189, 248, 235),
+    )
 
-    stroke = max(3, int(height * 0.008))  # heavy black outline so the title pops on a vivid image
-    draw.rectangle([margin, y0, margin + bar_w, y0 + block_h], fill=(56, 189, 248))  # accent bar
-    y = y0
-    for line in lines:
-        draw.text(
-            (x_text, y),
-            line,
-            font=font,
-            fill=(255, 255, 255),
-            stroke_width=stroke,
-            stroke_fill=(0, 0, 0),
+    inner_x = pad_x + int(width * 0.045)
+    inner_w = max(40, (width - pad_x) - inner_x - int(width * 0.045))
+    eyebrow_font = _load_clean_sans_font(max(10, int(height * 0.022)), mono=True)
+    body_font = _load_clean_sans_font(max(14, int(height * 0.052)))
+    lines = _wrap_to_width(odraw, headline_txt or "KEY INSIGHT", body_font, inner_w, max_lines=4)
+    lh = _line_height(odraw, body_font)
+    eyebrow_h = int(height * 0.05)
+    total_h = eyebrow_h + lh * len(lines)
+    y0 = max(card_top + int(height * 0.04), card_top + ((card_bot - card_top) - total_h) // 2)
+
+    odraw.text((inner_x, y0), "KEY INSIGHT", font=eyebrow_font, fill=(56, 189, 248, 245))
+    y = y0 + eyebrow_h
+    for ln in lines:
+        odraw.text((inner_x + 2, y + 2), ln, font=body_font, fill=(0, 0, 0, 140))
+        odraw.text((inner_x, y), ln, font=body_font, fill=(248, 250, 252, 255))
+        y += lh
+
+    if src_badge:
+        pill_font = _load_clean_sans_font(max(9, int(height * 0.018)), mono=True)
+        pill_label = f"SOURCE // {src_badge.upper()[:48]}"
+        pw = int(odraw.textbbox((0, 0), pill_label, font=pill_font)[2]) + int(width * 0.03)
+        ph = max(18, int(height * 0.042))
+        py = int(height * 0.86)
+        odraw.rounded_rectangle(
+            [pad_x, py, min(int(width * 0.82), pad_x + pw), py + ph],
+            radius=ph // 2,
+            fill=(15, 23, 42, 235),
+            outline=(148, 163, 184, 70),
+            width=1,
         )
-        y += line_h
-    img.save(target, format="PNG")
+        odraw.text(
+            (pad_x + int(width * 0.015), py + max(2, int(ph * 0.22))),
+            pill_label,
+            font=pill_font,
+            fill=(203, 213, 225, 255),
+        )
+
+    out_img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    out_img.save(target, format="PNG")
 
 
 _THUMB_ACCENT = (253, 224, 71)  # bright yellow — the number / power-word highlight
@@ -1272,6 +1811,31 @@ def _load_display_font(size: int):
         "arialbd.ttf",
         "DejaVuSans-Bold.ttf",
     ):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return _load_font(size)
+
+
+def _load_clean_sans_font(size: int, *, mono: bool = False):
+    """Crisp editorial sans/monospace face for dark-mode fallback cards."""
+    from PIL import ImageFont
+
+    candidates = (
+        (
+            "C:/Windows/Fonts/consolab.ttf",
+            "C:/Windows/Fonts/consola.ttf",
+            "DejaVuSansMono-Bold.ttf",
+        )
+        if mono
+        else (
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "DejaVuSans-Bold.ttf",
+        )
+    )
+    for path in candidates:
         try:
             return ImageFont.truetype(path, size)
         except Exception:

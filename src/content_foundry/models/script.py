@@ -18,6 +18,10 @@ class SceneCue(BaseModel):
     sfx: str | None = None  # optional sound-effect keyword, mixed in at this scene's start
     editor_note: str | None = None  # short editing/direction note for the editor (NEVER spoken)
     cut: str | None = None  # pacing hint (fast|quick|hard|hold|slow...) — steers shot density
+    visual_source: str | None = None  # offloaded structured citation/report label shown on screen
+    source_url: str | None = None  # canonical http(s) URL for this scene's grounded fact_ref
+    is_comment_friction: bool = False  # ~60% mark falsifiable claim + discussion prompt beat
+    discussion_question: str | None = None  # punchy (<= 6 words) on-screen comment question
 
 
 class Script(BaseModel):
@@ -35,8 +39,16 @@ class Script(BaseModel):
     # url + blurb + mention). Stamped in a post-pass so the description can never promise a missing
     # link. [{"label", "url", "blurb", "mention"}].
     affiliate_links: list[dict] = Field(default_factory=list)
+    # Resolved clickable URLs for grounded sources embedded visually in the video: [{"label", "url"}].
+    source_links: list[dict] = Field(default_factory=list)
+    # Optional per-video disclaimer rendered into the YouTube description (e.g. independent commentary).
+    disclaimer: str = ""
+    # When true on a specific video, omits global CREATOR_CREDENTIAL_LINE from the description.
+    suppress_creator_credential: bool = False
     thumbnail_concept: str = ""
-    thumbnail_text: str = ""  # dedicated punchy overlay TEXT for the thumbnail (may differ from title)
+    thumbnail_text: str = (
+        ""  # dedicated punchy overlay TEXT for the thumbnail (may differ from title)
+    )
     word_count: int = 0
     grounded_fact_refs: list[int] = Field(default_factory=list)
     synthetic_disclosure: bool = True

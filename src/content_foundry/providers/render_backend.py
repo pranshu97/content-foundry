@@ -23,14 +23,15 @@ def loudnorm_enabled(lufs: float) -> bool:
     return lufs < 0.0
 
 
-def loudnorm_opts(lufs: float, *, true_peak: float = -1.5, lra: float = 11.0) -> dict[str, float]:
+def loudnorm_opts(lufs: float, *, true_peak: float = -1.5, lra: float = 14.0) -> dict[str, float]:
     """EBU R128 options for ffmpeg's ``loudnorm`` filter, mastering the final mix to ``lufs``.
 
     Why this is needed at all: YouTube normalises playback to roughly -14 LUFS, but it only ever
     turns audio DOWN — a quiet upload is never boosted. Raw TTS lands around -31 dBFS RMS with ~23 dB
     of crest factor, so a plain volume boost would clip long before reaching the target; loudnorm
     handles the dynamics instead. ``true_peak`` keeps 1.5 dB below full scale so the lossy AAC encode
-    cannot overshoot into clipping.
+    cannot overshoot into clipping, and ``lra=14.0`` preserves natural speech micro-dynamics so
+    single-pass AGC does not pump quiet breath tails between sentences.
     """
     return {"I": lufs, "TP": true_peak, "LRA": lra}
 
@@ -346,10 +347,12 @@ class FfmpegBackend:
             # whole scene as one stream so captions, citations, sfx and transitions stay scene-level.
             beats = list(seg.clips) or [(seg.visual_path, max(seg.duration, 0.1))]
             moves = list(getattr(seg, "motions", ()) or [])
+            graphics = list(getattr(seg, "is_graphic", ()) or [])
             substreams = []
             last = len(beats) - 1
             for j, (path, clip_dur) in enumerate(beats):
                 d = max(clip_dur, 0.1) + (pad if j == last else 0.0)  # pad only the scene's tail
+                is_prog = j < len(graphics) and bool(graphics[j])
                 if path.lower().endswith(video_exts):
                     # Fit the clip to its beat WITHOUT looping — a short clip looping mid-scene is the
                     # "same b-roll 3x" artifact. A too-short clip is slowed to fill the beat (smooth
@@ -359,24 +362,34 @@ class FfmpegBackend:
                     clen = _probe_seconds(path)
                     if clen and clen + 0.05 < d:
                         v = v.filter("setpts", f"{d / clen:.6f}*PTS")
-                    # Render slightly larger than the frame, then take the frame back out of it
-                    # off-centre, so the delivered pixels are not the stock file's pixels. Spatial
-                    # only -- every timing filter below is untouched.
-                    # `width`/`height` arrive as STRINGS from the resolution split, so coerce before
-                    # any arithmetic (see the same note in `_still_stream`).
                     out_w, out_h = int(width), int(height)
-                    zw = round(out_w * (1 + CLIP_REFRAME) / 2) * 2
-                    zh = round(out_h * (1 + CLIP_REFRAME) / 2) * 2
-                    dx, dy = _reframe_crop(seg.index * 7 + j, zw - out_w, zh - out_h)
-                    s = (
-                        _scale_cover(v, zw, zh)
-                        .filter("crop", out_w, out_h, dx, dy)
-                        .filter("setsar", "1")
-                        .filter("fps", fps)
-                        .filter("tpad", stop_mode="clone", stop_duration=d)
-                        .trim(duration=d)
-                        .filter("setpts", "PTS-STARTPTS")
-                    )
+                    if is_prog:
+                        # Programmatic motion graphics are already rendered at exact target aspect
+                        # with strict safe-zone margins — never apply the 4% stock-footage crop.
+                        s = (
+                            _scale_cover(v, out_w, out_h)
+                            .filter("setsar", "1")
+                            .filter("fps", fps)
+                            .filter("tpad", stop_mode="clone", stop_duration=d)
+                            .trim(duration=d)
+                            .filter("setpts", "PTS-STARTPTS")
+                        )
+                    else:
+                        # Render slightly larger than the frame, then take the frame back out of it
+                        # off-centre, so the delivered pixels are not the stock file's pixels. Spatial
+                        # only -- every timing filter below is untouched.
+                        zw = round(out_w * (1 + CLIP_REFRAME) / 2) * 2
+                        zh = round(out_h * (1 + CLIP_REFRAME) / 2) * 2
+                        dx, dy = _reframe_crop(seg.index * 7 + j, zw - out_w, zh - out_h)
+                        s = (
+                            _scale_cover(v, zw, zh)
+                            .filter("crop", out_w, out_h, dx, dy)
+                            .filter("setsar", "1")
+                            .filter("fps", fps)
+                            .filter("tpad", stop_mode="clone", stop_duration=d)
+                            .trim(duration=d)
+                            .filter("setpts", "PTS-STARTPTS")
+                        )
                 else:
                     s = _still_stream(
                         path, width, height, fps, d, moves[j] if j < len(moves) else ""
@@ -510,6 +523,8 @@ class FfmpegBackend:
             output_path,
             vcodec=encoder,
             acodec="aac",
+            ar=48000,
+            audio_bitrate="192k",
             pix_fmt="yuv420p",
             r=fps,
             shortest=None,

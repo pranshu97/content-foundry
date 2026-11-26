@@ -8,10 +8,14 @@ tricks. Pure functions of the script + visuals (no LLM, no network). The disclos
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlparse
 
-from ..models import Script, VisualPackage
+from ..models import DataBrief, ResearchBrief, Script, VisualPackage
+from .captions import citation_label, source_only
 
 _MAX_TAG_LEN = 30
 _MAX_TAGS_CHARS = 480  # YouTube's combined-tag budget is ~500 chars
@@ -140,7 +144,8 @@ def _format_timestamp(seconds: float) -> str:
 
 
 def _chapter_label(text: str) -> str:
-    words = " ".join((text or "").split()).split()
+    stripped = re.sub(r"\s*(?:·|\|)?\s*source:\s*.+$", "", text or "", flags=re.IGNORECASE)
+    words = " ".join(stripped.split()).split()
     return " ".join(words[:7])[:60].strip()
 
 
@@ -203,6 +208,221 @@ def youtube_safe_text(text: str) -> str:
     return text.translate(_YOUTUBE_ANGLE) if text else text
 
 
+def _clean_host(url: str) -> str:
+    host = urlparse((url or "").strip()).netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _is_http_url(url: str | None) -> bool:
+    u = (url or "").strip()
+    return u.startswith(("http://", "https://"))
+
+
+def _reconstruct_fact_urls(
+    run_root: Path | None,
+    brief: DataBrief | None = None,
+    research: ResearchBrief | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    """Reconstruct ordered ``fact_ref -> url`` and ``domain -> first_url`` maps from run artifacts.
+
+    Matches ``Orchestrator._augment_brief`` ordering (creator_data + research.points + on-topic
+    data_brief.key_facts) so existing runs whose ``script.json`` predates ``source_links`` still
+    resolve every cited ``fact_ref`` to its exact source URL.
+    """
+    creator_urls: list[str] = []
+    if run_root is not None:
+        meta_path = run_root / "run_meta.json"
+        if meta_path.is_file():
+            try:
+                raw_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                raw_creator = str(raw_meta.get("creator_data") or "")
+                if raw_creator.strip():
+                    from ..pipeline.creator_data import creator_key_facts
+
+                    creator_urls = [
+                        (kf.citation.url or "").strip() for kf in creator_key_facts(raw_creator)
+                    ]
+            except Exception:
+                creator_urls = []
+
+        if research is None and (run_root / "research.json").is_file():
+            try:
+                research = ResearchBrief.model_validate_json(
+                    (run_root / "research.json").read_text(encoding="utf-8")
+                )
+            except Exception:
+                research = None
+
+        if brief is None and (run_root / "data_brief.json").is_file():
+            try:
+                brief = DataBrief.model_validate_json(
+                    (run_root / "data_brief.json").read_text(encoding="utf-8")
+                )
+            except Exception:
+                brief = None
+
+    research_urls: list[str] = []
+    if research is not None and research.points:
+        research_urls = [(pt.source_url or "").strip() for pt in research.points if pt.point]
+
+    brief_urls: list[str] = []
+    if brief is not None and brief.key_facts:
+        if research is not None and research.points:
+            from ..pipeline.topic_relevance import filter_to_idea
+
+            idea = (research.idea or brief.topic_seed or brief.niche or "").strip()
+            kept = filter_to_idea(list(brief.key_facts), idea=idea, text=lambda kf: kf.statement)
+            brief_urls = [(kf.citation.url or "").strip() for kf in kept]
+        else:
+            brief_urls = [(kf.citation.url or "").strip() for kf in brief.key_facts]
+
+    ordered = creator_urls + research_urls + brief_urls
+    by_domain: dict[str, str] = {}
+    all_candidates = list(ordered)
+    if research is not None:
+        all_candidates.extend(research.source_urls or [])
+    if brief is not None:
+        all_candidates.extend((kf.citation.url or "").strip() for kf in brief.key_facts)
+
+    for u in all_candidates:
+        if _is_http_url(u):
+            host = _clean_host(u)
+            if host and host not in by_domain:
+                by_domain[host] = u
+            base = host.split(".")[0] if host else ""
+            if base and base not in by_domain:
+                by_domain[base] = u
+    return ordered, by_domain
+
+
+def collect_embedded_sources(
+    script: Script,
+    visuals: VisualPackage | None = None,
+    *,
+    run_root: Path | None = None,
+    brief: DataBrief | None = None,
+    research: ResearchBrief | None = None,
+) -> list[tuple[str, str]]:
+    """Return ordered, deduplicated ``(label, url)`` pairs for every source embedded in the video.
+
+    Covers both on-screen motion-graphics ``SOURCE // ...`` badges and burned top-strip citations
+    (``citations.srt``), resolving URLs from ``scene.source_url``, ``script.source_links``, or the
+    run's saved ``research.json`` / ``data_brief.json`` artifacts.
+    """
+    fact_urls, domain_map = _reconstruct_fact_urls(run_root, brief=brief, research=research)
+    for item in getattr(script, "source_links", None) or []:
+        if isinstance(item, dict) and _is_http_url(item.get("url")):
+            u = str(item["url"]).strip()
+            h = _clean_host(u)
+            if h and h not in domain_map:
+                domain_map[h] = u
+
+    vis_by_scene = (
+        {sv.scene_index: sv for sv in visuals.scenes}
+        if (visuals is not None and visuals.scenes)
+        else {}
+    )
+
+    out: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+
+    for scene in sorted(script.scenes, key=lambda s: s.index):
+        sv = vis_by_scene.get(scene.index)
+        embedded_hints: list[str] = []
+        if sv is not None:
+            for sh in sv.shots or []:
+                if getattr(sh, "visual_type", "") == "programmatic_graphic":
+                    src_prop = str(
+                        (getattr(sh, "template_props", None) or {}).get("source") or ""
+                    ).strip()
+                    if src_prop:
+                        embedded_hints.append(src_prop)
+            cit_lbl = citation_label(sv.on_screen_text or "")
+            if cit_lbl:
+                embedded_hints.append(cit_lbl)
+        else:
+            if getattr(scene, "visual_source", None):
+                embedded_hints.append(str(scene.visual_source).strip())
+            raw_ost = source_only(scene.on_screen_text or "")
+            if raw_ost:
+                embedded_hints.append(raw_ost.split(":", 1)[-1].strip())
+            if getattr(scene, "source_url", None):
+                embedded_hints.append(str(scene.source_url).strip())
+
+        if not embedded_hints:
+            continue
+
+        resolved_url = ""
+        sc_url = getattr(scene, "source_url", None)
+        if _is_http_url(sc_url):
+            resolved_url = str(sc_url).strip()
+        elif (
+            scene.fact_ref is not None
+            and 0 <= scene.fact_ref < len(fact_urls)
+            and _is_http_url(fact_urls[scene.fact_ref])
+        ):
+            resolved_url = fact_urls[scene.fact_ref]
+        else:
+            # Match any domain or token mentioned in on_screen_text / visual_source / shot props.
+            ost_src = source_only(scene.on_screen_text or "").split(":", 1)[-1].strip().lower()
+            candidates = [ost_src, *(h.lower() for h in embedded_hints)]
+            for cand in candidates:
+                if not cand:
+                    continue
+                if _is_http_url(cand):
+                    resolved_url = cand
+                    break
+                cand_clean = cand.removeprefix("www.")
+                if cand_clean in domain_map:
+                    resolved_url = domain_map[cand_clean]
+                    break
+
+        if not _is_http_url(resolved_url):
+            continue
+        norm_key = resolved_url.rstrip("/")
+        if norm_key in seen_urls:
+            continue
+        seen_urls.add(norm_key)
+        label = _clean_host(resolved_url) or "Source"
+        out.append((label, resolved_url))
+
+    # Fallback: if scenes carried no per-scene match yet script.source_links was explicitly populated.
+    if not out:
+        for item in getattr(script, "source_links", None) or []:
+            if not isinstance(item, dict):
+                continue
+            u = str(item.get("url") or "").strip()
+            if not _is_http_url(u):
+                continue
+            norm_key = u.rstrip("/")
+            if norm_key in seen_urls:
+                continue
+            seen_urls.add(norm_key)
+            lbl = str(item.get("label") or _clean_host(u) or "Source").strip()
+            out.append((lbl, u))
+
+    return out
+
+
+def format_sources_block(sources: list[tuple[str, str]], *, header: str = "Sources:") -> str:
+    """Format deduplicated ``(label, url)`` pairs as the final ``Sources:`` section of a description."""
+    lines: list[str] = []
+    for label, url in sources:
+        u = (url or "").strip()
+        if not _is_http_url(u):
+            continue
+        lbl = (label or "").strip()
+        if lbl and lbl.lower() not in (u.lower(), _clean_host(u).lower()):
+            lines.append(f"- {lbl}: {u}")
+        elif _clean_host(u):
+            lines.append(f"- {_clean_host(u)}: {u}")
+        else:
+            lines.append(f"- {u}")
+    if not lines:
+        return ""
+    return f"{header}\n" + "\n".join(lines)
+
+
 def optimize_description(
     description: str,
     *,
@@ -214,19 +434,13 @@ def optimize_description(
     channel_cta: str = "",
     shorts_hashtag: str = "",
     credential: str = "",
+    disclaimer: str = "",
+    sources_block: str = "",
 ) -> str:
-    """Compose a discoverable description (CTA + resources + chapters + channel CTA + hashtags).
-    Disclosure added downstream. ``affiliate`` (resources + disclosure) sits ABOVE the chapters so it
-    isn't buried. ``shorts_hashtag`` (e.g. #Shorts) leads the hashtag line so YouTube classifies the
-    upload as a Short.
-
-    ``credential`` sits directly BELOW the body, never in front of it. It used to lead, on the
-    reasoning that YouTube hides everything past the first couple of lines behind "...more" -- but
-    that traded the wrong thing away: the line is byte-identical on every upload, so it adds no signal
-    that could ever distinguish one video from another, while eating the opening that search reads and
-    excerpts (measured at 69 of ~157 snippet characters, 44%, across runs 0024-0030). The topic leads;
-    the credential still lands high enough to be read. Skipped when it already appears in the body, so
-    it can never be said twice.
+    """Compose a discoverable description (CTA + resources + chapters + channel CTA + hashtags +
+    Sources at the very end). Disclosure added downstream. ``affiliate`` (resources + disclosure)
+    sits ABOVE the chapters so it isn't buried. ``shorts_hashtag`` (e.g. #Shorts) leads the hashtag
+    line so YouTube classifies the upload as a Short.
     """
     blocks: list[str] = []
     body = (description or "").strip()
@@ -234,6 +448,9 @@ def optimize_description(
     cred = (credential or "").strip()
     if cred and cred.lower() not in body.lower():
         blocks.append(cred)
+    disc = (disclaimer or "").strip()
+    if disc and disc.lower() not in body.lower():
+        blocks.append(disc)
     if cta and cta.strip() and cta.strip().lower() not in body.lower():
         blocks.append(cta.strip())
     if affiliate and affiliate.strip():
@@ -250,6 +467,9 @@ def optimize_description(
     tag_line = " ".join(tag_parts)
     if tag_line:
         blocks.append(tag_line)
+    # Sources section sits at the VERY LAST of the description per creator convention.
+    if sources_block and sources_block.strip():
+        blocks.append(sources_block.strip())
     return "\n\n".join(b for b in blocks if b)
 
 
@@ -259,7 +479,13 @@ def _scene_durations(visuals: VisualPackage) -> dict[int, float]:
 
 
 def optimize_metadata(
-    script: Script, visuals: VisualPackage, settings, *, affiliate_block: str = ""
+    script: Script,
+    visuals: VisualPackage,
+    settings,
+    *,
+    affiliate_block: str = "",
+    sources_block: str = "",
+    run_root: Path | None = None,
 ) -> OptimizedMetadata:
     """Full deterministic metadata pass for the Publisher."""
     title = optimize_title(
@@ -274,13 +500,22 @@ def optimize_metadata(
         max_tags=settings.seo_max_tags,
     )
     durations = _scene_durations(visuals)
+    speed = max(0.25, float(getattr(settings, "video_speed", 1.0) or 1.0))
     items = [
-        (durations.get(scene.index, 0.0), scene.on_screen_text or scene.narration)
+        (durations.get(scene.index, 0.0) / speed, scene.on_screen_text or scene.narration)
         for scene in sorted(script.scenes, key=lambda s: s.index)
     ]
     # Chapters don't apply to a Short (one continuous <60s clip) — skip them there.
     add_chapters = settings.seo_add_chapters and not settings.is_short
     chapters = build_chapters(items) if add_chapters else []
+    resolved_sources = sources_block or format_sources_block(
+        collect_embedded_sources(script, visuals, run_root=run_root)
+    )
+    credential = (
+        ""
+        if getattr(script, "suppress_creator_credential", False)
+        else getattr(settings, "creator_credential_line", "")
+    )
     description = optimize_description(
         script.description,
         cta=script.cta,
@@ -290,6 +525,8 @@ def optimize_metadata(
         add_chapters=add_chapters,
         channel_cta=channel_cta_block(settings),
         shorts_hashtag=settings.shorts_hashtag if settings.is_short else "",
-        credential=getattr(settings, "creator_credential_line", ""),
+        credential=credential,
+        disclaimer=getattr(script, "disclaimer", ""),
+        sources_block=resolved_sources,
     )
     return OptimizedMetadata(title=title, description=description, tags=tags)

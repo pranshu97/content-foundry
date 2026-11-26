@@ -24,6 +24,8 @@ class RenderSegment:
     # Camera move per entry in ``clips``. Stills get one so they don't sit frozen between moving
     # B-roll; real footage already moves, so it is always "none" there.
     motions: tuple[str, ...] = ()
+    # Marks programmatic motion-graphic beats so FfmpegBackend skips the 4% stock-clip reframe crop.
+    is_graphic: tuple[bool, ...] = ()
 
 
 def _shot_durations(shots, word_starts: list[float], start: float, end: float) -> list[float]:
@@ -65,6 +67,7 @@ def build_timeline(
         scene_dur = max(0.0, timing.end - timing.start)
         clips: tuple[tuple[str, float], ...] = ()
         motions: tuple[str, ...] = ()
+        is_graphic: tuple[bool, ...] = ()
         if visual and visual.shots:
             spoken = [
                 w.start for w in voiceover.word_timings if timing.start <= w.start < timing.end
@@ -72,9 +75,15 @@ def build_timeline(
             durations = _shot_durations(visual.shots, spoken, timing.start, timing.end)
             clips = tuple((s.path, dur) for s, dur in zip(visual.shots, durations, strict=True))
             picked: list[str] = []
+            graphic_flags: list[bool] = []
             for i, shot in enumerate(visual.shots):
+                prog = (
+                    getattr(shot, "visual_type", "") == "programmatic_graphic"
+                    or getattr(shot, "source", "") == "programmatic_graphic"
+                )
+                graphic_flags.append(prog)
                 still = shot.path.lower().endswith(_STILL_SUFFIXES)
-                if not (motion_enabled and still):
+                if prog or not (motion_enabled and still):
                     picked.append(NONE)
                     continue
                 # The prompt states the camera the image was composed for, so the move can match it.
@@ -84,6 +93,7 @@ def build_timeline(
                 picked.append(move)
                 previous_motion = move
             motions = tuple(picked)
+            is_graphic = tuple(graphic_flags)
         segments.append(
             RenderSegment(
                 index=timing.scene_index,
@@ -96,6 +106,7 @@ def build_timeline(
                 sfx=visual.sfx if visual else None,
                 clips=clips,
                 motions=motions,
+                is_graphic=is_graphic,
             )
         )
     return segments

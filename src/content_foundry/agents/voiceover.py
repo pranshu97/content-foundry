@@ -445,5 +445,5 @@ def _decode_concat(
     if combined is None or not durations:  # pragma: no cover - real audio only
         return None
     buf = BytesIO()  # pragma: no cover - real audio only
-    combined.export(buf, format="mp3")  # pragma: no cover - needs ffmpeg
+    combined.export(buf, format="mp3", bitrate="256k")  # pragma: no cover - needs ffmpeg
     return durations, buf.getvalue()  # pragma: no cover

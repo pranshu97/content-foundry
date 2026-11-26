@@ -62,6 +62,13 @@ _BASE_ENV = {
     "PRONUNCIATION_LLM_ENABLED": "false",
     # Off so the visuals stage's thumbnail director doesn't add an LLM call to the fake call sequence.
     "THUMBNAIL_DIRECTOR_ENABLED": "false",
+    # Off by default in hermetic unit tests so FakeLLM call counts stay unchanged and headless Chromium
+    # / procedural audio only run in suites that explicitly opt in.
+    "ENABLE_PROGRAMMATIC_GRAPHICS": "false",
+    "ENABLE_STORYBOARD_CRITIC": "false",
+    "PROGRAMMATIC_SFX_ENABLED": "false",
+    "ENABLE_AMBIENT_MUSIC": "false",
+    "ENABLE_COMMENT_FRICTION_BEAT": "false",
     # Off by default so the fake (non-mp3) TTS output isn't fed to the pydub mixer; enabled per-test.
     "SFX_ENABLED": "false",
     # Off so the deterministic canned scripts keep their exact narration; the fixed intro is tested on its own.

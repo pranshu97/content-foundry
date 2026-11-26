@@ -175,6 +175,8 @@ def build_image_provider(settings: Settings) -> ImageProvider | None:
     primary = _make_single_image(settings.image_provider, settings)
     if primary is None:
         return None
+    if settings.image_fallback_provider == settings.image_provider:
+        return primary
     secondary = _make_single_image(settings.image_fallback_provider, settings)
     if secondary is None:
         return primary
@@ -185,18 +187,31 @@ def build_image_provider(settings: Settings) -> ImageProvider | None:
 
 def build_broll_client(settings: Settings) -> BrollClient:
     clients: list[BrollClient] = []
+    min_score = float(getattr(settings, "broll_relevance_threshold", 0.0) or 0.0)
     if settings.pexels_api_key:
         from .broll import PexelsBrollClient
 
-        clients.append(PexelsBrollClient(settings.pexels_api_key, settings.broll_pool_size))
+        clients.append(
+            PexelsBrollClient(
+                settings.pexels_api_key, settings.broll_pool_size, min_score=min_score
+            )
+        )
     if settings.pixabay_api_key:
         from .broll import PixabayBrollClient
 
-        clients.append(PixabayBrollClient(settings.pixabay_api_key, settings.broll_pool_size))
+        clients.append(
+            PixabayBrollClient(
+                settings.pixabay_api_key, settings.broll_pool_size, min_score=min_score
+            )
+        )
     if settings.coverr_api_key:
         from .broll import CoverrBrollClient
 
-        clients.append(CoverrBrollClient(settings.coverr_api_key, settings.broll_pool_size))
+        clients.append(
+            CoverrBrollClient(
+                settings.coverr_api_key, settings.broll_pool_size, min_score=min_score
+            )
+        )
     if not clients:
         from .broll import NullBrollClient
 

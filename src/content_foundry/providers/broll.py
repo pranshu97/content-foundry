@@ -553,6 +553,44 @@ def _clip_ok(
     return bool(meta_words & vocab)
 
 
+def score_broll_match(
+    query: str,
+    meta,
+    vocab: frozenset[str] | set[str],
+    moment: frozenset[str] = frozenset(),
+) -> float:
+    """Continuous relevance score in ``[0.0, 1.0]`` for a candidate stock B-roll clip.
+
+    Returns ``0.0`` whenever ``_clip_ok`` rejects the candidate (denylist, set-dressing-only query,
+    missing tags, insufficient specific matches, or moment mismatch). When ``vocab`` is empty (no
+    video context supplied), returns ``1.0`` for any non-off-topic clip. Otherwise blends stemmed
+    discriminating-query coverage, spoken-moment overlap, and video-vocabulary grounding so
+    ``broll_relevance_threshold`` (default ``0.78``) cleanly rejects weak filler clips.
+    """
+    if not _clip_ok(query, meta, vocab, moment):
+        return 0.0
+    if not vocab:
+        return 1.0
+    if isinstance(meta, list | tuple):
+        meta = " ".join(str(m) for m in meta)
+    meta_words = set(re.findall(r"[a-z]+", str(meta).lower()))
+    specific = {
+        w
+        for w in re.findall(r"[a-z]+", (query or "").lower())
+        if len(w) >= 3 and w not in _GENERIC_SUBJECTS and w not in _STOCK_FILLER
+    }
+    stem_meta = {_norm(w) for w in meta_words}
+    stem_spec = {_norm(w) for w in specific}
+    spec_cov = len(stem_meta & stem_spec) / max(len(stem_spec), 1)
+    if moment:
+        m_hits = len(stem_meta & moment)
+        moment_score = min(1.0, 0.72 + 0.14 * m_hits)
+    else:
+        moment_score = 0.85
+    vocab_score = min(1.0, len(meta_words & set(vocab)) / 2.0)
+    return round(min(1.0, 0.48 * spec_cov + 0.34 * moment_score + 0.18 * vocab_score), 4)
+
+
 @runtime_checkable
 class BrollClient(Protocol):
     # Read-only on purpose: MultiBrollClient derives `enabled` from its sub-clients, so declaring a
@@ -590,11 +628,17 @@ class PexelsBrollClient:
     _SEARCH_URL = "https://api.pexels.com/videos/search"
 
     def __init__(
-        self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None
+        self,
+        api_key: str,
+        pool_size: int = 15,
+        *,
+        rng: random.Random | None = None,
+        min_score: float = 0.0,
     ) -> None:
         self._api_key = api_key
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
+        self._min_score = max(0.0, float(min_score))
 
     def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
@@ -613,12 +657,18 @@ class PexelsBrollClient:
         resp.raise_for_status()
         vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
         spoken = moment_terms(moment)
-        urls: list[str] = []
-        for video in resp.json().get("videos", []):
+        scored: list[tuple[float, int, str]] = []
+        for idx, video in enumerate(resp.json().get("videos", [])):
             files = sorted(video.get("video_files", []), key=lambda f: f.get("width", 0))
-            if files and _clip_ok(query, _slug_words(video.get("url", "")), vocab, spoken):
-                urls.append(files[-1]["link"])
-        return urls
+            if not files:
+                continue
+            meta = _slug_words(video.get("url", ""))
+            sc = score_broll_match(query, meta, vocab, spoken)
+            if sc > 0.0 and sc >= self._min_score:
+                scored.append((sc, idx, files[-1]["link"]))
+        if self._min_score > 0.0:
+            scored.sort(key=lambda t: (-t[0], t[1]))
+        return [link for _, _, link in scored]
 
     def download(self, url: str) -> bytes:
         return _download_bytes(url)
@@ -633,11 +683,17 @@ class PixabayBrollClient:
     _SEARCH_URL = "https://pixabay.com/api/videos/"
 
     def __init__(
-        self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None
+        self,
+        api_key: str,
+        pool_size: int = 15,
+        *,
+        rng: random.Random | None = None,
+        min_score: float = 0.0,
     ) -> None:
         self._api_key = api_key
         self._pool_size = min(200, max(3, pool_size))  # Pixabay requires per_page in [3, 200]
         self._rng = rng or random.Random()
+        self._min_score = max(0.0, float(min_score))
 
     def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
@@ -655,16 +711,19 @@ class PixabayBrollClient:
         resp.raise_for_status()
         vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
         spoken = moment_terms(moment)
-        urls: list[str] = []
-        for hit in resp.json().get("hits", []):
+        scored: list[tuple[float, int, str]] = []
+        for idx, hit in enumerate(resp.json().get("hits", [])):
             renditions = hit.get("videos", {})
             for size in ("large", "medium", "small", "tiny"):
                 link = (renditions.get(size) or {}).get("url")
                 if link:
-                    if _clip_ok(query, hit.get("tags", ""), vocab, spoken):
-                        urls.append(link)
+                    sc = score_broll_match(query, hit.get("tags", ""), vocab, spoken)
+                    if sc > 0.0 and sc >= self._min_score:
+                        scored.append((sc, idx, link))
                     break
-        return urls
+        if self._min_score > 0.0:
+            scored.sort(key=lambda t: (-t[0], t[1]))
+        return [link for _, _, link in scored]
 
     def download(self, url: str) -> bytes:
         return _download_bytes(url)
@@ -680,11 +739,17 @@ class CoverrBrollClient:
     _SEARCH_URL = "https://api.coverr.co/videos"
 
     def __init__(
-        self, api_key: str, pool_size: int = 15, *, rng: random.Random | None = None
+        self,
+        api_key: str,
+        pool_size: int = 15,
+        *,
+        rng: random.Random | None = None,
+        min_score: float = 0.0,
     ) -> None:
         self._api_key = api_key
         self._pool_size = max(1, pool_size)
         self._rng = rng or random.Random()
+        self._min_score = max(0.0, float(min_score))
 
     def search(self, query: str, *, context: str = "", moment: str = "") -> list[str]:
         import httpx
@@ -703,12 +768,18 @@ class CoverrBrollClient:
         resp.raise_for_status()
         vocab = set(re.findall(r"[a-z]{3,}", context.lower()))
         spoken = moment_terms(moment)
-        urls: list[str] = []
-        for hit in resp.json().get("hits", []):
+        scored: list[tuple[float, int, str]] = []
+        for idx, hit in enumerate(resp.json().get("hits", [])):
             link = (hit.get("urls") or {}).get("mp4")
-            if link and _clip_ok(query, [hit.get("title", ""), hit.get("tags", "")], vocab, spoken):
-                urls.append(link)
-        return urls
+            if link:
+                sc = score_broll_match(
+                    query, [hit.get("title", ""), hit.get("tags", "")], vocab, spoken
+                )
+                if sc > 0.0 and sc >= self._min_score:
+                    scored.append((sc, idx, link))
+        if self._min_score > 0.0:
+            scored.sort(key=lambda t: (-t[0], t[1]))
+        return [link for _, _, link in scored]
 
     def download(self, url: str) -> bytes:
         return _download_bytes(url)

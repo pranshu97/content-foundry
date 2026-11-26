@@ -200,6 +200,50 @@ def _loop_salient(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z]{4,}", (text or "").lower()) if w not in _LOOP_STOP}
 
 
+def average_sentence_words(script: Script) -> float:
+    """Average spoken words per sentence across all scenes in ``script``."""
+    sentences: list[str] = []
+    for scene in script.scenes:
+        parts = [p.strip() for p in re.split(r"[.!?]+", scene.narration or "") if p.strip()]
+        sentences.extend(parts)
+    if not sentences:
+        return 0.0
+    total_words = sum(len(s.split()) for s in sentences)
+    return round(total_words / len(sentences), 2)
+
+
+def comment_friction_report(
+    script: Script, *, target_ratio: float = 0.60, max_question_words: int = 6
+) -> tuple[bool, str]:
+    """Validate that a long-form script carries one Comment Friction beat near ``target_ratio``
+    with a concise ``<= max_question_words`` on-screen ``discussion_question``."""
+    marked = [s for s in script.scenes if getattr(s, "is_comment_friction", False)]
+    if not marked:
+        return (
+            False,
+            f"No scene is marked is_comment_friction=true near the {int(target_ratio * 100)}% mark.",
+        )
+    if len(marked) > 1:
+        return (
+            False,
+            f"Mark at most ONE scene is_comment_friction=true (found {len(marked)}).",
+        )
+    scene = marked[0]
+    q = (getattr(scene, "discussion_question", None) or "").strip()
+    if not q:
+        return (
+            False,
+            f"Scene {scene.index} is marked is_comment_friction=true but has no discussion_question.",
+        )
+    words = q.split()
+    if len(words) > max_question_words:
+        return (
+            False,
+            f"discussion_question {q!r} has {len(words)} words (max {max_question_words}).",
+        )
+    return (True, "")
+
+
 def open_loop_report(script: Script) -> tuple[bool, str]:
     """Guardrail against a bait-and-switch retention hook. Returns ``(ok, note)``.
 

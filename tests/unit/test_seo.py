@@ -272,3 +272,94 @@ def test_optimize_metadata_short_skips_chapters_and_tags_shorts(monkeypatch, goo
     meta = optimize_metadata(good_script, _visuals(12.0), get_settings())
     assert "Chapters:" not in meta.description  # chapters don't apply to a Short
     assert "#Shorts" in meta.description
+
+
+def test_embedded_video_sources_render_at_very_end_and_credential_can_be_suppressed(
+    monkeypatch, good_script
+):
+    from content_foundry.config import get_settings, reset_settings_cache
+    from content_foundry.models import VisualShot
+    from content_foundry.production.seo import collect_embedded_sources, format_sources_block
+
+    monkeypatch.setenv("CREATOR_CREDENTIAL_LINE", "Ex-Contoso Staff Engineer.")
+    reset_settings_cache()
+    s = get_settings()
+
+    good_script.scenes[0].on_screen_text = "POSTINGS -31% · Source: techcrunch.com"
+    good_script.scenes[0].source_url = "https://techcrunch.com/2026/07/25/layoffs-report/"
+    good_script.scenes[1].on_screen_text = "$112K MEDIAN · Source: cnbc.com"
+    good_script.scenes[1].source_url = "https://www.cnbc.com/2026/10/26/pay-report.html"
+    good_script.scenes[2].on_screen_text = "PORTFOLIO EDGE"
+    good_script.scenes[2].source_url = "https://techcrunch.com/2026/07/25/layoffs-report/"  # dup
+    good_script.disclaimer = "Disclaimer: Independent commentary based on public reporting."
+    good_script.suppress_creator_credential = True
+
+    vis = VisualPackage(
+        run_id="R",
+        thumbnail_path="assets/thumbnail.png",
+        thumbnail_text="t",
+        captions_path="assets/captions.srt",
+        visual_style="clean",
+        scenes=[
+            SceneVisual(
+                scene_index=0,
+                kind="broll",
+                path="assets/scenes/scene_0_shot_0.mp4",
+                source="programmatic_graphic",
+                prompt_or_query="q",
+                on_screen_text=good_script.scenes[0].on_screen_text,
+                duration_sec=15.0,
+                shots=[
+                    VisualShot(
+                        path="assets/scenes/scene_0_shot_0.mp4",
+                        duration_sec=15.0,
+                        source="programmatic_graphic",
+                        query="q",
+                        visual_type="programmatic_graphic",
+                        template_id="big_stat_card",
+                        template_props={"value": "-31%", "label": "Drop", "source": "TechCrunch"},
+                    )
+                ],
+            ),
+            SceneVisual(
+                scene_index=1,
+                kind="image",
+                path="assets/scenes/scene_1.png",
+                source="google",
+                prompt_or_query="q",
+                on_screen_text=good_script.scenes[1].on_screen_text,
+                duration_sec=15.0,
+            ),
+            SceneVisual(
+                scene_index=2,
+                kind="image",
+                path="assets/scenes/scene_2.png",
+                source="google",
+                prompt_or_query="q",
+                on_screen_text=good_script.scenes[2].on_screen_text,
+                duration_sec=15.0,
+            ),
+        ],
+        provenance=Provenance(produced_by="visuals"),
+    )
+
+    embedded = collect_embedded_sources(good_script, vis)
+    assert [u for _, u in embedded] == [
+        "https://techcrunch.com/2026/07/25/layoffs-report/",
+        "https://www.cnbc.com/2026/10/26/pay-report.html",
+    ]
+    block = format_sources_block(embedded)
+    assert block.startswith("Sources:\n- techcrunch.com:")
+
+    meta = optimize_metadata(good_script, vis, s)
+    # 1. Credential suppressed on this video
+    assert "contoso" not in meta.description.lower()
+    # 2. Disclaimer included cleanly
+    assert "Disclaimer: Independent commentary" in meta.description
+    # 3. Chapter labels stripped of trailing '· Source: ...'
+    assert "0:00 POSTINGS -31%\n" in meta.description
+    # 4. Sources section sits at the VERY LAST block of the description (below hashtags!)
+    last_block = meta.description.split("\n\n")[-1]
+    assert last_block.startswith("Sources:\n")
+    assert "https://techcrunch.com/2026/07/25/layoffs-report/" in last_block
+    assert "https://www.cnbc.com/2026/10/26/pay-report.html" in last_block

@@ -9,7 +9,13 @@ from pathlib import Path
 from ..logging import get_logger
 from ..models import Provenance, PublishResult, Script, VideoAsset, VisualPackage, utcnow
 from ..production.affiliate import AffiliateLink, affiliate_block
-from ..production.seo import channel_cta_block, optimize_metadata, youtube_safe_text
+from ..production.seo import (
+    channel_cta_block,
+    collect_embedded_sources,
+    format_sources_block,
+    optimize_metadata,
+    youtube_safe_text,
+)
 from ..safeguards.disclosure import resolve_publish_outcome
 
 # A just-uploaded video is often still processing, so YouTube rejects thumbnails.set for a few seconds
@@ -116,14 +122,29 @@ class Publisher:
         # the script) + the disclosure. Placed ABOVE the chapters (more visible). A no-op when off.
         aff_links = self._affiliate_links(script)
         aff_block = affiliate_block(aff_links, s)
+        src_block = format_sources_block(
+            collect_embedded_sources(script, visuals, run_root=run_root)
+        )
         if s.seo_optimize_enabled:
-            meta = optimize_metadata(script, visuals, s, affiliate_block=aff_block)
+            meta = optimize_metadata(
+                script,
+                visuals,
+                s,
+                affiliate_block=aff_block,
+                sources_block=src_block,
+                run_root=run_root,
+            )
             title, description, tags = meta.title, meta.description, meta.tags
         else:
             title = (script.title_options or ["Untitled career-advice video"])[0]
             description = script.description
+            disc = (getattr(script, "disclaimer", "") or "").strip()
+            if disc and disc.lower() not in (description or "").lower():
+                description = f"{description}\n\n{disc}"
             if aff_block:
                 description = f"{description}\n\n{aff_block}"
+            if src_block:
+                description = f"{description}\n\n{src_block}"
             tags = script.tags
         # YouTube's API rejects a title/description containing '<' or '>' (400 invalidDescription) — the
         # auto-built chapters can inherit one from a scene's on_screen_text (e.g. "PROCESS > RESULT").

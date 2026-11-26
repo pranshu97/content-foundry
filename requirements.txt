@@ -30,6 +30,7 @@ num2words>=0.5         # expand numbers to words for TTS ("202,000" -> "two hund
 # the Chatterbox pin below requires. graphviz was evaluated and rejected — the conda-forge Windows
 # build has no working textlayout plugin, so every label overflowed its node.
 matplotlib>=3.8,<3.10
+playwright>=1.45       # headless Chromium renderer for animated 1080p motion-graphics templates (run `playwright install chromium`)
 
 # ---------- local ML: free voice clone (Chatterbox) ----------
 # GPU strongly recommended. INSTALL CUDA TORCH FIRST — a plain `pip install` pulls the CPU-only wheel,

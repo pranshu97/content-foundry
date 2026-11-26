@@ -23,10 +23,10 @@ SCRIPT_JSON_SHAPE = """{
   "hook": "first ~10s spoken opening that delivers the SAME hook the title and thumbnail promise (the trifecta), specific, opens a curiosity gap",
   "scenes": [
     {"index": 0, "narration": "3-6 spoken sentences that OPEN VERBATIM WITH THE hook ABOVE (the hook is literally the first thing spoken), then take ONE point deep as natural speech: the how, the why, and a concrete, witty example woven together, with NO section labels or headings and NO restating the hook in other words", "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh", "editor_note": "punch in on the key detail", "cut": "fast"},
+     "b_roll_keywords": ["subject performing the main action", "close up of a key detail", "wide shot of the setting"], "fact_ref": 0, "sfx": "whoosh", "editor_note": "punch in on the key detail", "cut": "fast", "visual_source": "short report/survey name shown visually on screen (or null)", "is_comment_friction": false, "discussion_question": null},
     {"index": 1, "narration": "FINAL scene: 3-6 spoken sentences that pay off the idea with your wittiest line, then one natural like/subscribe nudge, then a warm 'see you in the next one' sign-off",
      "on_screen_text": "short on-screen caption",
-     "b_roll_keywords": ["subject reacting with emotion", "two people celebrating together"], "fact_ref": 1, "sfx": "pop", "editor_note": "hold on the payoff line", "cut": "hold"}
+     "b_roll_keywords": ["subject reacting with emotion", "two people celebrating together"], "fact_ref": 1, "sfx": "pop", "editor_note": "hold on the payoff line", "cut": "hold", "visual_source": null, "is_comment_friction": false, "discussion_question": null}
   ],
   "cta": "call to action",
   "description": "YouTube description draft: SEO-friendly, keyword-rich first sentence, no AI/synthetic-content note",
@@ -57,6 +57,9 @@ def _script_to_prompt_json(script: Script) -> dict:
                 "sfx": s.sfx,
                 "editor_note": s.editor_note,
                 "cut": s.cut,
+                "visual_source": s.visual_source,
+                "is_comment_friction": s.is_comment_friction,
+                "discussion_question": s.discussion_question,
             }
             for s in script.scenes
         ],
@@ -238,6 +241,43 @@ def _retention_context(settings) -> str:
     )
 
 
+def _engagement_hygiene_context(settings) -> str:
+    """De-LLM spoken cadence, visual citation offloading, periodic micro-loops, and ~60% Comment
+    Friction beat guidance (empty when both programmatic graphics and comment friction are off)."""
+    prog_on = bool(getattr(settings, "enable_programmatic_graphics", False))
+    cf_on = bool(getattr(settings, "enable_comment_friction_beat", False))
+    if not prog_on and not cf_on:
+        return ""
+    avg_words = int(getattr(settings, "target_avg_sentence_words", 15))
+    loop_sec = int(round(float(getattr(settings, "open_loop_interval_sec", 75.0))))
+    cf_pct = int(round(float(getattr(settings, "comment_friction_position_ratio", 0.60)) * 100))
+    lines = [
+        "<spoken_craft_and_engagement>",
+        f"- SPOKEN CADENCE: target an average sentence length <= {avg_words} words. Favor active "
+        "voice, crisp conversational rhythm, and punchy short-after-long sentence contrast. Zero "
+        "essay transitions ('Moreover', 'Furthermore', 'It is worth noting').",
+        "- OFFLOAD CITATIONS TO VISUAL_SOURCE: never read formal report titles aloud ('According to "
+        "the October report by...'). Keep spoken narration direct and conversational, and put the "
+        'report/benchmark name in that scene\'s "visual_source" field so the evidence card renders '
+        "it cleanly on screen.",
+    ]
+    if not getattr(settings, "is_short", False):
+        lines.append(
+            f"- PERIODIC RETENTION PULSES: roughly every ~{loop_sec} seconds of runtime, plant a "
+            "brief forward tension hook bridging into the next mechanism so mid-video momentum never "
+            "plateaus."
+        )
+        if cf_on:
+            lines.append(
+                f"- COMMENT FRICTION BEAT (~{cf_pct}% mark): on ONE scene near {cf_pct}% through the "
+                "script, state a sharp, falsifiable practitioner claim that experienced viewers "
+                'genuinely debate, set "is_comment_friction": true, and write a punchy <= 6-word '
+                "\"discussion_question\" (e.g. 'Fair bar or broken loop?') rendered on screen."
+            )
+    lines.append("</spoken_craft_and_engagement>")
+    return "\n".join(lines)
+
+
 _ENDING_FALLBACK_CTA = "If this helped, subscribe so the next one finds you."
 _ENDING_FALLBACK_SIGNOFF = "See you in the next one."
 
@@ -286,6 +326,7 @@ class ScriptGenerator:
         script = self._prepend_intro(script)
         script = self._ensure_ending(script)
         script = self._stamp_sources(script, brief)
+        script = self._ensure_comment_friction(script)
         script = self._stamp_affiliate(script, affiliate_candidates)
         script = self._design_sound(script)
         return script
@@ -384,6 +425,9 @@ class ScriptGenerator:
         )
         if self._settings.script_wit_craft_enabled:
             system += "\n\n" + load_prompt("script_wit_craft.system")
+        hygiene = _engagement_hygiene_context(self._settings)
+        if hygiene:
+            system += "\n\n" + hygiene
         return system
 
     def _revision_clause(self, judge_feedback: str | None, previous_script: Script | None) -> str:
@@ -479,16 +523,23 @@ class ScriptGenerator:
         scenes: list[SceneCue] = []
         for i, raw_scene in enumerate(parsed.get("scenes", [])):
             index = _coerce_int(raw_scene.get("index"))
+            raw_narr = raw_scene.get("narration", "") or ""
+            raw_vsrc = _str_or_none(_replace_em_dashes(raw_scene.get("visual_source")))
+            narr_clean, offloaded_src = _offload_spoken_citation(raw_narr, raw_vsrc)
+            disc_q = _str_or_none(_replace_em_dashes(raw_scene.get("discussion_question")))
             scenes.append(
                 SceneCue(
                     index=i if index is None else index,
-                    narration=_clean_narration(raw_scene.get("narration", "") or ""),
+                    narration=_clean_narration(narr_clean),
                     on_screen_text=_replace_em_dashes(raw_scene.get("on_screen_text")),
                     b_roll_keywords=raw_scene.get("b_roll_keywords", []) or [],
                     fact_ref=_coerce_int(raw_scene.get("fact_ref")),
                     sfx=_str_or_none(raw_scene.get("sfx")),
                     editor_note=_str_or_none(raw_scene.get("editor_note")),
                     cut=_str_or_none(raw_scene.get("cut")),
+                    visual_source=offloaded_src,
+                    is_comment_friction=bool(raw_scene.get("is_comment_friction", False)),
+                    discussion_question=disc_q,
                 )
             )
 
@@ -677,10 +728,28 @@ class ScriptGenerator:
         """HARD RULE (Ch. 8.6): a statistic is never shown without its exact source. Every scene
         whose narration still cites a (grounded) stat gets its source surfaced in on_screen_text —
         guaranteed in code, never left to the model."""
+        seen_urls: set[str] = set()
+        collected_links: list[dict[str, str]] = []
         for scene in script.scenes:
+            ref = scene.fact_ref
+            if ref is not None and 0 <= ref < len(brief.key_facts):
+                cit = brief.key_facts[ref].citation
+                ref_label = _source_label(cit)
+                if ref_label and not scene.visual_source:
+                    scene.visual_source = ref_label
+                raw_url = (getattr(cit, "url", None) or "").strip()
+                if raw_url.startswith(("http://", "https://")):
+                    scene.source_url = raw_url
+                    if raw_url not in seen_urls:
+                        seen_urls.add(raw_url)
+                        collected_links.append(
+                            {
+                                "label": ref_label or _domain_from_url(raw_url) or "Source",
+                                "url": raw_url,
+                            }
+                        )
             if not STAT_RE.search(scene.narration):
                 continue
-            ref = scene.fact_ref
             if ref is None or not (0 <= ref < len(brief.key_facts)):
                 continue  # ungrounded stats are stripped in _repair_grounding
             label = _source_label(brief.key_facts[ref].citation)
@@ -690,6 +759,48 @@ class ScriptGenerator:
             if _has_source(caption, label):
                 continue
             scene.on_screen_text = f"{caption} · Source: {label}" if caption else f"Source: {label}"
+        if collected_links:
+            script.source_links = collected_links
+        return script
+
+    def _ensure_comment_friction(self, script: Script) -> Script:
+        """Guarantee one sharp mid-video Comment Friction beat (~60% mark) with a <= 6-word
+        ``discussion_question`` when ``enable_comment_friction_beat`` is active on long-form."""
+        if (
+            not getattr(self._settings, "enable_comment_friction_beat", False)
+            or getattr(self._settings, "is_short", False)
+            or len(script.scenes) < 3
+        ):
+            return script
+        scenes = script.scenes
+        n = len(scenes)
+        ratio = float(getattr(self._settings, "comment_friction_position_ratio", 0.60))
+        target_pos = max(1, min(n - 2, round((n - 1) * ratio)))
+
+        marked = [i for i, s in enumerate(scenes) if s.is_comment_friction]
+        chosen_pos = target_pos if not marked else min(marked, key=lambda i: abs(i - target_pos))
+
+        for i, sc in enumerate(scenes):
+            if i != chosen_pos:
+                sc.is_comment_friction = False
+                sc.discussion_question = None
+                continue
+            sc.is_comment_friction = True
+            raw_q = (sc.discussion_question or "").strip()
+            if not raw_q:
+                callout = re.sub(
+                    r"\s*·?\s*Source:.*$", "", sc.on_screen_text or "", flags=re.I
+                ).strip()
+                if callout and "?" in callout and len(callout.split()) <= 6:
+                    raw_q = callout
+                else:
+                    raw_q = "Agree or hard disagree?"
+            words = raw_q.split()
+            if len(words) > 6:
+                raw_q = " ".join(words[:6]).rstrip(".,;:-")
+                if not raw_q.endswith("?"):
+                    raw_q += "?"
+            sc.discussion_question = raw_q
         return script
 
     def _stamp_affiliate(self, script: Script, candidates) -> Script:
@@ -983,6 +1094,31 @@ def _drop_defined_acronyms(text: str) -> str:
         return m.group(0)
 
     return _DEFINED_ACRONYM_RE.sub(_fix, text)
+
+
+_SPOKEN_CITATION_RE = re.compile(
+    r"(^|[.!?]\s+)(?:According to|Per|Based on data from|In a report by)\s+"
+    r"(?:the\s+|a\s+)?([^,.;:!?]{4,68}?),\s+([A-Za-z0-9$])",
+    re.IGNORECASE,
+)
+
+
+def _offload_spoken_citation(narration: str, visual_source: str | None) -> tuple[str, str | None]:
+    """Strip formal spoken source lead-ins ('According to the October 2026 Clearinghouse report, ...')
+    from ``narration`` and preserve the extracted citation in ``visual_source``."""
+    if not narration:
+        return narration, visual_source
+    extracted: list[str] = []
+
+    def _repl(m: re.Match) -> str:
+        prefix, src_name, first_ch = m.group(1), m.group(2).strip(), m.group(3)
+        if src_name:
+            extracted.append(src_name)
+        return f"{prefix}{first_ch.upper()}"
+
+    updated = _SPOKEN_CITATION_RE.sub(_repl, narration)
+    final_src = visual_source or (extracted[0] if extracted else None)
+    return updated, final_src
 
 
 def _clean_narration(text: str) -> str:

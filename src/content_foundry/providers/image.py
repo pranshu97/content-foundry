@@ -230,9 +230,32 @@ class PollinationsImage:
 
     def __init__(self, model: str = "flux") -> None:
         self._model = model
+        self._consecutive_402 = 0
+        self._paywall_latched = False
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.5, max=8), reraise=True)
     def generate(self, prompt: str, size: str = "1280x720") -> bytes:
+        if self._paywall_latched:
+            raise _ImageClientError(
+                "Pollinations anonymous API latched off after repeated 402 Payment Required responses"
+            )
+        try:
+            data = self._fetch(prompt, size=size)
+            self._consecutive_402 = 0
+            return data
+        except _ImageClientError as exc:
+            if "402" in str(exc):
+                self._consecutive_402 += 1
+                if self._consecutive_402 >= 2:
+                    self._paywall_latched = True
+            raise
+
+    @retry(
+        stop=stop_after_attempt(2),
+        wait=wait_exponential(multiplier=0.5, max=4),
+        reraise=True,
+        retry=retry_if_not_exception_type(_ImageClientError),
+    )
+    def _fetch(self, prompt: str, *, size: str) -> bytes:
         import urllib.parse
 
         import httpx  # lazy-ish (core dep, kept local for symmetry)
@@ -246,10 +269,10 @@ class PollinationsImage:
                 "nologo": "true",
                 "model": self._model,
             },
-            timeout=180,
+            timeout=90,
             follow_redirects=True,
         )
-        resp.raise_for_status()
+        _raise_for_image_status(resp)
         return resp.content
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +14,7 @@ class VisualShot(BaseModel):
 
     path: str  # assets/scenes/scene_<n>_shot_<k>.mp4
     duration_sec: float
-    source: str  # pexels | pixabay | stock
+    source: str  # pexels | pixabay | stock | programmatic_graphic | google | card
     query: str  # the shot description used to find it
     prompt: str = ""  # for a GENERATED shot: the exact image prompt used (blank for stock clips)
     # For a DRAWN shot: the exact spec that produced the chart. Without this a chart can only ever
@@ -22,6 +22,13 @@ class VisualShot(BaseModel):
     # layout fix would silently rewrite what the chart says. Keeping it makes a redraw free, exact
     # and hand-editable.
     diagram: dict | None = None
+    # 3-tier visual router & motion-graphics metadata (backward-compatible defaults for older runs).
+    visual_type: Literal["programmatic_graphic", "broll", "ai_image"] = "ai_image"
+    override_to_graphic: bool = False
+    template_id: str | None = None
+    template_props: dict[str, Any] | None = None
+    shot_type: str = ""  # wide_environment | medium_human_action | tight_physical_detail
+    visual_meta: dict[str, Any] | None = None  # {subject, setting, shot_type, dominant_objects}
 
 
 class SceneVisual(BaseModel):

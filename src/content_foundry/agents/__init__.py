@@ -13,6 +13,7 @@ from .renderer import Renderer
 from .research import Researcher
 from .scene_image_director import SceneImageDirector
 from .script_generator import ScriptGenerator
+from .storyboard_critic import StoryboardCritic
 from .thumbnail_director import ThumbnailDirector
 from .visuals import Visuals, build_image_prompt
 from .voiceover import Voiceover
@@ -27,6 +28,7 @@ __all__ = [
     "ScriptGenerator",
     "ThumbnailDirector",
     "SceneImageDirector",
+    "StoryboardCritic",
     "Judge",
     "Voiceover",
     "Visuals",

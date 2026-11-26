@@ -10,7 +10,7 @@ from ..models import Provenance, VideoAsset, VisualPackage, VoiceoverAsset
 from ..production.captions import citation_label, write_scene_srt
 from ..production.like_nudge import build_like_spec
 from ..production.overlay import build_overlay_spec
-from ..production.sound_design import mix_sfx
+from ..production.sound_design import mix_studio_audio
 from ..production.subscribe import build_subscribe_spec
 from ..production.timeline import build_timeline
 
@@ -62,36 +62,74 @@ class Renderer:
             total_duration=voiceover.duration_sec,
             frame_height=int(frame_h or 0) or 1080,
         )
-        if self._sfx is not None and getattr(self._sfx, "enabled", False):
+        sfx_cues: list[tuple[float, str]] = []
+        sfx_active = self._sfx is not None and getattr(self._sfx, "enabled", False)
+        if sfx_active:
             sfx_cues = [(seg.start, seg.sfx) for seg in segments if seg.sfx]
             # Ring a bell the instant the Subscribe badge fades in at the midpoint.
             if subscribe is not None and self._settings.subscribe_bell_enabled:
                 sfx_cues.append((subscribe.start, self._settings.subscribe_bell_sound))
-            if sfx_cues:
-                mixed = run_root / "assets/narration_mixed.mp3"
-                if mix_sfx(
-                    audio_real,
-                    sfx_cues,
-                    self._sfx,
-                    mixed,
-                    gain_db=self._settings.sfx_volume_db,
-                    # Effects are cued at the scene start, where the voiceover reserved silence for
-                    # them — keep each one inside that beat so it never runs over the narration.
-                    max_len_sec=self._settings.sfx_gap_sec,
-                ):
-                    audio_real = str(mixed)
+
+        prog_sfx_cues: list[tuple[float, str]] = []
+        if getattr(self._settings, "programmatic_sfx_enabled", False):
+            for seg in segments:
+                beat_cursor = seg.start
+                g_flags = list(getattr(seg, "is_graphic", ()) or [])
+                for j, (_, b_dur) in enumerate(seg.clips):
+                    # Skip scene-opening whoosh only when a scene-level SFX already fires there.
+                    if j < len(g_flags) and g_flags[j] and not (j == 0 and seg.sfx and sfx_active):
+                        prog_sfx_cues.append((beat_cursor, "soft_whoosh" if j == 0 else "ui_tick"))
+                    beat_cursor += b_dur
+
+        ambient_on = bool(getattr(self._settings, "enable_ambient_music", False))
+        if sfx_cues or prog_sfx_cues or ambient_on:
+            # Export lossless PCM WAV so FFmpeg loudnorm/AAC never suffers a 3rd lossy MP3 pass.
+            mixed = run_root / "assets/narration_mixed.wav"
+            if mix_studio_audio(
+                audio_real,
+                mixed,
+                scene_sfx_cues=sfx_cues,
+                sfx_client=self._sfx,
+                sfx_gain_db=self._settings.sfx_volume_db,
+                # Effects are cued at the scene start, where the voiceover reserved silence for
+                # them — keep each one inside that beat so it never runs over the narration.
+                sfx_max_len_sec=self._settings.sfx_gap_sec,
+                programmatic_sfx_cues=prog_sfx_cues,
+                programmatic_sfx_gain_db=getattr(
+                    self._settings, "programmatic_sfx_volume_db", -14.0
+                ),
+                ambient_enabled=ambient_on,
+                ambient_gain_db=getattr(self._settings, "ambient_music_volume_db", -30.0),
+                ambient_music_path=getattr(self._settings, "ambient_music_path", "") or "",
+                work_dir=run_root / "assets" / "_synth_audio",
+            ):
+                audio_real = str(mixed)
+
         captions_real = (
             str(run_root / visuals.captions_path)
             if self._settings.effective_captions_enabled
             else None
         )
         citations_rel = "assets/citations.srt"
+        # Skip redundant top-strip burned citations on scenes where a programmatic graphic already
+        # renders its own crisp bottom-left SOURCE badge.
+        graphic_sourced_scenes = {
+            sv.scene_index
+            for sv in visuals.scenes
+            if any(
+                getattr(sh, "visual_type", "") == "programmatic_graphic"
+                and bool((getattr(sh, "template_props", None) or {}).get("source"))
+                for sh in (sv.shots or [])
+            )
+        }
         # Each source citation appears the instant its statistic is spoken and clears after a brief
         # window (citation_seconds) — a glance, not a whole-scene watermark. Only the source's domain
         # name is shown (no 'Source:' prefix, no .com/.org TLD).
         max_sec = self._settings.citation_seconds
         cues: list[tuple[float, float, str]] = []
         for s in segments:
+            if s.index in graphic_sourced_scenes:
+                continue
             label = citation_label(s.on_screen_text or "")
             if not label:
                 continue

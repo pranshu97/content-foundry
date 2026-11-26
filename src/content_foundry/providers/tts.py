@@ -1006,6 +1006,34 @@ def _silent_runs(voiced) -> list[tuple[int, int]]:  # pragma: no cover - needs t
     return [(bounds[k], bounds[k + 1]) for k in range(len(bounds) - 1) if bool(sil[bounds[k]])]
 
 
+def taper_join_weights(length: int, fade: int, *, fade_in: bool, fade_out: bool) -> list[float]:
+    """Raised-cosine envelope for one kept slice so shortened internal pauses never click.
+
+    When ``_trim_silence`` excises the middle of a pause, butt-joining sample ``b1`` to sample
+    ``a2`` creates a step discontinuity in room tone / breath tails (~150+ times per video). A
+    short (~6 ms) raised-cosine taper at internal cut boundaries makes every join seamless without
+    changing sample count or touching voiced speech. Pure + deterministic for unit testing.
+    """
+    import math
+
+    if length <= 0:
+        return []
+    eff = min(max(0, fade), length // 4)
+    if eff <= 1 or (not fade_in and not fade_out):
+        return [1.0] * length
+    out = [1.0] * length
+    if fade_in:
+        for i in range(eff):
+            out[i] = 0.5 * (1.0 - math.cos(math.pi * i / (eff - 1)))
+    if fade_out:
+        for i in range(eff):
+            out[length - eff + i] = min(
+                out[length - eff + i],
+                0.5 * (1.0 + math.cos(math.pi * i / (eff - 1))),
+            )
+    return out
+
+
 def _trim_silence(
     wav,
     sample_rate: int,
@@ -1045,7 +1073,19 @@ def _trim_silence(
         if len(keep) == 1:
             a, b = keep[0]
             return wav[..., a:b]
-        return torch.cat([wav[..., a:b] for a, b in keep], dim=-1)
+        fade_n = max(2, int(sample_rate * 0.006))  # 6 ms raised-cosine taper at internal cut joins
+        pieces = []
+        last_idx = len(keep) - 1
+        for idx, (a, b) in enumerate(keep):
+            seg = wav[..., a:b].clone()
+            weights = taper_join_weights(
+                b - a, fade_n, fade_in=(idx > 0), fade_out=(idx < last_idx)
+            )
+            if weights and (idx > 0 or idx < last_idx):
+                w_t = torch.tensor(weights, dtype=seg.dtype, device=seg.device)
+                seg = seg * w_t
+            pieces.append(seg)
+        return torch.cat(pieces, dim=-1)
     except Exception:
         return wav
 
@@ -1083,7 +1123,7 @@ def _wav_to_mp3(wav_bytes: bytes) -> bytes:
             "-codec:a",
             "libmp3lame",
             "-b:a",
-            "128k",
+            "256k",
             "-f",
             "mp3",
             "pipe:1",

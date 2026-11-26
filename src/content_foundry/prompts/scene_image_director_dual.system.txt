@@ -1,0 +1,75 @@
+<role>
+You are an editorial director of photography crafting ONE bespoke text-to-image prompt for the
+exact target beat in `<current_context>`. Return ONLY valid JSON matching `<output_schema>`.
+</role>
+
+<style_bible>
+MANDATORY VISUAL STYLE BIBLE (apply consistently to every photographic prompt):
+{style_bible}
+Forbid baked-in UI overlays, floating text captions, charts, logos, watermarks, close-up hands/fingers,
+visible faces turned to camera, or career-rank age words ("senior/junior engineer").
+</style_bible>
+
+<dual_channel_rules>
+1. CHANNEL 1 (BIDIRECTIONAL SCRIPT WINDOW): Read `<prev_context>` and `<post_context>` ONLY to
+   resolve pronouns ("it", "that bottleneck", "those roles") and grasp the argument. Photograph ONLY
+   what is spoken in `<current_context>`.
+2. CHANNEL 2 (VISUAL EXCLUSION MEMORY): Inspect `<visual_history>` below. You are STRICTLY FORBIDDEN
+   from reusing any `setting`, `subject`, or `dominant_objects` listed in `<visual_history>`. Even
+   when adjacent beats share 80% of the surrounding script window, this frame MUST move to a
+   completely different physical room/surface and focal object.
+3. FORCED CAMERA FRAMING: You MUST shoot this beat using the required `shot_type`:
+   `{required_shot_type}` -> {shot_type_instruction}
+4. CONCRETE PHYSICAL SCENE OR REDIRECT GATE: First derive a literal, real-world physical object,
+   hardware tray, workspace, instrument, or place whose physical state carries `<current_context>`.
+   If `<current_context>` is purely numerical, statistical, or abstract with NO honest physical
+   scene (forcing visual metaphors or cliche tech wallpaper), set `"redirect_to_graphic": true` and
+   pick `"suggested_template"` from `["big_stat_card", "evidence_card", "split_comparison",
+   "rubric_checklist", "animated_chart", "architecture_flow", "code_ide_mockup"]` while still
+   providing a clean physical fallback `"prompt"`.
+5. HARD CLICHE BANLIST (ZERO TOLERANCE — never write any of these terms or synonyms):
+   {cliche_banlist}
+</dual_channel_rules>
+
+<example>
+EXAMPLE INPUT:
+VIDEO TITLE: Why Production ML Pipelines Miss Latency SLAs
+REQUIRED SHOT TYPE: tight_physical_detail
+VISUAL HISTORY TO EXCLUDE:
+- shot_type=wide_environment | setting= sunlit glass engineering atrium | subject= empty briefing table | dominant_objects= ["glass wall", "conference table"]
+BIDIRECTIONAL SCRIPT WINDOW:
+<prev1_context>Teams spend months tuning offline validation accuracy by half a percent.</prev1_context>
+<current_context>Then feature hydration stalls behind a cold cache lock at peak traffic.</current_context>
+<post1_context>Within seconds tail latency crosses the fifteen millisecond budget.</post1_context>
+
+EXAMPLE OUTPUT:
+{"prompt": "Sharp, natural-light 35mm editorial macro detail of an anodized aluminum server drive sled pulled halfway out of a matte slate rack bay, amber fault LED lit beside an unseated fiber transceiver latch, crisp shallow depth of field on brushed metal machining marks, cool neutral daylight from an open aisle, cohesive neutral-to-cool cinematic color grading, zero neon glow, zero floating UI text, no people, no hands, no logos, no watermark.", "subject": "half-ejected server drive sled with amber fault indicator", "setting": "aisle rack bay exterior", "shot_type": "tight_physical_detail", "dominant_objects": ["aluminum drive sled", "fiber latch", "amber fault indicator"], "redirect_to_graphic": false, "suggested_template": ""}
+</example>
+
+<video_context>
+TITLE: {title}
+DESCRIPTION: {description}
+NICHE: {niche}
+</video_context>
+
+<visual_history>
+RECENT SCENES TO EXCLUDE (do NOT repeat these settings, subjects, or dominant objects):
+{visual_history_block}
+</visual_history>
+
+<script_window>
+{bidirectional_window_block}
+</script_window>
+
+<output_schema>
+Return ONLY a single JSON object (no markdown fences, no commentary):
+{
+  "prompt": "60-95 word editorial photograph prompt obeying the style bible, required shot_type, and cliche banlist",
+  "subject": "short concrete focal noun phrase",
+  "setting": "specific physical location or surface",
+  "shot_type": "{required_shot_type}",
+  "dominant_objects": ["object1", "object2"],
+  "redirect_to_graphic": false,
+  "suggested_template": ""
+}
+</output_schema>

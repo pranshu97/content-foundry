@@ -1266,6 +1266,7 @@ class Orchestrator:
             brief=produced.get("data_brief"),
             visuals=produced.get("visuals"),
             ideas=self._load_ideas(paths),
+            run_root=paths.root,
         )
         paths.package.write_text(md, encoding="utf-8")
 

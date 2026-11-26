@@ -30,6 +30,15 @@ VALID_EVENTS = {
     "low_credits",
     "run_failed",
 }
+MOTION_TEMPLATE_IDS = (
+    "big_stat_card",
+    "evidence_card",
+    "split_comparison",
+    "rubric_checklist",
+    "animated_chart",
+    "architecture_flow",
+    "code_ide_mockup",
+)
 _SECRET_SUFFIXES = ("_key", "_token", "_secret", "_password")
 
 # Suggested presets selectable via ``--profile`` (Ch. 6.5).
@@ -493,6 +502,122 @@ class Settings(BaseSettings):
     retention_open_loop_enabled: bool = True
     script_wit_craft_enabled: bool = True
 
+    # ---------- Retention, Programmatic Motion Graphics & Storyboard Critic ----------
+    # Master feature flags — flip any subsystem off without touching code.
+    # ENABLE_PROGRAMMATIC_GRAPHICS: render animated 1080p HTML/CSS/SVG motion graphics (Playwright ->
+    # FFmpeg) for hook beats, concrete numbers/citations/comparisons/code/architectures, and periodic
+    # mid-video visual anchors. Off => fall back to static matplotlib diagrams + B-roll + AI stills.
+    enable_programmatic_graphics: bool = True
+    # ENABLE_STORYBOARD_CRITIC: run deterministic + targeted LLM checks on the planned storyboard
+    # BEFORE spending paid image-generation calls, selectively repairing only failing shots.
+    enable_storyboard_critic: bool = True
+    # PROGRAMMATIC_SFX_ENABLED: layer subtle studio UI transition cues (soft tick / whoosh) synced to
+    # programmatic graphic entrances (independent of scene-level SFX_ENABLED).
+    programmatic_sfx_enabled: bool = True
+    # ENABLE_AMBIENT_MUSIC: mix a low, vocal-carved dark ambient bed beneath narration so speech sits
+    # in a cohesive studio mix rather than digital silence.
+    enable_ambient_music: bool = True
+    # ENABLE_COMMENT_FRICTION_BEAT: require one sharp, falsifiable claim + <=6-word discussion prompt
+    # near COMMENT_FRICTION_POSITION_RATIO (~60% mark) routed to `rubric_checklist` to spark comments.
+    enable_comment_friction_beat: bool = True
+
+    # Pacing & visual mix ratios (viewer-clock seconds, accounting for VIDEO_SPEED).
+    # Dial TARGET_PROGRAMMATIC_RATIO up (e.g. 0.45-0.60) for heavier motion graphics or down (0.20)
+    # for more editorial photography / B-roll; MIN/MAX clamp discretionary promotion/demotion.
+    target_programmatic_ratio: float = Field(0.30, ge=0.0, le=1.0)
+    min_programmatic_ratio: float = Field(0.20, ge=0.0, le=1.0)
+    max_programmatic_ratio: float = Field(0.45, ge=0.0, le=1.0)
+    # 0:00-SILENT_PREVIEW_WINDOW_SEC: YouTube's muted inline feed preview ("second thumbnail"). Must
+    # open immediately on a high-contrast hook graphic readable on mute — zero fluff, zero panning AI.
+    silent_preview_window_sec: float = Field(8.0, ge=0.0, le=30.0)
+    # 0:00-OPENING_PEAK_WINDOW_SEC: peak retention hook zone with brisk 3-5s visual beats.
+    opening_peak_window_sec: float = Field(30.0, ge=0.0, le=120.0)
+    # Ban slow Ken Burns AI stills and generic stock footage inside OPENING_PEAK_WINDOW_SEC.
+    ban_ken_burns_in_opening: bool = True
+    ban_generic_broll_in_opening: bool = True
+    # Target beat duration window (seconds) inside 0:00-OPENING_PEAK_WINDOW_SEC.
+    opening_beat_min_sec: float = Field(3.0, ge=1.0, le=15.0)
+    opening_beat_max_sec: float = Field(5.0, ge=1.0, le=20.0)
+    # Periodic anchor cadence after 0:30: guarantees at least one programmatic graphic every 45-60s
+    # across the entire runtime so visual craft never drops off a cliff at 0:31.
+    programmatic_anchor_min_sec: float = Field(45.0, ge=10.0, le=180.0)
+    programmatic_anchor_max_sec: float = Field(60.0, ge=10.0, le=240.0)
+
+    # Per-template controls for all 7 dark-mode motion-graphics templates:
+    # - *_ENABLED=false disables that template completely (router picks the next-best enabled one).
+    # - *_WEIGHT scales selection preference (>1.0 favours it, <1.0 makes it rarer, 0 disables).
+    # - *_MAX_CHARS hard-caps text payload fields (word-boundary clamped) to guarantee zero overflow.
+    tpl_big_stat_card_enabled: bool = True
+    tpl_big_stat_card_weight: float = Field(1.0, ge=0.0, le=10.0)
+    tpl_big_stat_card_max_chars: int = Field(90, ge=20, le=300)
+
+    tpl_evidence_card_enabled: bool = True
+    tpl_evidence_card_weight: float = Field(1.0, ge=0.0, le=10.0)
+    tpl_evidence_card_max_chars: int = Field(220, ge=40, le=500)
+
+    tpl_split_comparison_enabled: bool = True
+    tpl_split_comparison_weight: float = Field(1.0, ge=0.0, le=10.0)
+    tpl_split_comparison_max_chars: int = Field(140, ge=30, le=400)
+
+    tpl_rubric_checklist_enabled: bool = True
+    tpl_rubric_checklist_weight: float = Field(1.0, ge=0.0, le=10.0)
+    tpl_rubric_checklist_max_chars: int = Field(110, ge=25, le=300)
+
+    tpl_animated_chart_enabled: bool = True
+    tpl_animated_chart_weight: float = Field(1.0, ge=0.0, le=10.0)
+    tpl_animated_chart_max_chars: int = Field(90, ge=20, le=300)
+
+    tpl_architecture_flow_enabled: bool = True
+    tpl_architecture_flow_weight: float = Field(1.0, ge=0.0, le=10.0)
+    tpl_architecture_flow_max_chars: int = Field(80, ge=20, le=250)
+
+    tpl_code_ide_mockup_enabled: bool = True
+    tpl_code_ide_mockup_weight: float = Field(1.0, ge=0.0, le=10.0)
+    tpl_code_ide_mockup_max_chars: int = Field(380, ge=60, le=1200)
+
+    # Scene AI image anti-collapse & strict B-roll relevance controls:
+    # BROLL_RELEVANCE_THRESHOLD (0.0-1.0): strict semantic/lexical relevance score a stock clip must
+    # clear before being accepted; raise toward 0.85+ for fewer, ultra-literal clips, lower toward
+    # 0.65 for more stock footage.
+    broll_relevance_threshold: float = Field(0.78, ge=0.0, le=1.0)
+    # Bidirectional script window (<prevN> .. <current> .. <postN>) passed to SceneImageDirector so
+    # pronouns and abstract claims resolve cleanly without losing local focus.
+    script_context_window_before: int = Field(2, ge=0, le=5)
+    script_context_window_after: int = Field(2, ge=0, le=5)
+    # Rolling memory of the last N generated AI scenes ({subject, setting, shot_type, dominant_objects})
+    # excluded from consecutive beats so overlapping script windows never repeat the same room/prop.
+    visual_history_window_size: int = Field(3, ge=0, le=10)
+    # Force camera framing progression (wide_environment -> medium_human_action -> tight_physical_detail)
+    # across consecutive AI scenes so cuts feel deliberate rather than static slideshow drift.
+    enforce_shot_type_rotation: bool = True
+    # Comma-separated visual cliches strictly forbidden in AI image prompts (enforced in prompt + critic).
+    cliche_banlist: str = (
+        "circuit board,tangled cables,cables,analog monitor,CRT monitor,retro computer,"
+        "glowing neon code,neon data stream,floating hologram,holographic HUD,"
+        "hooded hacker,glowing brain,matrix rain"
+    )
+    # Cohesive photographic direction injected into every AI scene image prompt.
+    image_style_bible: str = (
+        "Sharp, natural-light 35mm editorial photography, crisp focus, modern realistic environments, "
+        "cohesive neutral-to-cool cinematic color grading, zero neon glow, zero floating UI text"
+    )
+
+    # Script cadence, engagement, studio audio & critic retry controls:
+    # Target average words per spoken sentence (lower = punchier spoken rhythm; higher = denser prose).
+    target_avg_sentence_words: int = Field(15, ge=6, le=35)
+    # Target interval (seconds) between brief forward-pulling retention micro-loops across long-form.
+    open_loop_interval_sec: float = Field(75.0, ge=20.0, le=300.0)
+    # Position in the video (0.0-1.0) for the Comment Friction beat (0.60 = ~60% through the scenes).
+    comment_friction_position_ratio: float = Field(0.60, ge=0.20, le=0.85)
+    # Volume (dB relative to voiceover loudness) for subtle programmatic graphic entrance ticks/whooshes.
+    programmatic_sfx_volume_db: float = Field(-14.0, ge=-40.0, le=6.0)
+    # Volume (dB relative to voiceover loudness) for the continuous dark ambient background bed.
+    ambient_music_volume_db: float = Field(-30.0, ge=-60.0, le=-6.0)
+    # Optional custom audio file (.wav/.mp3) for the ambient bed; blank => deterministic dark ambient synth.
+    ambient_music_path: str = ""
+    # Max selective regeneration passes in StoryboardCritic for failing AI image prompts (0 = no retries).
+    critic_max_retries: int = Field(2, ge=0, le=5)
+
     # ---------- Sound effects ----------
     # Script-authored SFX cues mixed into the narration at each scene's start. Local library first,
     # then an optional Freesound download (Pixabay has no SFX API — drop those files into sfx_dir).
@@ -812,6 +937,66 @@ class Settings(BaseSettings):
         """Operator-pinned channels to mine for proven ideas (comma list of @handles/URLs/ids)."""
         return [c.strip() for c in self.idea_mining_channels.split(",") if c.strip()]
 
+    @property
+    def cliche_banlist_list(self) -> list[str]:
+        """Lowercased banned AI-image cliche phrases parsed from ``CLICHE_BANLIST``."""
+        return [c.strip().lower() for c in self.cliche_banlist.split(",") if c.strip()]
+
+    def template_spec(self, template_id: str) -> tuple[bool, float, int]:
+        """Return ``(enabled, weight, max_chars)`` for one of the 7 motion-graphics templates."""
+        specs: dict[str, tuple[bool, float, int]] = {
+            "big_stat_card": (
+                self.tpl_big_stat_card_enabled,
+                self.tpl_big_stat_card_weight,
+                self.tpl_big_stat_card_max_chars,
+            ),
+            "evidence_card": (
+                self.tpl_evidence_card_enabled,
+                self.tpl_evidence_card_weight,
+                self.tpl_evidence_card_max_chars,
+            ),
+            "split_comparison": (
+                self.tpl_split_comparison_enabled,
+                self.tpl_split_comparison_weight,
+                self.tpl_split_comparison_max_chars,
+            ),
+            "rubric_checklist": (
+                self.tpl_rubric_checklist_enabled,
+                self.tpl_rubric_checklist_weight,
+                self.tpl_rubric_checklist_max_chars,
+            ),
+            "animated_chart": (
+                self.tpl_animated_chart_enabled,
+                self.tpl_animated_chart_weight,
+                self.tpl_animated_chart_max_chars,
+            ),
+            "architecture_flow": (
+                self.tpl_architecture_flow_enabled,
+                self.tpl_architecture_flow_weight,
+                self.tpl_architecture_flow_max_chars,
+            ),
+            "code_ide_mockup": (
+                self.tpl_code_ide_mockup_enabled,
+                self.tpl_code_ide_mockup_weight,
+                self.tpl_code_ide_mockup_max_chars,
+            ),
+        }
+        if template_id not in specs:
+            raise ConfigError(
+                f"Unknown motion template {template_id!r}. Valid: {list(MOTION_TEMPLATE_IDS)}"
+            )
+        return specs[template_id]
+
+    @property
+    def enabled_motion_templates(self) -> dict[str, tuple[float, int]]:
+        """Map of ``template_id -> (weight, max_chars)`` for every enabled template with weight > 0."""
+        out: dict[str, tuple[float, int]] = {}
+        for tid in MOTION_TEMPLATE_IDS:
+            enabled, weight, max_chars = self.template_spec(tid)
+            if enabled and weight > 0:
+                out[tid] = (weight, max_chars)
+        return out
+
     # ------------------------------------------------------------- validation
     @model_validator(mode="after")
     def _validate_cross_fields(self) -> Settings:
@@ -899,6 +1084,33 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"Resolution must be WIDTHxHEIGHT (e.g. 1920x1080 or 1080x1920), got {_res!r}"
                 )
+
+        if not (
+            self.min_programmatic_ratio
+            <= self.target_programmatic_ratio
+            <= self.max_programmatic_ratio
+        ):
+            raise ValueError(
+                "Programmatic ratio bounds must satisfy MIN_PROGRAMMATIC_RATIO <= "
+                "TARGET_PROGRAMMATIC_RATIO <= MAX_PROGRAMMATIC_RATIO "
+                f"(got {self.min_programmatic_ratio}, {self.target_programmatic_ratio}, "
+                f"{self.max_programmatic_ratio})"
+            )
+        if self.opening_beat_min_sec > self.opening_beat_max_sec:
+            raise ValueError(
+                "OPENING_BEAT_MIN_SEC must be <= OPENING_BEAT_MAX_SEC "
+                f"(got {self.opening_beat_min_sec} > {self.opening_beat_max_sec})"
+            )
+        if self.programmatic_anchor_min_sec > self.programmatic_anchor_max_sec:
+            raise ValueError(
+                "PROGRAMMATIC_ANCHOR_MIN_SEC must be <= PROGRAMMATIC_ANCHOR_MAX_SEC "
+                f"(got {self.programmatic_anchor_min_sec} > {self.programmatic_anchor_max_sec})"
+            )
+        if self.silent_preview_window_sec > self.opening_peak_window_sec:
+            raise ValueError(
+                "SILENT_PREVIEW_WINDOW_SEC must be <= OPENING_PEAK_WINDOW_SEC "
+                f"(got {self.silent_preview_window_sec} > {self.opening_peak_window_sec})"
+            )
 
         _ = self.notify_events_list  # validate parse
         return self

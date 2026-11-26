@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..models import DataBrief, IdeaSelection, JudgeReport, PublishResult, Script, VisualPackage
+from ..production.seo import collect_embedded_sources, format_sources_block
 from ..safeguards.disclosure import disclosure_checklist
 
 
@@ -29,6 +32,7 @@ def build_package_md(
     brief: DataBrief | None = None,
     visuals: VisualPackage | None = None,
     ideas: IdeaSelection | None = None,
+    run_root: Path | None = None,
 ) -> str:
     title = (
         publish_result.chosen_title
@@ -59,6 +63,11 @@ def build_package_md(
         *title_lines,
         "",
         "## Description",
+        *(
+            ["", f"**Disclaimer:** {script.disclaimer}"]
+            if getattr(script, "disclaimer", "")
+            else []
+        ),
         script.description or "(none)",
         "",
         "## Tags",
@@ -90,6 +99,9 @@ def build_package_md(
             cues.append(f"editor: {scene.editor_note}")
         if cues:
             lines.append(f"   > _{' · '.join(cues)}_")
+    embedded = collect_embedded_sources(script, visuals, run_root=run_root, brief=brief)
+    if embedded:
+        lines += ["## Sources (embedded in video)", format_sources_block(embedded), ""]
     lines += ["", f"**CTA:** {script.cta}", ""]
 
     return "\n".join(lines)
